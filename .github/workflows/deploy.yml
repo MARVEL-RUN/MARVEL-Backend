@@ -1,0 +1,55 @@
+on:
+  pull_request:
+    branches: [develop]
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run build script
+        run: sh ./build.sh
+
+      - name: Verify output contents
+        run: |
+          echo "[INFO] output/ listing:"
+          find output -maxdepth 2 -type f | sed 's/^/- /' || true
+          # 강제 변경 메타파일(항상 갱신)
+          echo "pr=${{ github.event.number }}, head=${{ github.event.pull_request.head.sha }}, at=${{ github.sha }}" > output/.deploy_meta
+
+      - name: Compose commit message (PR synchronize 전용)
+        shell: bash
+        run: |
+          MSG="$(git log -1 --pretty=%B ${{ github.event.pull_request.head.sha }} | tr -d '\r')"
+          [ -z "$MSG" ] && MSG="${{ github.event.pull_request.title }}"
+          [ -z "$MSG" ] && MSG="chore(deploy): sync from ${{ github.repository }}@${{ github.sha }}"
+          MSG="[PR #${{ github.event.number }}] ${MSG} (${GITHUB_SHA:0:7})"
+          {
+            echo 'COMMIT_MSG<<EOF'
+            echo "$MSG"
+            echo 'EOF'
+          } >> "$GITHUB_ENV"
+          echo "== COMMIT_MSG preview =="; echo "$MSG"
+
+      - name: Push to Gun06 repo
+        uses: cpina/github-action-push-to-another-repository@main
+        env:
+          API_TOKEN_GITHUB: ${{ secrets.AUTO_ACTIONS }} # repo write 권한 포함 토큰
+        with:
+          source-directory: 'output' # build.sh와 반드시 일치
+          destination-github-username: 'Gun06'
+          destination-repository-name: 'MARVEL-RUN_Frontend'
+          user-email: ${{ secrets.EMAIL }}
+          user-name: 'MARVEL CI Bot'
+          commit-message: ${{ env.COMMIT_MSG }}
+          target-branch: 'main'
+          create-target-branch-if-needed: true # 안전하게 true 권장
+          # target-directory 미지정 → 대상 레포의 루트에 덮어씀
