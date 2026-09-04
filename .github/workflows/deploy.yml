@@ -39,14 +39,14 @@ jobs:
           } >> "$GITHUB_ENV"
           echo "== COMMIT_MSG preview =="; echo "$MSG"
 
-      - name: Push to Gun06 repo
+      - name: Push to jakdalmak/SomeThingRun2026_BackEnd
         uses: cpina/github-action-push-to-another-repository@main
         env:
           API_TOKEN_GITHUB: ${{ secrets.AUTO_ACTIONS }} # repo write 권한 포함 토큰
         with:
           source-directory: 'output' # build.sh와 반드시 일치
-          destination-github-username: 'Gun06'
-          destination-repository-name: 'MARVEL-RUN_Frontend'
+          destination-github-username: 'jakdalmak'
+          destination-repository-name: 'SomeThingRun2026_BackEnd'
           user-email: ${{ secrets.EMAIL }}
           user-name: 'MARVEL CI Bot'
           commit-message: ${{ env.COMMIT_MSG }}
