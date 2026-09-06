@@ -1,0 +1,72 @@
+name: Inspect OIDC identity
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Print repository identity
+        shell: bash
+        run: |
+          echo "repository=${GITHUB_REPOSITORY}"
+          echo "repository_id=${GITHUB_REPOSITORY_ID}"
+          echo "repository_owner=${GITHUB_REPOSITORY_OWNER}"
+          echo "repository_owner_id=${GITHUB_REPOSITORY_OWNER_ID}"
+          echo "ref=${GITHUB_REF}"
+          echo "workflow_ref=${GITHUB_WORKFLOW_REF}"
+
+      - name: Print selected OIDC claims
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+
+          base = os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"]
+          sep = "&" if "?" in base else "?"
+          url = base + sep + urllib.parse.urlencode(
+              {"audience": "sts.amazonaws.com"}
+          )
+
+          req = urllib.request.Request(
+              url,
+              headers={
+                  "Authorization":
+                      "Bearer " + os.environ["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]
+              },
+          )
+
+          with urllib.request.urlopen(req) as response:
+              token = json.load(response)["value"]
+
+          payload = token.split(".")[1]
+          payload += "=" * (-len(payload) % 4)
+
+          claims = json.loads(
+              base64.urlsafe_b64decode(payload.encode()).decode()
+          )
+
+          for key in [
+              "iss",
+              "aud",
+              "sub",
+              "repository",
+              "repository_id",
+              "repository_owner",
+              "repository_owner_id",
+              "ref",
+              "workflow",
+              "job_workflow_ref",
+          ]:
+              print(f"{key}={claims.get(key)}")
+          PY
