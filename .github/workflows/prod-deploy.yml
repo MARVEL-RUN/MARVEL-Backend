@@ -1,7 +1,9 @@
 name: MarvelRun Backend Production Deploy
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - main
 
 permissions:
   id-token: write
@@ -163,6 +165,12 @@ jobs:
           commands = [
               "set -e",
               "umask 077",
+              "cleanup() { status=$?; trap - EXIT; "
+              "rm -f /tmp/marvelrun-API-KEY.yml.age "
+              "/tmp/marvelrun-API-KEY.yml "
+              "/opt/marvelrun/secrets/API-KEY.yml.new; "
+              "exit \"$status\"; }",
+              "trap cleanup EXIT",
               "rm -f /tmp/marvelrun-API-KEY.yml.age "
               "/tmp/marvelrun-API-KEY.yml "
               "/opt/marvelrun/secrets/API-KEY.yml.new",
