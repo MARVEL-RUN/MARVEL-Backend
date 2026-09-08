@@ -1,0 +1,407 @@
+name: MarvelRun Backend Production Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      deploy_backend:
+        description: "Secret 교체 후 Backend까지 배포할지 여부"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: marvelrun-backend-production
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-northeast-2
+  ECR_REPOSITORY: marvelrun/backend
+  SSM_MANAGED_NODE_ID: ${{ vars.PROD_SSM_MANAGED_NODE_ID }}
+
+jobs:
+  production:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      vars.PROD_AUTO_DEPLOY_ENABLED == 'true'
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve deployment mode
+        id: mode
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            echo "deploy_backend=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ inputs.deploy_backend }}" = "true" ]; then
+            echo "deploy_backend=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy_backend=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate Production configuration
+        env:
+          PROD_AWS_ROLE_ARN: ${{ vars.PROD_AWS_ROLE_ARN }}
+          PROD_SECRET_AGE_RECIPIENT: ${{ vars.PROD_SECRET_AGE_RECIPIENT }}
+          PROD_API_KEY_CONTENT: ${{ secrets.PROD_API_KEY_CONTENT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          [ -n "${PROD_AWS_ROLE_ARN:-}" ] \
+            || { echo "::error::PROD_AWS_ROLE_ARN Variable이 없습니다."; exit 1; }
+
+          [ -n "${SSM_MANAGED_NODE_ID:-}" ] \
+            || { echo "::error::PROD_SSM_MANAGED_NODE_ID Variable이 없습니다."; exit 1; }
+
+          [[ "$SSM_MANAGED_NODE_ID" =~ ^mi-[a-f0-9]+$ ]] \
+            || { echo "::error::PROD_SSM_MANAGED_NODE_ID 형식이 잘못되었습니다."; exit 1; }
+
+          [ -n "${PROD_SECRET_AGE_RECIPIENT:-}" ] \
+            || { echo "::error::PROD_SECRET_AGE_RECIPIENT Variable이 없습니다."; exit 1; }
+
+          [[ "$PROD_SECRET_AGE_RECIPIENT" =~ ^age1 ]] \
+            || { echo "::error::age recipient 형식이 잘못되었습니다."; exit 1; }
+
+          [ -n "${PROD_API_KEY_CONTENT:-}" ] \
+            || { echo "::error::PROD_API_KEY_CONTENT Secret이 비어 있습니다."; exit 1; }
+
+      - name: Configure AWS Production credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.PROD_AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: 705186435017
+
+      - name: Resolve ECR registry
+        id: aws
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ACCOUNT_ID="$(
+            aws sts get-caller-identity \
+              --query Account \
+              --output text
+          )"
+
+          echo "registry=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com" \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Login to Amazon ECR
+        if: steps.mode.outputs.deploy_backend == 'true'
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push immutable Backend image
+        if: steps.mode.outputs.deploy_backend == 'true'
+        env:
+          ECR_REGISTRY: ${{ steps.aws.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if aws ecr describe-images \
+              --repository-name "$ECR_REPOSITORY" \
+              --image-ids imageTag="$IMAGE_TAG" \
+              --region "$AWS_REGION" \
+              >/dev/null 2>&1; then
+
+            echo "Immutable SHA image already exists; reusing $IMAGE_TAG"
+          else
+            docker build \
+              -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
+              -t "$ECR_REGISTRY/$ECR_REPOSITORY:latest" \
+              .
+
+            docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+            docker push "$ECR_REGISTRY/$ECR_REPOSITORY:latest"
+          fi
+
+      - name: Install age
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo apt-get update
+          sudo apt-get install -y age
+
+          age --version
+
+      - name: Encrypt Production API-KEY.yml
+        id: secret
+        env:
+          PROD_API_KEY_CONTENT: ${{ secrets.PROD_API_KEY_CONTENT }}
+          PROD_SECRET_AGE_RECIPIENT: ${{ vars.PROD_SECRET_AGE_RECIPIENT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+
+          printf '%s' "$PROD_API_KEY_CONTENT" \
+            > /tmp/API-KEY.yml
+
+          SECRET_SHA256="$(
+            sha256sum /tmp/API-KEY.yml \
+              | awk '{print $1}'
+          )"
+
+          age \
+            -a \
+            -r "$PROD_SECRET_AGE_RECIPIENT" \
+            -o /tmp/API-KEY.yml.age \
+            /tmp/API-KEY.yml
+
+          test -s /tmp/API-KEY.yml.age
+
+          CIPHER_SIZE="$(wc -c < /tmp/API-KEY.yml.age)"
+
+          echo "sha256=$SECRET_SHA256" >> "$GITHUB_OUTPUT"
+          echo "cipher_size=$CIPHER_SIZE" >> "$GITHUB_OUTPUT"
+
+          echo "Production Secret encryption completed."
+          echo "Encrypted payload bytes: $CIPHER_SIZE"
+
+      - name: Send Production deployment command
+        id: deploy
+        env:
+          ECR_REGISTRY: ${{ steps.aws.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+          SECRET_SHA256: ${{ steps.secret.outputs.sha256 }}
+          DEPLOY_BACKEND: ${{ steps.mode.outputs.deploy_backend }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+
+          cipher = Path("/tmp/API-KEY.yml.age").read_bytes()
+          cipher_b64 = base64.b64encode(cipher).decode("ascii")
+
+          region = os.environ["AWS_REGION"]
+          registry = os.environ["ECR_REGISTRY"]
+          image_tag = os.environ["IMAGE_TAG"]
+          expected_sha = os.environ["SECRET_SHA256"]
+          deploy_backend = os.environ["DEPLOY_BACKEND"].lower() == "true"
+
+          deploy_flag = "true" if deploy_backend else "false"
+
+          script = f"""bash <<'BASH'
+          set -euo pipefail
+          umask 077
+
+          CIPHER="/tmp/marvelrun-prod-API-KEY.yml.age"
+          PLAIN="/tmp/marvelrun-prod-API-KEY.yml.new"
+          TARGET="/opt/marvelrun/secrets/API-KEY.yml"
+          TARGET_NEW="/opt/marvelrun/secrets/API-KEY.yml.new"
+          EXPECTED_SHA256="{expected_sha}"
+          DEPLOY_BACKEND="{deploy_flag}"
+          ECR_REGISTRY="{registry}"
+          IMAGE_TAG="{image_tag}"
+          DOCKER_CONFIG_TMP=""
+
+          cleanup() {{
+            status=$?
+
+            rm -f "$CIPHER" "$PLAIN" "$TARGET_NEW"
+
+            if [ -n "${{DOCKER_CONFIG_TMP:-}}" ]; then
+              export DOCKER_CONFIG="$DOCKER_CONFIG_TMP"
+              docker logout "$ECR_REGISTRY" >/dev/null 2>&1 || true
+              rm -rf "$DOCKER_CONFIG_TMP"
+            fi
+
+            exit "$status"
+          }}
+
+          trap cleanup EXIT
+
+          rm -f "$CIPHER" "$PLAIN" "$TARGET_NEW"
+
+          printf '%s' '{cipher_b64}' \
+            | base64 -d \
+            > "$CIPHER"
+
+          test -s "$CIPHER"
+
+          age \
+            -d \
+            -i /etc/marvelrun/age/production.key \
+            -o "$PLAIN" \
+            "$CIPHER"
+
+          test -s "$PLAIN"
+
+          ACTUAL_SHA256="$(
+            sha256sum "$PLAIN" \
+              | awk '{{print $1}}'
+          )"
+
+          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "SECRET_SHA256_MISMATCH"
+            exit 1
+          fi
+
+          if [ "$DEPLOY_BACKEND" = "true" ]; then
+            test -f /opt/marvelrun/backend-compose.yml
+
+            DOCKER_CONFIG_TMP="$(mktemp -d)"
+            export DOCKER_CONFIG="$DOCKER_CONFIG_TMP"
+
+            aws ecr get-login-password \
+              --region {region} \
+              | docker login \
+                  --username AWS \
+                  --password-stdin \
+                  "$ECR_REGISTRY"
+
+            cd /opt/marvelrun
+
+            BACKEND_IMAGE_TAG="$IMAGE_TAG" \
+              docker compose \
+                -f backend-compose.yml \
+                pull backend
+          fi
+
+          install -d \
+            -o root \
+            -g root \
+            -m 700 \
+            /opt/marvelrun/secrets
+
+          install \
+            -o root \
+            -g root \
+            -m 600 \
+            "$PLAIN" \
+            "$TARGET_NEW"
+
+          mv \
+            "$TARGET_NEW" \
+            "$TARGET"
+
+          stat -c 'API-KEY.yml %a %U:%G' "$TARGET"
+
+          echo "SECRET_DEPLOY_OK sha256=$ACTUAL_SHA256"
+
+          if [ "$DEPLOY_BACKEND" = "true" ]; then
+            cd /opt/marvelrun
+
+            BACKEND_IMAGE_TAG="$IMAGE_TAG" \
+              docker compose \
+                -f backend-compose.yml \
+                up -d --no-deps backend
+
+            sleep 8
+
+            BACKEND_CONTAINER_ID="$(
+              docker compose \
+                -f backend-compose.yml \
+                ps -q backend
+            )"
+
+            test -n "$BACKEND_CONTAINER_ID"
+
+            RUNNING="$(
+              docker inspect \
+                -f '{{{{.State.Running}}}}' \
+                "$BACKEND_CONTAINER_ID"
+            )"
+
+            if [ "$RUNNING" != "true" ]; then
+              echo "BACKEND_CONTAINER_NOT_RUNNING"
+              docker compose \
+                -f backend-compose.yml \
+                logs --tail=100 backend || true
+              exit 1
+            fi
+
+            echo "BACKEND_CONTAINER_RUNNING"
+          else
+            echo "SECRET_ONLY_MODE"
+          fi
+          BASH
+          """
+
+          script = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in script.splitlines()
+          )
+
+          with open("/tmp/ssm-parameters.json", "w", encoding="utf-8") as f:
+              json.dump({"commands": [script]}, f)
+          PY
+
+          COMMAND_ID="$(
+            aws ssm send-command \
+              --region "$AWS_REGION" \
+              --instance-ids "$SSM_MANAGED_NODE_ID" \
+              --document-name "AWS-RunShellScript" \
+              --parameters file:///tmp/ssm-parameters.json \
+              --query 'Command.CommandId' \
+              --output text
+          )"
+
+          echo "command_id=$COMMAND_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for Production deployment result
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          COMMAND_ID="${{ steps.deploy.outputs.command_id }}"
+
+          aws ssm wait command-executed \
+            --region "$AWS_REGION" \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$SSM_MANAGED_NODE_ID" \
+            || true
+
+          STATUS="$(
+            aws ssm get-command-invocation \
+              --region "$AWS_REGION" \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$SSM_MANAGED_NODE_ID" \
+              --query Status \
+              --output text
+          )"
+
+          aws ssm get-command-invocation \
+            --region "$AWS_REGION" \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$SSM_MANAGED_NODE_ID" \
+            --query '{
+              Status:Status,
+              StandardOutput:StandardOutputContent,
+              StandardError:StandardErrorContent
+            }'
+
+          if [ "$STATUS" != "Success" ]; then
+            echo "::error::Production SSM deployment failed: $STATUS"
+            exit 1
+          fi
+
+      - name: Cleanup Runner temporary Secret files
+        if: always()
+        shell: bash
+        run: |
+          rm -f /tmp/API-KEY.yml
+          rm -f /tmp/API-KEY.yml.age
+          rm -f /tmp/ssm-parameters.json
