@@ -2,12 +2,6 @@ name: MarvelRun Backend Production Deploy
 
 on:
   workflow_dispatch:
-    inputs:
-      deploy_backend:
-        description: "Secret 교체 후 Backend까지 배포할지 여부"
-        required: true
-        type: boolean
-        default: false
 
 permissions:
   id-token: write
@@ -23,24 +17,12 @@ env:
   SSM_MANAGED_NODE_ID: ${{ vars.PROD_SSM_MANAGED_NODE_ID }}
 
 jobs:
-  production:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Resolve deployment mode
-        id: mode
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [ "${{ inputs.deploy_backend }}" = "true" ]; then
-            echo "deploy_backend=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "deploy_backend=false" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Validate Production configuration
         env:
@@ -76,51 +58,25 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           allowed-account-ids: 705186435017
 
-      - name: Resolve ECR registry
-        id: aws
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          ACCOUNT_ID="$(
-            aws sts get-caller-identity \
-              --query Account \
-              --output text
-          )"
-
-          echo "registry=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com" \
-            >> "$GITHUB_OUTPUT"
-
       - name: Login to Amazon ECR
-        if: steps.mode.outputs.deploy_backend == 'true'
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and push immutable Backend image
-        if: steps.mode.outputs.deploy_backend == 'true'
+      - name: Build and push Backend image
         env:
-          ECR_REGISTRY: ${{ steps.aws.outputs.registry }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
 
-          if aws ecr describe-images \
-              --repository-name "$ECR_REPOSITORY" \
-              --image-ids imageTag="$IMAGE_TAG" \
-              --region "$AWS_REGION" \
-              >/dev/null 2>&1; then
+          docker build \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY:latest" \
+            .
 
-            echo "Immutable SHA image already exists; reusing $IMAGE_TAG"
-          else
-            docker build \
-              -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
-              -t "$ECR_REGISTRY/$ECR_REPOSITORY:latest" \
-              .
-
-            docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-            docker push "$ECR_REGISTRY/$ECR_REPOSITORY:latest"
-          fi
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:latest"
 
       - name: Install age
         shell: bash
@@ -142,8 +98,7 @@ jobs:
           set -euo pipefail
           umask 077
 
-          printf '%s' "$PROD_API_KEY_CONTENT" \
-            > /tmp/API-KEY.yml
+          printf '%s' "$PROD_API_KEY_CONTENT" > /tmp/API-KEY.yml
 
           SECRET_SHA256="$(
             sha256sum /tmp/API-KEY.yml \
@@ -158,21 +113,14 @@ jobs:
 
           test -s /tmp/API-KEY.yml.age
 
-          CIPHER_SIZE="$(wc -c < /tmp/API-KEY.yml.age)"
-
           echo "sha256=$SECRET_SHA256" >> "$GITHUB_OUTPUT"
-          echo "cipher_size=$CIPHER_SIZE" >> "$GITHUB_OUTPUT"
-
-          echo "Production Secret encryption completed."
-          echo "Encrypted payload bytes: $CIPHER_SIZE"
 
       - name: Send Production deployment command
         id: deploy
         env:
-          ECR_REGISTRY: ${{ steps.aws.outputs.registry }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
           SECRET_SHA256: ${{ steps.secret.outputs.sha256 }}
-          DEPLOY_BACKEND: ${{ steps.mode.outputs.deploy_backend }}
         shell: bash
         run: |
           set -euo pipefail
@@ -183,16 +131,14 @@ jobs:
           import os
           from pathlib import Path
 
-          cipher = Path("/tmp/API-KEY.yml.age").read_bytes()
-          cipher_b64 = base64.b64encode(cipher).decode("ascii")
+          cipher_b64 = base64.b64encode(
+              Path("/tmp/API-KEY.yml.age").read_bytes()
+          ).decode("ascii")
 
           region = os.environ["AWS_REGION"]
           registry = os.environ["ECR_REGISTRY"]
           image_tag = os.environ["IMAGE_TAG"]
           expected_sha = os.environ["SECRET_SHA256"]
-          deploy_backend = os.environ["DEPLOY_BACKEND"].lower() == "true"
-
-          deploy_flag = "true" if deploy_backend else "false"
 
           script = f"""bash <<'BASH'
           set -euo pipefail
@@ -203,7 +149,6 @@ jobs:
           TARGET="/opt/marvelrun/secrets/API-KEY.yml"
           TARGET_NEW="/opt/marvelrun/secrets/API-KEY.yml.new"
           EXPECTED_SHA256="{expected_sha}"
-          DEPLOY_BACKEND="{deploy_flag}"
           ECR_REGISTRY="{registry}"
           IMAGE_TAG="{image_tag}"
           DOCKER_CONFIG_TMP=""
@@ -219,6 +164,7 @@ jobs:
               rm -rf "$DOCKER_CONFIG_TMP"
             fi
 
+            trap - EXIT
             exit "$status"
           }}
 
@@ -250,26 +196,24 @@ jobs:
             exit 1
           fi
 
-          if [ "$DEPLOY_BACKEND" = "true" ]; then
-            test -f /opt/marvelrun/backend-compose.yml
+          test -f /opt/marvelrun/backend-compose.yml
 
-            DOCKER_CONFIG_TMP="$(mktemp -d)"
-            export DOCKER_CONFIG="$DOCKER_CONFIG_TMP"
+          DOCKER_CONFIG_TMP="$(mktemp -d)"
+          export DOCKER_CONFIG="$DOCKER_CONFIG_TMP"
 
-            aws ecr get-login-password \
-              --region {region} \
-              | docker login \
-                  --username AWS \
-                  --password-stdin \
-                  "$ECR_REGISTRY"
+          aws ecr get-login-password \
+            --region {region} \
+            | docker login \
+                --username AWS \
+                --password-stdin \
+                "$ECR_REGISTRY"
 
-            cd /opt/marvelrun
+          cd /opt/marvelrun
 
-            BACKEND_IMAGE_TAG="$IMAGE_TAG" \
-              docker compose \
-                -f backend-compose.yml \
-                pull backend
-          fi
+          BACKEND_IMAGE_TAG="$IMAGE_TAG" \
+            docker compose \
+              -f backend-compose.yml \
+              pull backend
 
           install -d \
             -o root \
@@ -284,50 +228,41 @@ jobs:
             "$PLAIN" \
             "$TARGET_NEW"
 
-          mv \
-            "$TARGET_NEW" \
-            "$TARGET"
+          mv "$TARGET_NEW" "$TARGET"
 
           stat -c 'API-KEY.yml %a %U:%G' "$TARGET"
-
           echo "SECRET_DEPLOY_OK sha256=$ACTUAL_SHA256"
 
-          if [ "$DEPLOY_BACKEND" = "true" ]; then
-            cd /opt/marvelrun
+          BACKEND_IMAGE_TAG="$IMAGE_TAG" \
+            docker compose \
+              -f backend-compose.yml \
+              up -d --no-deps backend
 
-            BACKEND_IMAGE_TAG="$IMAGE_TAG" \
-              docker compose \
-                -f backend-compose.yml \
-                up -d --no-deps backend
+          sleep 8
 
-            sleep 8
+          BACKEND_CONTAINER_ID="$(
+            docker compose \
+              -f backend-compose.yml \
+              ps -q backend
+          )"
 
-            BACKEND_CONTAINER_ID="$(
-              docker compose \
-                -f backend-compose.yml \
-                ps -q backend
-            )"
+          test -n "$BACKEND_CONTAINER_ID"
 
-            test -n "$BACKEND_CONTAINER_ID"
+          RUNNING="$(
+            docker inspect \
+              -f '{{{{.State.Running}}}}' \
+              "$BACKEND_CONTAINER_ID"
+          )"
 
-            RUNNING="$(
-              docker inspect \
-                -f '{{{{.State.Running}}}}' \
-                "$BACKEND_CONTAINER_ID"
-            )"
-
-            if [ "$RUNNING" != "true" ]; then
-              echo "BACKEND_CONTAINER_NOT_RUNNING"
-              docker compose \
-                -f backend-compose.yml \
-                logs --tail=100 backend || true
-              exit 1
-            fi
-
-            echo "BACKEND_CONTAINER_RUNNING"
-          else
-            echo "SECRET_ONLY_MODE"
+          if [ "$RUNNING" != "true" ]; then
+            echo "BACKEND_CONTAINER_NOT_RUNNING"
+            docker compose \
+              -f backend-compose.yml \
+              logs --tail=100 backend || true
+            exit 1
           fi
+
+          echo "BACKEND_CONTAINER_RUNNING"
           BASH
           """
 
@@ -362,17 +297,7 @@ jobs:
           aws ssm wait command-executed \
             --region "$AWS_REGION" \
             --command-id "$COMMAND_ID" \
-            --instance-id "$SSM_MANAGED_NODE_ID" \
-            || true
-
-          STATUS="$(
-            aws ssm get-command-invocation \
-              --region "$AWS_REGION" \
-              --command-id "$COMMAND_ID" \
-              --instance-id "$SSM_MANAGED_NODE_ID" \
-              --query Status \
-              --output text
-          )"
+            --instance-id "$SSM_MANAGED_NODE_ID"
 
           aws ssm get-command-invocation \
             --region "$AWS_REGION" \
@@ -383,11 +308,6 @@ jobs:
               StandardOutput:StandardOutputContent,
               StandardError:StandardErrorContent
             }'
-
-          if [ "$STATUS" != "Success" ]; then
-            echo "::error::Production SSM deployment failed: $STATUS"
-            exit 1
-          fi
 
       - name: Cleanup Runner temporary Secret files
         if: always()
