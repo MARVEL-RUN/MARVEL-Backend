@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   id-token: write
@@ -11,7 +12,7 @@ permissions:
 
 concurrency:
   group: marvelrun-backend-production
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   AWS_REGION: ap-northeast-2
@@ -34,6 +35,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Production deploy는 main branch에서만 실행합니다."
+            exit 1
+          fi
 
           if [ -z "${SSM_MANAGED_NODE_ID:-}" ]; then
             echo "::error::PROD_SSM_MANAGED_NODE_ID GitHub Variable이 없습니다."
@@ -165,11 +171,21 @@ jobs:
           commands = [
               "set -e",
               "umask 077",
-              "cleanup() { status=$?; trap - EXIT; "
+              f'ECR_REGISTRY="{registry}"',
+              'DOCKER_CONFIG_TMP=""',
+              "cleanup() { "
+              "status=$?; "
+              "trap - EXIT; "
               "rm -f /tmp/marvelrun-API-KEY.yml.age "
               "/tmp/marvelrun-API-KEY.yml "
               "/opt/marvelrun/secrets/API-KEY.yml.new; "
-              "exit \"$status\"; }",
+              "if [ -n \"$DOCKER_CONFIG_TMP\" ]; then "
+              "export DOCKER_CONFIG=\"$DOCKER_CONFIG_TMP\"; "
+              "docker logout \"$ECR_REGISTRY\" >/dev/null 2>&1 || true; "
+              "rm -rf \"$DOCKER_CONFIG_TMP\"; "
+              "fi; "
+              "exit \"$status\"; "
+              "}",
               "trap cleanup EXIT",
               "rm -f /tmp/marvelrun-API-KEY.yml.age "
               "/tmp/marvelrun-API-KEY.yml "
@@ -191,6 +207,8 @@ jobs:
               "/opt/marvelrun/secrets/API-KEY.yml",
               "rm -f /tmp/marvelrun-API-KEY.yml.age "
               "/tmp/marvelrun-API-KEY.yml",
+              'DOCKER_CONFIG_TMP="$(mktemp -d)"',
+              'export DOCKER_CONFIG="$DOCKER_CONFIG_TMP"',
               f"aws ecr get-login-password --region {region} "
               f"| docker login --username AWS --password-stdin {registry}",
               "cd /opt/marvelrun && "
@@ -198,8 +216,17 @@ jobs:
               "docker compose -f backend-compose.yml pull backend",
               "cd /opt/marvelrun && "
               f"BACKEND_IMAGE_TAG={tag} "
-              "docker compose -f backend-compose.yml up -d --no-deps backend",
-              f"docker logout {registry} || true",
+              "docker compose -f backend-compose.yml "
+              "up -d --no-deps --force-recreate backend",
+              "sleep 5",
+              "CONTAINER_ID=\"$(cd /opt/marvelrun && "
+              f"BACKEND_IMAGE_TAG={tag} "
+              "docker compose -f backend-compose.yml ps -q backend)\"",
+              'test -n "$CONTAINER_ID"',
+              'test "$(docker inspect --format \'{{.State.Running}}\' "$CONTAINER_ID")" = "true"',
+              'docker logout "$ECR_REGISTRY" || true',
+              'rm -rf "$DOCKER_CONFIG_TMP"',
+              'DOCKER_CONFIG_TMP=""',
               "docker image prune -f",
           ]
 
