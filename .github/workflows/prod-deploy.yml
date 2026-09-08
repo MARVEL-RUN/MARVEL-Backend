@@ -1,9 +1,6 @@
 name: MarvelRun Backend Production Deploy
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       deploy_backend:
@@ -27,10 +24,6 @@ env:
 
 jobs:
   production:
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      vars.PROD_AUTO_DEPLOY_ENABLED == 'true'
-
     runs-on: ubuntu-latest
 
     steps:
@@ -43,9 +36,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            echo "deploy_backend=true" >> "$GITHUB_OUTPUT"
-          elif [ "${{ inputs.deploy_backend }}" = "true" ]; then
+          if [ "${{ inputs.deploy_backend }}" = "true" ]; then
             echo "deploy_backend=true" >> "$GITHUB_OUTPUT"
           else
             echo "deploy_backend=false" >> "$GITHUB_OUTPUT"
@@ -222,7 +213,7 @@ jobs:
 
             rm -f "$CIPHER" "$PLAIN" "$TARGET_NEW"
 
-            if [ -n "${{DOCKER_CONFIG_TMP:-}}" ]; then
+            if [ -n "$DOCKER_CONFIG_TMP" ]; then
               export DOCKER_CONFIG="$DOCKER_CONFIG_TMP"
               docker logout "$ECR_REGISTRY" >/dev/null 2>&1 || true
               rm -rf "$DOCKER_CONFIG_TMP"
