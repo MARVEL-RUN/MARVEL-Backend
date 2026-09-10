@@ -1,13 +1,12 @@
-package kr.co.teambrain.marvel_run;
+package kr.co.teambrain.marvelrun.user;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
-@SpringBootTest
-class MarvelRunApplicationTests {
+@SpringBootTest(classes = UserApplication.class)
+class UserApplicationTests {
 
 	@Test
 	void contextLoads() {
 	}
-
 }
