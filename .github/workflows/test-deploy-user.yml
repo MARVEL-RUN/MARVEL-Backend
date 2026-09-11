@@ -1,9 +1,14 @@
-name: MarvelRun Backend Test Deploy
+name: MarvelRun User Backend Test Deploy
 
 on:
   pull_request:
     branches:
       - develop
+    paths:
+      - "user/**"
+      - "common-entity/**"
+      - ".dockerignore"
+      - ".github/workflows/test-deploy.yml"
   workflow_dispatch:
 
 permissions:
@@ -12,7 +17,7 @@ permissions:
 
 concurrency:
   group: marvelrun-backend-test
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   AWS_REGION: ap-northeast-2
@@ -58,7 +63,7 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and push Docker image
+      - name: Build and push User Docker image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
@@ -76,6 +81,7 @@ jobs:
             echo "Reusing the existing artifact without rebuilding."
           else
             docker build \
+              -f user/Dockerfile \
               -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
               -t "$ECR_REGISTRY/$ECR_REPOSITORY:latest" \
               .
@@ -125,7 +131,7 @@ jobs:
 
           chmod 600 ~/.ssh/config
 
-      - name: Create API-KEY.yml from GitHub Secret
+      - name: Create User API-KEY.yml from GitHub Secret
         env:
           API_KEY_YML: ${{ secrets.TEST_API_KEY_CONTENT }}
         shell: bash
@@ -138,7 +144,7 @@ jobs:
           fi
 
           umask 077
-          printf '%s\n' "$API_KEY_YML" > /tmp/API-KEY.yml
+          printf '%s\n' "$API_KEY_YML" > /tmp/user-API-KEY.yml
 
       - name: Register temporary SSH public key
         shell: bash
@@ -151,16 +157,16 @@ jobs:
             --instance-os-user ubuntu \
             --ssh-public-key file://$HOME/.ssh/marvelrun-temp.pub
 
-      - name: Upload API-KEY.yml to EC2
+      - name: Upload User API-KEY.yml to EC2
         shell: bash
         run: |
           set -euo pipefail
 
           scp \
-            /tmp/API-KEY.yml \
-            "${EC2_INSTANCE_ID}:/tmp/marvelrun-API-KEY.yml"
+            /tmp/user-API-KEY.yml \
+            "${EC2_INSTANCE_ID}:/tmp/marvelrun-user-API-KEY.yml"
 
-      - name: Deploy backend with SSM Run Command
+      - name: Deploy User backend with SSM Run Command
         id: deploy
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
@@ -182,19 +188,26 @@ jobs:
               "mkdir -p /opt/marvelrun/secrets",
               "chmod 700 /opt/marvelrun/secrets",
               "install -o root -g root -m 600 "
-              "/tmp/marvelrun-API-KEY.yml "
+              "/tmp/marvelrun-user-API-KEY.yml "
               "/opt/marvelrun/secrets/API-KEY.yml.new",
               "mv /opt/marvelrun/secrets/API-KEY.yml.new "
               "/opt/marvelrun/secrets/API-KEY.yml",
-              "rm -f /tmp/marvelrun-API-KEY.yml",
+              "rm -f /tmp/marvelrun-user-API-KEY.yml",
               f"aws ecr get-login-password --region {region} "
               f"| docker login --username AWS --password-stdin {registry}",
               "cd /opt/marvelrun && "
-              f"BACKEND_IMAGE_TAG={tag} "
-              "docker compose -f backend-compose.yml pull backend",
+              f"USER_BACKEND_IMAGE_TAG={tag} "
+              "docker compose -f backend-compose.yml pull user-backend",
               "cd /opt/marvelrun && "
-              f"BACKEND_IMAGE_TAG={tag} "
-              "docker compose -f backend-compose.yml up -d --no-deps backend",
+              f"USER_BACKEND_IMAGE_TAG={tag} "
+              "docker compose -f backend-compose.yml "
+              "up -d --no-deps --force-recreate user-backend",
+              "sleep 5",
+              "CONTAINER_ID=\"$(cd /opt/marvelrun && "
+              f"USER_BACKEND_IMAGE_TAG={tag} "
+              "docker compose -f backend-compose.yml ps -q user-backend)\"",
+              'test -n "$CONTAINER_ID"',
+              'test "$(docker inspect --format \'{{.State.Running}}\' "$CONTAINER_ID")" = "true"',
               f"docker logout {registry} || true",
               "docker image prune -f",
           ]
@@ -233,7 +246,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          rm -f /tmp/API-KEY.yml
+          rm -f /tmp/user-API-KEY.yml
           rm -f /tmp/session-manager-plugin.deb
           rm -f /tmp/ssm-parameters.json
           rm -f ~/.ssh/marvelrun-temp
