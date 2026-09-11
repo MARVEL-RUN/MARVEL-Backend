@@ -11,8 +11,6 @@
 .mtj.tmp/
 
 # Package Files #
-!**/gradle/wrapper/gradle-wrapper.jar
-*.jar
 *.war
 *.nar
 *.ear
@@ -32,13 +30,19 @@ replay_pid*
 .gradle/
 build/
 
-# produce
-*prod.yml
+#secret keys
+**/API-KEY.yml
+firebase-service-account.json
+**/.DS_Store
 
-# 민감정보
-src/main/resources/API-KEY.yml
-/certbot/conf/**
-.gitignore
-docker-compose-redis.yml
-# 인증서가 생길 경우 대비(리포에 올리지 않기)
-/src/main/resources/firebase-service-account.json
+bin/
+build/
+out/
+**/bin/
+**/build/
+**/out/
+
+#codex
+.codex/
+AGENTS.md
+analysis/

@@ -1,0 +1,65 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '4.1.1'
+	id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'kr.co.teambrain.marvelrun'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	implementation 'kr.co.teambrain.marvelrun:marvelrun-common-entity:1.0.0'
+
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.7.0'
+	compileOnly 'org.projectlombok:lombok'
+	runtimeOnly 'com.mysql:mysql-connector-j'
+	annotationProcessor 'org.projectlombok:lombok'
+	testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testCompileOnly 'org.projectlombok:lombok'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	testAnnotationProcessor 'org.projectlombok:lombok'
+
+	// thymeleaf를 기반으로 html -> pdf로 변환하여 제공하기위한 타임리프 및 관련 라이브러리 기입
+	implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
+	implementation 'io.github.openhtmltopdf:openhtmltopdf-pdfbox:1.1.30'
+	implementation 'io.github.openhtmltopdf:openhtmltopdf-svg-support:1.1.30'
+
+	// JWT
+	implementation 'io.jsonwebtoken:jjwt-api:0.11.5'
+	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.11.5'
+	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.11.5'
+
+	// redis 사용과 내부 저장데이터의 직렬화를 위한 jackson
+	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+	implementation 'com.fasterxml.jackson.core:jackson-databind'
+
+	// redis 저장 시 자바의 instant 등의 자료형을 잭슨에서 직렬화 하기위한 jsr310 추가
+	//Instant createdAt/expiresAt이 ISO-8601 문자열로 Redis에 저장 및 읽을때도 정상복원
+	implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+
+	// Ncp 측 outbound mailer에 메일 발송 HTTP 요청을 전달하기위한 webclient 사용
+	implementation 'org.springframework.boot:spring-boot-starter-webflux'
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}
+tasks.named('bootJar') {
+	archiveFileName = 'admin-app.jar'
+}
+

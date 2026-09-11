@@ -49,22 +49,26 @@ springdoc:
   api-docs:
     path: /v3/api-docs
     enabled: true
+
   swagger-ui:
     path: /swagger-ui.html
-    url: /v3/api-docs
+    url: /admin-api/v3/api-docs
     operationsSorter: method
     tagsSorter: alpha
     display-request-duration: true
     disable-swagger-default-url: true
     use-root-path: true
     urls:
-      - name: KMA-USER API
-        url: /v3/api-docs
-    persistAuthorization: true  # Swagger UI 페이지 새로고침해도 인증정보 유지
+      - name: MarvelRun Admin API
+        url: /admin-api/v3/api-docs
+    persistAuthorization: true
     enabled: true
 
 server:
-  forward-headers-strategy: framework # ALB X-Forwarded-* 신뢰
+  servlet:
+    # Admin 애플리케이션 전체가
+    context-path: /admin-api
+
   # 서버간 통신 내역 확인 위한 로그
   tomcat:
     mbeanregistry:
@@ -72,6 +76,7 @@ server:
     accesslog:
       enabled: true
       pattern: '%a %t "%r" %s %b'
+  forward-headers-strategy: framework # ALB X-Forwarded-* 신뢰
 
 management:
   server:
