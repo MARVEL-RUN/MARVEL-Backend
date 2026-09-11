@@ -11,7 +11,7 @@ import static lombok.AccessLevel.PROTECTED;
 @MappedSuperclass
 @SuperBuilder
 @NoArgsConstructor(access = PROTECTED)
-public abstract class AttachmentBase<Q extends QuestionBase, N extends NoticeBase, A extends AnswerBase> {
+public abstract class AttachmentBase<Q extends QuestionBase, A extends AnswerBase> {
     @Id
     @Column(name = "url", nullable = false)
     protected String url;
@@ -26,9 +26,9 @@ public abstract class AttachmentBase<Q extends QuestionBase, N extends NoticeBas
     @JoinColumn(name = "question_id")
     protected Q question;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "notice_id")
-    protected N notice;
+//    @ManyToOne(fetch = FetchType.LAZY)
+//    @JoinColumn(name = "notice_id")
+//    protected N notice;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "answer_id")

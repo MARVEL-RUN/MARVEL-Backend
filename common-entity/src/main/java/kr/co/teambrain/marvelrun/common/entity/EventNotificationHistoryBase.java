@@ -16,7 +16,7 @@ import java.util.List;
 @SuperBuilder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @MappedSuperclass // 🔥 핵심: 상속받는 엔티티에 컬럼 정보 제공
-public abstract class EventNotificationHistoryBase <N extends NotificationBase> {
+public abstract class EventNotificationHistoryBase/* <N extends NotificationBase> */{
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -41,9 +41,9 @@ public abstract class EventNotificationHistoryBase <N extends NotificationBase> 
     @Column(name = "recipient_count", nullable = false)
     protected int recipientCount;
 
-    @Builder.Default
-    @OneToMany(mappedBy = "eventNotificationHistory")
-    protected List<N> notifications = new ArrayList<>();
+//    @Builder.Default
+//    @OneToMany(mappedBy = "eventNotificationHistory")
+//    protected List<N> notifications = new ArrayList<>();
 
     @CreationTimestamp
     @Column(name = "sent_at", nullable = false, updatable = false)
