@@ -1,0 +1,275 @@
+name: MarvelRun Admin Backend Production Deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "admin/**"
+      - "common-entity/**"
+      - ".dockerignore"
+      - ".github/workflows/prod-admin-deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: marvelrun-backend-production
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-northeast-2
+  ECR_REPOSITORY: marvelrun/admin-backend
+  SSM_MANAGED_NODE_ID: ${{ vars.PROD_SSM_MANAGED_NODE_ID }}
+
+jobs:
+  build-push-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate deployment configuration
+        env:
+          PROD_AWS_ROLE_ARN: ${{ vars.PROD_AWS_ROLE_ARN }}
+          PROD_SECRET_AGE_RECIPIENT: ${{ vars.PROD_SECRET_AGE_RECIPIENT }}
+          PROD_ADMIN_API_KEY_CONTENT: ${{ secrets.PROD_ADMIN_API_KEY_CONTENT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Production deploy는 main branch에서만 실행합니다."
+            exit 1
+          fi
+
+          if [ -z "${SSM_MANAGED_NODE_ID:-}" ]; then
+            echo "::error::PROD_SSM_MANAGED_NODE_ID GitHub Variable이 없습니다."
+            exit 1
+          fi
+
+          if [[ ! "$SSM_MANAGED_NODE_ID" =~ ^mi-[a-f0-9]+$ ]]; then
+            echo "::error::잘못된 SSM Managed Node ID 형식"
+            exit 1
+          fi
+
+          if [ -z "${PROD_AWS_ROLE_ARN:-}" ]; then
+            echo "::error::PROD_AWS_ROLE_ARN GitHub Variable이 없습니다."
+            exit 1
+          fi
+
+          if [ -z "${PROD_SECRET_AGE_RECIPIENT:-}" ]; then
+            echo "::error::PROD_SECRET_AGE_RECIPIENT GitHub Variable이 없습니다."
+            exit 1
+          fi
+
+          if [ -z "${PROD_ADMIN_API_KEY_CONTENT:-}" ]; then
+            echo "::error::PROD_ADMIN_API_KEY_CONTENT Secret이 비어 있습니다."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.PROD_AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: 705186435017
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if aws ecr describe-images \
+              --repository-name "$ECR_REPOSITORY" \
+              --image-ids imageTag="$IMAGE_TAG" \
+              --region "$AWS_REGION" \
+              > /dev/null 2>&1; then
+
+            echo "Immutable SHA tag $IMAGE_TAG already exists."
+            echo "Reusing the existing artifact without rebuilding."
+          else
+            docker build \
+              -f admin/Dockerfile \
+              -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
+              -t "$ECR_REGISTRY/$ECR_REPOSITORY:latest" \
+              .
+
+            docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+            docker push "$ECR_REGISTRY/$ECR_REPOSITORY:latest"
+          fi
+
+      # AWS Test의 Session Manager Plugin + temporary SSH + EC2 Instance Connect + SCP 구간만
+      # Cafe24 Hybrid Managed Node용 age ciphertext + SSM Run Command 전달로 치환한다.
+      - name: Install age
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo apt-get update
+          sudo apt-get install -y age
+
+      - name: Create encrypted API-KEY.yml from GitHub Secret
+        id: secret
+        env:
+          API_KEY_YML: ${{ secrets.PROD_ADMIN_API_KEY_CONTENT }}
+          AGE_RECIPIENT: ${{ vars.PROD_SECRET_AGE_RECIPIENT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+
+          if [ -z "${API_KEY_YML:-}" ]; then
+            echo "::error::PROD_ADMIN_API_KEY_CONTENT Secret이 비어 있습니다."
+            exit 1
+          fi
+
+          printf '%s' "$API_KEY_YML" > /tmp/API-KEY.yml
+
+          SECRET_SHA256="$(
+            sha256sum /tmp/API-KEY.yml \
+              | awk '{print $1}'
+          )"
+
+          age \
+            -a \
+            -r "$AGE_RECIPIENT" \
+            -o /tmp/API-KEY.yml.age \
+            /tmp/API-KEY.yml
+
+          echo "sha256=$SECRET_SHA256" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Admin backend with SSM Run Command
+        id: deploy
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+          SECRET_SHA256: ${{ steps.secret.outputs.sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+
+          region = os.environ["AWS_REGION"]
+          registry = os.environ["ECR_REGISTRY"]
+          tag = os.environ["IMAGE_TAG"]
+          expected_sha256 = os.environ["SECRET_SHA256"]
+
+          cipher_b64 = base64.b64encode(
+              Path("/tmp/API-KEY.yml.age").read_bytes()
+          ).decode("ascii")
+
+          commands = [
+              "set -e",
+              "umask 077",
+              f'ECR_REGISTRY="{registry}"',
+              'DOCKER_CONFIG_TMP=""',
+              "cleanup() { "
+              "status=$?; "
+              "trap - EXIT; "
+              "rm -f /tmp/marvelrun-admin-API-KEY.yml.age "
+              "/tmp/marvelrun-admin-API-KEY.yml "
+              "/opt/marvelrun/secrets/admin/API-KEY.yml.new; "
+              "if [ -n \"$DOCKER_CONFIG_TMP\" ]; then "
+              "export DOCKER_CONFIG=\"$DOCKER_CONFIG_TMP\"; "
+              "docker logout \"$ECR_REGISTRY\" >/dev/null 2>&1 || true; "
+              "rm -rf \"$DOCKER_CONFIG_TMP\"; "
+              "fi; "
+              "exit \"$status\"; "
+              "}",
+              "trap cleanup EXIT",
+              "rm -f /tmp/marvelrun-admin-API-KEY.yml.age "
+              "/tmp/marvelrun-admin-API-KEY.yml "
+              "/opt/marvelrun/secrets/admin/API-KEY.yml.new",
+              "printf '%s' '" + cipher_b64 + "' "
+              "| base64 -d > /tmp/marvelrun-admin-API-KEY.yml.age",
+              "age -d "
+              "-i /etc/marvelrun/age/production.key "
+              "-o /tmp/marvelrun-admin-API-KEY.yml "
+              "/tmp/marvelrun-admin-API-KEY.yml.age",
+              "test \"$(sha256sum /tmp/marvelrun-admin-API-KEY.yml "
+              "| awk '{print $1}')\" = \"" + expected_sha256 + "\"",
+              "mkdir -p /opt/marvelrun/secrets/admin",
+              "chmod 700 /opt/marvelrun/secrets/admin",
+              "install -o root -g root -m 600 "
+              "/tmp/marvelrun-admin-API-KEY.yml "
+              "/opt/marvelrun/secrets/admin/API-KEY.yml.new",
+              "mv /opt/marvelrun/secrets/admin/API-KEY.yml.new "
+              "/opt/marvelrun/secrets/admin/API-KEY.yml",
+              "rm -f /tmp/marvelrun-admin-API-KEY.yml.age "
+              "/tmp/marvelrun-admin-API-KEY.yml",
+              'DOCKER_CONFIG_TMP="$(mktemp -d)"',
+              'export DOCKER_CONFIG="$DOCKER_CONFIG_TMP"',
+              f"aws ecr get-login-password --region {region} "
+              f"| docker login --username AWS --password-stdin {registry}",
+              "cd /opt/marvelrun && "
+              f"ADMIN_BACKEND_IMAGE_TAG={tag} "
+              "docker compose -f backend-compose.yml pull admin-backend",
+              "cd /opt/marvelrun && "
+              f"ADMIN_BACKEND_IMAGE_TAG={tag} "
+              "docker compose -f backend-compose.yml "
+              "up -d --no-deps --force-recreate admin-backend",
+              "sleep 5",
+              "CONTAINER_ID=\"$(cd /opt/marvelrun && "
+              f"ADMIN_BACKEND_IMAGE_TAG={tag} "
+              "docker compose -f backend-compose.yml ps -q admin-backend)\"",
+              'test -n "$CONTAINER_ID"',
+              'test "$(docker inspect --format \'{{.State.Running}}\' "$CONTAINER_ID")" = "true"',
+              'docker logout "$ECR_REGISTRY" || true',
+              'rm -rf "$DOCKER_CONFIG_TMP"',
+              'DOCKER_CONFIG_TMP=""',
+              "docker image prune -f",
+          ]
+
+          with open("/tmp/ssm-parameters.json", "w", encoding="utf-8") as f:
+              json.dump({"commands": commands}, f)
+          PY
+
+          COMMAND_ID=$(aws ssm send-command \
+            --region "$AWS_REGION" \
+            --instance-ids "$SSM_MANAGED_NODE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters file:///tmp/ssm-parameters.json \
+            --query 'Command.CommandId' \
+            --output text)
+
+          echo "command_id=$COMMAND_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for deployment result
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          aws ssm wait command-executed \
+            --region "$AWS_REGION" \
+            --command-id "${{ steps.deploy.outputs.command_id }}" \
+            --instance-id "$SSM_MANAGED_NODE_ID"
+
+          aws ssm get-command-invocation \
+            --region "$AWS_REGION" \
+            --command-id "${{ steps.deploy.outputs.command_id }}" \
+            --instance-id "$SSM_MANAGED_NODE_ID" \
+            --query '{Status:Status,StandardOutput:StandardOutputContent,StandardError:StandardErrorContent}'
+
+      - name: Cleanup temporary files
+        if: always()
+        shell: bash
+        run: |
+          rm -f /tmp/API-KEY.yml
+          rm -f /tmp/API-KEY.yml.age
+          rm -f /tmp/ssm-parameters.json
