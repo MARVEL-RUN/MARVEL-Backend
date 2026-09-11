@@ -1,0 +1,112 @@
+spring:
+  application:
+    name: marvel_run
+  config:
+    import:
+      - optional:file:/app/API-KEY.yml
+      - optional:classpath:API-KEY.yml
+  # common-entity 가 gradle의 dependency에 포함되어있기 때문에 common-entity의 resources안의 파일들도 jar로 같이 읽어집니다.
+  sql:
+    init:
+      mode: never
+      encoding: UTF-8
+      schema-locations:
+        - classpath:db/init/schema.sql   # common-entity에 존재하는 schema.sql을 사용합니다.
+      data-locations:
+        - classpath:db/init/data.sql     # common-entity에 존재하는 data.sql을 사용합니다.
+      platform: mysql
+  jpa:
+    hibernate:
+      ddl-auto: none
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+    properties:
+      hibernate:
+        format_sql: true
+        default_batch_fetch_size: 1000
+        use_sql_comments: true
+
+  data:
+    redis:
+      host: ${redis.secret.compose_name}
+      port: 6379 # 개발시에만 6380으로 바꿔쓰기
+      password: ${redis.secret.password}
+      timeout: 6s
+      lettuce:
+        pool:
+          max-active: 32
+          max-idle: 16
+          min-idle: 4
+          max-wait: 5s
+# 주석 추가
+
+cert:
+  assets:
+    base-uri: "classpath:/cert_assets/"  # 로컬 개발: resources/cert-assets/
+
+# swagger 설정
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+    enabled: true
+
+  swagger-ui:
+    path: /swagger-ui.html
+    url: /admin-api/v3/api-docs
+    operationsSorter: method
+    tagsSorter: alpha
+    display-request-duration: true
+    disable-swagger-default-url: true
+    use-root-path: true
+    urls:
+      - name: MarvelRun Admin API
+        url: /admin-api/v3/api-docs
+    persistAuthorization: true
+    enabled: true
+
+server:
+  servlet:
+    # Admin 애플리케이션 전체가
+    context-path: /admin-api
+
+  # 서버간 통신 내역 확인 위한 로그
+  tomcat:
+    mbeanregistry:
+      enabled: true # Tomcat thread 관련 Micrometer metric 노출을 위해 MBean Registry 활성화
+    accesslog:
+      enabled: true
+      pattern: '%a %t "%r" %s %b'
+  forward-headers-strategy: framework # ALB X-Forwarded-* 신뢰
+
+management:
+  server:
+    port: 9090  # Actuator 관리 트래픽을 사용자 API(8080)와 분리하기 위한 전용 management portmanagement:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics  # 내부 계측에 필요한 Actuator endpoint만 9090에 노출
+  endpoint:
+    health:
+      probes:
+        enabled: true          # /actuator/health/liveness, /readiness 활성화
+        add-additional-paths: true    # 별도 management port 사용 시에도 8080에 /livez, /readyz 추가 노출
+
+phone-hmac-secret: ${otp-phnum-hash-secret}
+
+infra:
+  internal-api:
+    secret-key: ${infra.admin-server.from-secret-key}
+
+
+# log.debug 보고싶은 경우 하단 level을 조정
+logging:
+  level:
+    root: INFO
+
+#logging:
+#  level:
+#    org.springframework.data.jpa.repository.query: DEBUG   # "Created query for method ..." 라인 출력
+#    org.springframework.data.repository.core.support: DEBUG
+#    org.springframework.data.jpa.repository: DEBUG
+#    org.hibernate.hql.internal.ast: DEBUG
+#    org.hibernate.query: DEBUG
