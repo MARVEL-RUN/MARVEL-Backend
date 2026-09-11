@@ -1,9 +1,14 @@
-name: MarvelRun Backend Production Deploy
+name: MarvelRun User Backend Production Deploy
 
 on:
   push:
     branches:
       - main
+    paths:
+      - "user/**"
+      - "common-entity/**"
+      - ".dockerignore"
+      - ".github/workflows/prod-deploy.yml"
   workflow_dispatch:
 
 permissions:
@@ -95,6 +100,7 @@ jobs:
             echo "Reusing the existing artifact without rebuilding."
           else
             docker build \
+              -f user/Dockerfile \
               -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
               -t "$ECR_REGISTRY/$ECR_REPOSITORY:latest" \
               .
@@ -143,7 +149,7 @@ jobs:
 
           echo "sha256=$SECRET_SHA256" >> "$GITHUB_OUTPUT"
 
-      - name: Deploy backend with SSM Run Command
+      - name: Deploy User backend with SSM Run Command
         id: deploy
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
@@ -176,8 +182,8 @@ jobs:
               "cleanup() { "
               "status=$?; "
               "trap - EXIT; "
-              "rm -f /tmp/marvelrun-API-KEY.yml.age "
-              "/tmp/marvelrun-API-KEY.yml "
+              "rm -f /tmp/marvelrun-user-API-KEY.yml.age "
+              "/tmp/marvelrun-user-API-KEY.yml "
               "/opt/marvelrun/secrets/API-KEY.yml.new; "
               "if [ -n \"$DOCKER_CONFIG_TMP\" ]; then "
               "export DOCKER_CONFIG=\"$DOCKER_CONFIG_TMP\"; "
@@ -187,41 +193,41 @@ jobs:
               "exit \"$status\"; "
               "}",
               "trap cleanup EXIT",
-              "rm -f /tmp/marvelrun-API-KEY.yml.age "
-              "/tmp/marvelrun-API-KEY.yml "
+              "rm -f /tmp/marvelrun-user-API-KEY.yml.age "
+              "/tmp/marvelrun-user-API-KEY.yml "
               "/opt/marvelrun/secrets/API-KEY.yml.new",
               "printf '%s' '" + cipher_b64 + "' "
-              "| base64 -d > /tmp/marvelrun-API-KEY.yml.age",
+              "| base64 -d > /tmp/marvelrun-user-API-KEY.yml.age",
               "age -d "
               "-i /etc/marvelrun/age/production.key "
-              "-o /tmp/marvelrun-API-KEY.yml "
-              "/tmp/marvelrun-API-KEY.yml.age",
-              "test \"$(sha256sum /tmp/marvelrun-API-KEY.yml "
+              "-o /tmp/marvelrun-user-API-KEY.yml "
+              "/tmp/marvelrun-user-API-KEY.yml.age",
+              "test \"$(sha256sum /tmp/marvelrun-user-API-KEY.yml "
               "| awk '{print $1}')\" = \"" + expected_sha256 + "\"",
               "mkdir -p /opt/marvelrun/secrets",
               "chmod 700 /opt/marvelrun/secrets",
               "install -o root -g root -m 600 "
-              "/tmp/marvelrun-API-KEY.yml "
+              "/tmp/marvelrun-user-API-KEY.yml "
               "/opt/marvelrun/secrets/API-KEY.yml.new",
               "mv /opt/marvelrun/secrets/API-KEY.yml.new "
               "/opt/marvelrun/secrets/API-KEY.yml",
-              "rm -f /tmp/marvelrun-API-KEY.yml.age "
-              "/tmp/marvelrun-API-KEY.yml",
+              "rm -f /tmp/marvelrun-user-API-KEY.yml.age "
+              "/tmp/marvelrun-user-API-KEY.yml",
               'DOCKER_CONFIG_TMP="$(mktemp -d)"',
               'export DOCKER_CONFIG="$DOCKER_CONFIG_TMP"',
               f"aws ecr get-login-password --region {region} "
               f"| docker login --username AWS --password-stdin {registry}",
               "cd /opt/marvelrun && "
-              f"BACKEND_IMAGE_TAG={tag} "
-              "docker compose -f backend-compose.yml pull backend",
+              f"USER_BACKEND_IMAGE_TAG={tag} "
+              "docker compose -f backend-compose.yml pull user-backend",
               "cd /opt/marvelrun && "
-              f"BACKEND_IMAGE_TAG={tag} "
+              f"USER_BACKEND_IMAGE_TAG={tag} "
               "docker compose -f backend-compose.yml "
-              "up -d --no-deps --force-recreate backend",
+              "up -d --no-deps --force-recreate user-backend",
               "sleep 5",
               "CONTAINER_ID=\"$(cd /opt/marvelrun && "
-              f"BACKEND_IMAGE_TAG={tag} "
-              "docker compose -f backend-compose.yml ps -q backend)\"",
+              f"USER_BACKEND_IMAGE_TAG={tag} "
+              "docker compose -f backend-compose.yml ps -q user-backend)\"",
               'test -n "$CONTAINER_ID"',
               'test "$(docker inspect --format \'{{.State.Running}}\' "$CONTAINER_ID")" = "true"',
               'docker logout "$ECR_REGISTRY" || true',
