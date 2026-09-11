@@ -1,0 +1,12 @@
+.git
+.github
+.idea
+**/.gradle
+**/build
+**/out
+
+**/API-KEY.yml
+
+*.iml
+README.md
+HELP.md
