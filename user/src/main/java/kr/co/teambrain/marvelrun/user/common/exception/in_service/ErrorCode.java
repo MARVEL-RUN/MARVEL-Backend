@@ -28,6 +28,31 @@ public enum ErrorCode {
             "현재 신청할 수 없는 종목입니다."
     ),
 
+    PAYMENT_NOT_FOUND(
+            HttpStatus.NOT_FOUND,
+            "결제 정보를 찾을 수 없습니다."
+    ),
+
+    PAYMENT_AMOUNT_MISMATCH(
+            HttpStatus.BAD_REQUEST,
+            "결제 금액이 일치하지 않습니다."
+    ),
+
+    PAYMENT_NOT_CONFIRMABLE(
+            HttpStatus.CONFLICT,
+            "현재 승인할 수 없는 결제입니다."
+    ),
+
+    PAYMENT_CONFIRM_FAILED(
+            HttpStatus.BAD_REQUEST,
+            "결제 승인에 실패했습니다."
+    ),
+
+    PAYMENT_CONFIRM_UNKNOWN(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "결제 결과를 확인하고 있습니다."
+    ),
+
     USER_CANNOT_CHANGE_OWN_INFO_IN_REGISTRATION_PATCH(HttpStatus.BAD_REQUEST, "가입된 사용자의 정보 변경은 회원 정보 변경에서만 가능합니다. 회원정보를 변경 후 시도해주세요."),
     EVENT_CATEGORY_NOT_FOUND(HttpStatus.NOT_FOUND, "종목을 찾을 수 없습니다"),
     EVENT_NOT_FOUND(HttpStatus.NOT_FOUND, "대회를 찾을 수 없습니다");

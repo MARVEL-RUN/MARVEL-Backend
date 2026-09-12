@@ -1,7 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.dto.response;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
-import kr.co.teambrain.marvelrun.user.event.command.application.domain.Payment;
+import kr.co.teambrain.marvelrun.user.payment.command.domain.Payment;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 
 import java.math.BigDecimal;

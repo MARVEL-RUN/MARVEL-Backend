@@ -15,50 +15,10 @@ import java.time.LocalDateTime;
 import java.util.Map;
 
 @SuperBuilder
+@MappedSuperclass
 @Getter
-@Entity
-@Table(
-        name = "payment_process_log",
-        indexes = {
-
-                @Index(
-                        name = "idx_payment_process_log_registration",
-                        columnList = "registration_id"
-                ),
-
-                @Index(
-                        name = "idx_payment_process_log_payment",
-                        columnList = "payment_id"
-                ),
-
-                @Index(
-                        name = "idx_payment_process_log_payment_cancel",
-                        columnList = "payment_cancel_id"
-                ),
-
-                @Index(
-                        name = "idx_payment_process_log_order_id",
-                        columnList = "order_id"
-                ),
-
-                @Index(
-                        name = "idx_payment_process_log_payment_key",
-                        columnList = "payment_key"
-                ),
-
-                @Index(
-                        name = "idx_payment_process_log_correlation",
-                        columnList = "correlation_id"
-                ),
-
-                @Index(
-                        name = "idx_payment_process_log_type_created",
-                        columnList = "process_type,created_at"
-                )
-        }
-)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class PaymentProcessLogBase {
+public abstract class PaymentProcessLogBase {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

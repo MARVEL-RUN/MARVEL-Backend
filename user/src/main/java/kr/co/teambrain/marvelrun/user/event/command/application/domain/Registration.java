@@ -71,4 +71,45 @@ public class Registration extends RegistrationBase<
 
                 .build();
     }
+
+    /** 결제 성공금액 반영 */
+    public void applySuccessfulPayment(
+            BigDecimal amount
+    ) {
+
+        this.paidAmount =
+                this.paidAmount.add(amount);
+
+        int comparison =
+                this.paidAmount.compareTo(
+                        this.contractAmount
+                );
+
+        if (comparison == 0) {
+
+            this.status =
+                    RegistrationStatus.CONFIRMED;
+
+            return;
+        }
+
+        if (comparison < 0) {
+
+            this.status =
+                    RegistrationStatus
+                            .ADDITIONAL_PAYMENT_REQUIRED;
+
+            return;
+        }
+
+        /*
+         * paidAmount > contractAmount는
+         * 향후 가격변경/환불 정책에서 별도 관리.
+         *
+         * Toss 승인 자체는 이미 발생했으므로 여기서
+         * RuntimeException을 던져 Transaction을 rollback하면 안 된다.
+         */
+        this.status =
+                RegistrationStatus.CONFIRMED;
+    }
 }

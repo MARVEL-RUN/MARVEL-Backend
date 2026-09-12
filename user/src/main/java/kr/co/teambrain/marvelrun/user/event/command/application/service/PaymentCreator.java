@@ -1,12 +1,12 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
-import kr.co.teambrain.marvelrun.user.event.command.application.domain.Payment;
+import kr.co.teambrain.marvelrun.user.payment.command.domain.Payment;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
-import kr.co.teambrain.marvelrun.user.event.command.application.log.domain.PaymentProcessLog;
-import kr.co.teambrain.marvelrun.user.event.command.application.log.repository.PaymentProcessLogCommandRepository;
+import kr.co.teambrain.marvelrun.user.payment.command.domain.PaymentProcessLog;
+import kr.co.teambrain.marvelrun.user.payment.command.domain.repository.PaymentProcessLogCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.application.util.PaymentOrderIdGenerator;
-import kr.co.teambrain.marvelrun.user.event.command.repository.PaymentCommandRepository;
+import kr.co.teambrain.marvelrun.user.payment.command.domain.repository.PaymentCommandRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -112,7 +112,7 @@ public class PaymentCreator {
             Registration registration
     ) {
 
-        return registration.getEvent().getName()
+        return registration.getEvent().getNameKr()
                 + " - "
                 + registration.getEventCategory().getName();
     }

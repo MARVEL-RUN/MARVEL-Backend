@@ -3,6 +3,7 @@ package kr.co.teambrain.marvelrun.user.event.command.application.domain;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import kr.co.teambrain.marvelrun.common.entity.PaymentCancelBase;
+import kr.co.teambrain.marvelrun.user.payment.command.domain.Payment;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;

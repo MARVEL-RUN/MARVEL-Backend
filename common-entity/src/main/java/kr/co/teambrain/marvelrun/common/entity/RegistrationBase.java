@@ -131,7 +131,7 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
             precision = 12,
             scale = 2
     )
-    private BigDecimal contractAmount;
+    protected BigDecimal contractAmount;
 
     /*
      * 현재 실제 순결제금액의 summary.
@@ -151,7 +151,7 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
             precision = 12,
             scale = 2
     )
-    private BigDecimal paidAmount  = BigDecimal.ZERO;
+    protected BigDecimal paidAmount  = BigDecimal.ZERO;
 
     /*
      * paidAmount / contractAmount / status의
@@ -162,7 +162,7 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
             name = "version",
             nullable = false
     )
-    private Long version;
+    protected Long version;
 
     /*
      * PAYMENT_PENDING 상태를 무기한 유지하지 않기 위한 만료시각.(대회 신청은 했으나 결제가 즉시 이루어지지 않거나 오류로 인해 취소된 경우)
@@ -170,7 +170,7 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
      * 구체적인 TTL 정책은 추후 신청 생성 로직에서 결정한다.
      */
     @Column(name = "expires_at")
-    private LocalDateTime expiresAt;
+    protected LocalDateTime expiresAt;
 
 
     /**
