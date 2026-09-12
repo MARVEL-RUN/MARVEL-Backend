@@ -33,7 +33,7 @@ replay_pid*
 build/
 
 # html
-*.html
+#*.html
 
 # produce
 *prod.yml
