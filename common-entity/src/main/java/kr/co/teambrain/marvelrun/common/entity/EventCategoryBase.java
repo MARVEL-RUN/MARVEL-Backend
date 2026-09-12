@@ -14,6 +14,9 @@ public abstract class EventCategoryBase<E extends EventBase> {
     @Column(name = "id", nullable = false, length = 40)
     protected String id;
 
+    @Column(name = "sort_order", nullable = false)
+    protected Long order;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "event_id", nullable = false)
     protected E event;

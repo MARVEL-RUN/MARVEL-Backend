@@ -22,6 +22,9 @@ public abstract class SouvenirBase<E extends EventBase> {
     @Column(name = "id", nullable = false, length = 40)
     protected String id;
 
+    @Column(name = "sort_order", nullable = false)
+    protected Long order;
+
     @Column(name = "name", nullable = false, length = 30)
     protected String name;
 

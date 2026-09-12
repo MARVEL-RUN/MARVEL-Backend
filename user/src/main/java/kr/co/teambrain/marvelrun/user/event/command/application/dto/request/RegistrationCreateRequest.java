@@ -1,14 +1,21 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.dto.request;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
+import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
+
+import java.util.List;
 
 public record RegistrationCreateRequest(
 
         @NotBlank
         String eventCategoryId,
+
+        @NotBlank
+        List<@Valid SouvenirJson> selectedSouvenirList,
 
         @NotBlank
         @Size(max = 127)
