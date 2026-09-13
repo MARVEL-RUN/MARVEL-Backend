@@ -259,7 +259,7 @@ public class PaymentConfirmTransactionService {
 
 
             return PaymentConfirmResponse.fromRegistration(
-                    context.registrationId(),
+                    registration,
                     payment
             );
         }
