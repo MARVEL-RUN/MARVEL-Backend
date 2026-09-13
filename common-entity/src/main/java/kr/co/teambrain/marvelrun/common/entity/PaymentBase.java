@@ -24,7 +24,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @SuperBuilder
 @MappedSuperclass
-public abstract class PaymentBase<R extends RegistrationBase> {
+public abstract class PaymentBase<R extends RegistrationBase, O extends OrganizationBase> {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", nullable = false, length = 40)
@@ -40,6 +40,12 @@ public abstract class PaymentBase<R extends RegistrationBase> {
             nullable = false
     )
     protected R registration;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(
+            name = "organization_id"
+    )
+    protected O organization;
 
     /*
      * 이 한 Payment에서 실제로 받으려는 금액.

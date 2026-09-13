@@ -3,13 +3,14 @@ package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
+import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationCreateContext;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationApplyValidator;
 import kr.co.teambrain.marvelrun.user.payment.command.domain.Payment;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationCreateRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.RegistrationCreateResponse;
-import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationValidator;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategoryCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
@@ -36,104 +37,71 @@ public class RegistrationCommandService {
     private final RegistrationCommandRepository
             registrationCommandRepository;
 
-    private final RegistrationValidator
-            registrationValidator;
+    private final RegistrationApplyValidator
+            registrationApplyValidator;
 
     private final PaymentCreator
             paymentCreator;
 
 
-    @Transactional // 본
+    @Transactional
     public RegistrationCreateResponse register(
             String eventId,
             RegistrationCreateRequest request
     ) {
 
         /*
-         * 1. Event 조회.
-         *
-         * Command use-case에서 Registration을 구성하기 위한
-         * 도메인 데이터이므로 EventCommandRepository 사용.
+         * 신청 생성에 필요한 Entity 조회,
+         * Event / Category / Souvenir 검증,
+         * Souvenir size 정규화까지 Validator에서 완료한다.
          */
+        RegistrationCreateContext context =
+                registrationApplyValidator
+                        .validate(
+                                eventId,
+                                request
+                        );
+
+
         Event event =
-                eventCommandRepository
-                        .findById(eventId)
-                        .orElseThrow(() ->
-                                new CustomException(ErrorCode.EVENT_NOT_FOUND)
-                        );
+                context.event();
 
 
-        /*
-         * 2. 대회 신청 가능 여부 검증.
-         *
-         * 현재 구현되어 있는 RegistrationValidator 사용.
-         */
-        registrationValidator
-                .validateEventRegistrable(event);
-
-
-        /*
-         * 3. EventCategory 조회.
-         */
         EventCategory eventCategory =
-                eventCategoryCommandRepository
-                        .findById(
-                                request.eventCategoryId()
-                        )
-                        .orElseThrow(() ->
-                                new CustomException(ErrorCode.EVENT_CATEGORY_NOT_FOUND)
-                        );
+                context.eventCategory();
 
 
-        /*
-         * 4. 해당 Event의 Category인지,
-         * 현재 신청 가능한 Category인지 검증.
-         */
-        registrationValidator
-                .validateCategory(
-                        event,
-                        eventCategory
-                );
-
-
-        /*
-         * 5. 참가비는 Client 값을 사용하지 않는다.
-         *
-         * EventCategory.amount가 Source of Truth.
-         */
         BigDecimal contractAmount =
                 eventCategory.getAmount();
 
 
-        /*
-         * 6. 최초 결제 대기 만료시각.
-         */
         LocalDateTime expiresAt =
-                calculatePaymentExpiresAt(event);
+                calculatePaymentExpiresAt(
+                        event
+                );
 
 
-        /*
-         * 7. Registration 생성.
-         */
         Registration registration =
                 Registration.createForPaymentMvp(
                         event,
                         eventCategory,
+                        context.souvenirJsons(),
                         request,
                         contractAmount,
                         expiresAt
                 );
+
 
         registrationCommandRepository.save(
                 registration
         );
 
 
-        /*
-         * 8. 최초 Payment와 PAYMENT_PREPARED 로그를
-         * 동일 Transaction에서 생성.
-         */
-        String correlationId = String.valueOf(UUID.randomUUID());
+        String correlationId =
+                UUID.randomUUID()
+                        .toString();
+
+
         Payment payment =
                 paymentCreator
                         .createInitialPayment(
@@ -142,10 +110,6 @@ public class RegistrationCommandService {
                         );
 
 
-        /*
-         * 9. Front에서 바로 Toss 결제 인증을
-         * 시작할 수 있는 데이터 반환.
-         */
         return RegistrationCreateResponse.from(
                 registration,
                 payment

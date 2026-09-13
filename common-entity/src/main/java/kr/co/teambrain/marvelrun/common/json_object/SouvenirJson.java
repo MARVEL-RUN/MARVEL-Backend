@@ -8,6 +8,5 @@ public record SouvenirJson (
     @NotBlank
     String souvenirId,
 
-    @NotBlank
     String selectedSize
 ) {}

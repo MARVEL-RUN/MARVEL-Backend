@@ -23,7 +23,7 @@ button:disabled{opacity:.5;cursor:not-allowed}pre{background:#111;color:#d7ffd7;
 <div class="card notice">
 <b>Backend 계약</b><br>
 GET /api/public/events/{eventId}/registration-options<br>
-POST /api/public/events/{eventId}/registrations 요청에 souvenirId 포함
+POST /api/public/events/{eventId}/registrations 요청에 souvenirs[] 포함
 </div>
 
 <div id="redirectResult" class="card hidden"></div>
@@ -40,6 +40,9 @@ POST /api/public/events/{eventId}/registrations 요청에 souvenirId 포함
 
 <div><label>기념품</label>
 <select id="souvenirId" disabled><option value="">먼저 종목을 선택하세요.</option></select></div>
+
+<div><label>기념품 사이즈</label>
+<select id="souvenirSize" disabled><option value="">먼저 기념품을 선택하세요.</option></select></div>
 
 <div><label>이름</label><input id="name" value="테스트신청자"></div>
 <div><label>신청 비밀번호</label><input id="password" value="1234"></div>
@@ -85,103 +88,235 @@ function log(message, data) {
 }
 
 function esc(v) {
-  return String(v ?? "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
-    .replaceAll('"',"&quot;").replaceAll("'","&#039;");
+  return String(v ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function selectedCategory() {
+  const categoryId = value("eventCategoryId");
+  if (!categoryId || !registrationOptions) return null;
+
+  return (registrationOptions.categories ?? [])
+    .find(category => category.categoryId === categoryId) ?? null;
+}
+
+function selectedSouvenir() {
+  const category = selectedCategory();
+  const souvenirId = value("souvenirId");
+
+  if (!category || !souvenirId) return null;
+
+  return (category.souvenirs ?? [])
+    .find(souvenir => souvenir.souvenirId === souvenirId) ?? null;
 }
 
 async function loadOptions() {
   const eventId = value("eventId");
   if (!eventId) throw new Error("eventId를 입력하세요.");
 
-  const res = await fetch(`${BACKEND_BASE_URL}/public/events/${encodeURIComponent(eventId)}/registration-options`);
+  const res = await fetch(
+    `${BACKEND_BASE_URL}/public/events/${encodeURIComponent(eventId)}/registration-options`
+  );
+
   const text = await res.text();
-  if (!res.ok) throw new Error(`옵션 조회 실패 (${res.status})\n${text}`);
+  if (!res.ok) {
+    throw new Error(`옵션 조회 실패 (${res.status})\n${text}`);
+  }
 
   registrationOptions = JSON.parse(text);
   $("optionsResult").textContent = JSON.stringify(registrationOptions, null, 2);
 
   $("eventCategoryId").innerHTML = '<option value="">종목을 선택하세요.</option>';
-  for (const category of registrationOptions.eventCategories ?? []) {
+
+  for (const category of registrationOptions.categories ?? []) {
     const option = document.createElement("option");
-    option.value = category.id;
-    const name = category.name ?? category.nameKr ?? category.categoryName ?? category.id;
-    option.textContent = category.amount == null ? name : `${name} / ${Number(category.amount).toLocaleString()}원`;
+    option.value = category.categoryId;
+
+    const labelParts = [];
+
+    if (category.distance) {
+      labelParts.push(category.distance);
+    }
+
+    if (category.categoryName && category.categoryName !== category.distance) {
+      labelParts.push(category.categoryName);
+    }
+
+    const name = labelParts.length > 0
+      ? labelParts.join(" / ")
+      : category.categoryId;
+
+    option.textContent = category.amount == null
+      ? name
+      : `${name} / ${Number(category.amount).toLocaleString()}원`;
+
+    if (category.isActive === false) {
+      option.disabled = true;
+      option.textContent += " / 마감";
+    }
+
     $("eventCategoryId").appendChild(option);
   }
 
   $("eventCategoryId").disabled = false;
+
   $("souvenirId").disabled = true;
   $("souvenirId").innerHTML = '<option value="">먼저 종목을 선택하세요.</option>';
+
+  $("souvenirSize").disabled = true;
+  $("souvenirSize").innerHTML = '<option value="">먼저 기념품을 선택하세요.</option>';
+
   log("신청 옵션 조회 성공", registrationOptions);
 }
 
 function refreshSouvenirs() {
-  const categoryId = value("eventCategoryId");
-  $("souvenirId").innerHTML = '<option value="">기념품을 선택하세요.</option>';
+  const category = selectedCategory();
 
-  if (!categoryId || !registrationOptions) {
+  $("souvenirId").innerHTML = '<option value="">기념품을 선택하세요.</option>';
+  $("souvenirSize").innerHTML = '<option value="">먼저 기념품을 선택하세요.</option>';
+  $("souvenirSize").disabled = true;
+
+  if (!category) {
     $("souvenirId").disabled = true;
     return;
   }
 
-  const allowed = new Set(
-    (registrationOptions.eventCategorySouvenirs ?? [])
-      .filter(x => x.eventCategoryId === categoryId)
-      .map(x => x.souvenirId)
-  );
-
-  for (const souvenir of (registrationOptions.souvenirs ?? []).filter(x => allowed.has(x.id))) {
+  for (const souvenir of category.souvenirs ?? []) {
     const option = document.createElement("option");
-    option.value = souvenir.id;
-    option.textContent = souvenir.name ?? souvenir.souvenirName ?? souvenir.id;
+    option.value = souvenir.souvenirId;
+    option.textContent = souvenir.name ?? souvenir.souvenirId;
     $("souvenirId").appendChild(option);
   }
 
   $("souvenirId").disabled = false;
 }
 
+function refreshSouvenirSizes() {
+  const souvenir = selectedSouvenir();
+
+  $("souvenirSize").innerHTML = '<option value="">사이즈를 선택하세요.</option>';
+
+  if (!souvenir) {
+    $("souvenirSize").disabled = true;
+    return;
+  }
+
+  const sizes = Array.isArray(souvenir.sizes) && souvenir.sizes.length > 0
+    ? souvenir.sizes
+    : ["FREE"];
+
+  for (const size of sizes) {
+    const option = document.createElement("option");
+    option.value = size;
+    option.textContent = size;
+    $("souvenirSize").appendChild(option);
+  }
+
+  $("souvenirSize").disabled = false;
+
+  if (sizes.length === 1) {
+    $("souvenirSize").value = sizes[0];
+  }
+}
+
 async function prepareRegistration() {
   const clientKey = value("clientKey");
   const eventId = value("eventId");
-  if (!clientKey.startsWith("test_gck_")) throw new Error("테스트 Client Key를 입력하세요.");
-  if (!eventId) throw new Error("eventId를 입력하세요.");
-  if (!value("eventCategoryId")) throw new Error("종목을 선택하세요.");
-  if (!value("souvenirId")) throw new Error("기념품을 선택하세요.");
+  const eventCategoryId = value("eventCategoryId");
+  const souvenirId = value("souvenirId");
+  const selectedSize = value("souvenirSize");
 
-  localStorage.setItem("marvelrun_toss_test_client_key", clientKey);
+  if (!clientKey.startsWith("test_gck_")) {
+    throw new Error("테스트 Client Key를 입력하세요.");
+  }
 
-  const body = {
-    eventCategoryId: value("eventCategoryId"),
-    souvenirId: value("souvenirId"),
-    password: value("password"),
-    name: value("name"),
-    phNum: value("phNum"),
-    birth: value("birth"),
-    gender: value("gender"),
-    address: value("address"),
-    addressDetail: value("addressDetail")
-  };
+  if (!eventId) {
+    throw new Error("eventId를 입력하세요.");
+  }
 
-  const res = await fetch(`${BACKEND_BASE_URL}/public/events/${encodeURIComponent(eventId)}/registrations`, {
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify(body)
-  });
+  if (!eventCategoryId) {
+    throw new Error("종목을 선택하세요.");
+  }
+
+  if (!souvenirId) {
+    throw new Error("기념품을 선택하세요.");
+  }
+
+  if (!selectedSize) {
+    throw new Error("기념품 사이즈를 선택하세요.");
+  }
+
+  localStorage.setItem(
+    "marvelrun_toss_test_client_key",
+    clientKey
+  );
+
+    const body = {
+        eventCategoryId,
+
+        selectedSouvenirList: [
+            {
+                souvenirId,
+                selectedSize
+            }
+        ],
+
+        password: value("password"),
+        name: value("name"),
+        phNum: value("phNum"),
+        birth: value("birth"),
+        gender: value("gender"),
+        address: value("address"),
+        addressDetail: value("addressDetail")
+    };
+
+  log("Registration 요청", body);
+
+  const res = await fetch(
+    `${BACKEND_BASE_URL}/public/events/${encodeURIComponent(eventId)}/registrations`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    }
+  );
 
   const text = await res.text();
-  if (!res.ok) throw new Error(`Registration 실패 (${res.status})\n${text}`);
+
+  if (!res.ok) {
+    throw new Error(`Registration 실패 (${res.status})\n${text}`);
+  }
 
   registrationResponse = JSON.parse(text);
   $("registrationResult").textContent = JSON.stringify(registrationResponse, null, 2);
   log("Registration + Payment READY 생성 성공", registrationResponse);
 
   const tossPayments = TossPayments(clientKey);
-  widgets = tossPayments.widgets({customerKey:TossPayments.ANONYMOUS});
 
-  await widgets.setAmount({currency:"KRW", value:Number(registrationResponse.paymentAmount)});
+  widgets = tossPayments.widgets({
+    customerKey: TossPayments.ANONYMOUS
+  });
+
+  await widgets.setAmount({
+    currency: "KRW",
+    value: Number(registrationResponse.paymentAmount)
+  });
+
   await Promise.all([
-    widgets.renderPaymentMethods({selector:"#payment-method", variantKey:"DEFAULT"}),
-    widgets.renderAgreement({selector:"#agreement", variantKey:"AGREEMENT"})
+    widgets.renderPaymentMethods({
+      selector: "#payment-method",
+      variantKey: "DEFAULT"
+    }),
+    widgets.renderAgreement({
+      selector: "#agreement",
+      variantKey: "AGREEMENT"
+    })
   ]);
 
   $("paymentSection").classList.remove("hidden");
@@ -189,7 +324,12 @@ async function prepareRegistration() {
 }
 
 async function requestPayment() {
+  if (!widgets || !registrationResponse) {
+    throw new Error("먼저 참가 신청을 생성하세요.");
+  }
+
   const callbackPage = `${window.location.origin}/api/toss-test.html`;
+
   await widgets.requestPayment({
     orderId: registrationResponse.orderId,
     orderName: registrationResponse.orderName,
@@ -202,7 +342,10 @@ async function requestPayment() {
 async function handleRedirect() {
   const q = new URLSearchParams(location.search);
   const result = q.get("result");
-  if (!result) return;
+
+  if (!result) {
+    return;
+  }
 
   $("registrationSection").classList.add("hidden");
   $("paymentSection").classList.add("hidden");
@@ -211,7 +354,9 @@ async function handleRedirect() {
   if (result === "fail") {
     $("redirectResult").classList.add("error");
     $("redirectResult").innerHTML = `<h2>Toss 인증 실패 또는 취소</h2><pre>${esc(JSON.stringify({
-      code:q.get("code"), message:q.get("message"), orderId:q.get("orderId")
+      code: q.get("code"),
+      message: q.get("message"),
+      orderId: q.get("orderId")
     }, null, 2))}</pre>`;
     return;
   }
@@ -220,13 +365,23 @@ async function handleRedirect() {
   const orderId = q.get("orderId");
   const amount = q.get("amount");
 
-  const res = await fetch(`${BACKEND_BASE_URL}/public/payments/confirm`, {
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({paymentKey, orderId, amount:Number(amount)})
-  });
+  const res = await fetch(
+    `${BACKEND_BASE_URL}/public/payments/confirm`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        paymentKey,
+        orderId,
+        amount: Number(amount)
+      })
+    }
+  );
 
   const text = await res.text();
+
   if (!res.ok) {
     $("redirectResult").classList.add("error");
     $("redirectResult").innerHTML = `<h2>Backend confirm 실패</h2><pre>${esc(text)}</pre>`;
@@ -234,17 +389,53 @@ async function handleRedirect() {
   }
 
   const data = JSON.parse(text);
+
   $("redirectResult").classList.add("success");
   $("redirectResult").innerHTML = `<h2>결제 승인 완료</h2><pre>${esc(JSON.stringify(data, null, 2))}</pre>`;
 }
 
-$("loadOptionsBtn").addEventListener("click", async()=>{try{await loadOptions()}catch(e){alert(e.message);log("옵션 조회 실패",{message:e.message})}});
-$("eventCategoryId").addEventListener("change", refreshSouvenirs);
-$("prepareBtn").addEventListener("click", async()=>{try{await prepareRegistration()}catch(e){alert(e.message);log("신청 실패",{message:e.message})}});
-$("payBtn").addEventListener("click", async()=>{try{await requestPayment()}catch(e){alert(e.message);log("결제창 호출 실패",{message:e.message})}});
+$("loadOptionsBtn").addEventListener("click", async () => {
+  try {
+    await loadOptions();
+  } catch (e) {
+    alert(e.message);
+    log("옵션 조회 실패", {message: e.message});
+  }
+});
 
-const savedKey = localStorage.getItem("marvelrun_toss_test_client_key");
-if (savedKey) $("clientKey").value = savedKey;
+$("eventCategoryId").addEventListener("change", () => {
+  refreshSouvenirs();
+});
+
+$("souvenirId").addEventListener("change", () => {
+  refreshSouvenirSizes();
+});
+
+$("prepareBtn").addEventListener("click", async () => {
+  try {
+    await prepareRegistration();
+  } catch (e) {
+    alert(e.message);
+    log("신청 실패", {message: e.message});
+  }
+});
+
+$("payBtn").addEventListener("click", async () => {
+  try {
+    await requestPayment();
+  } catch (e) {
+    alert(e.message);
+    log("결제창 호출 실패", {message: e.message});
+  }
+});
+
+const savedKey = localStorage.getItem(
+  "marvelrun_toss_test_client_key"
+);
+
+if (savedKey) {
+  $("clientKey").value = savedKey;
+}
 
 handleRedirect();
 </script>

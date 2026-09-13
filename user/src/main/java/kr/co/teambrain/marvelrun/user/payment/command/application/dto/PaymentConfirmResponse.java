@@ -1,50 +1,70 @@
 package kr.co.teambrain.marvelrun.user.payment.command.application.dto;
 
-import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.TossPaymentStatus;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.payment.command.domain.Payment;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.util.List;
 
 public record PaymentConfirmResponse(
 
         String paymentId,
 
-        PaymentProcessStatus paymentStatus,
-
-        TossPaymentStatus tossStatus,
-
         String registrationId,
 
-        RegistrationStatus registrationStatus,
+        String organizationId,
 
-        BigDecimal paidAmount,
+        List<String> registrationIds,
 
-        LocalDateTime approvedAt,
+        String orderId,
 
-        String receiptUrl
+        BigDecimal amount,
 
+        PaymentProcessStatus processStatus
 ) {
 
-    public static PaymentConfirmResponse from(
-            Registration registration,
+    public static PaymentConfirmResponse fromRegistration(
+            String registrationId,
             Payment payment
     ) {
 
         return new PaymentConfirmResponse(
                 payment.getId(),
-                payment.getProcessStatus(),
-                payment.getTossStatus(),
+                registrationId,
+                null,
+                null,
+                payment.getOrderId(),
+                payment.getAmount(),
+                payment.getProcessStatus()
+        );
+    }
 
-                registration.getId(),
-                registration.getStatus(),
-                registration.getPaidAmount(),
 
-                payment.getApprovedAt(),
-                payment.getReceiptUrl()
+    public static PaymentConfirmResponse fromOrganization(
+            String organizationId,
+            List<Registration> registrations,
+            Payment payment
+    ) {
+
+        List<String> registrationIds =
+                registrations.stream()
+                        .map(
+                                Registration::getId
+                        )
+                        .toList();
+
+
+        return new PaymentConfirmResponse(
+                payment.getId(),
+                null,
+                organizationId,
+                List.copyOf(
+                        registrationIds
+                ),
+                payment.getOrderId(),
+                payment.getAmount(),
+                payment.getProcessStatus()
         );
     }
 }

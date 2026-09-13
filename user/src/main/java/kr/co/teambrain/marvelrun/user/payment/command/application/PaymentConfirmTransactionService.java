@@ -6,6 +6,7 @@ import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_log.Payme
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
+import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentConfirmContext;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentConfirmRequest;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentConfirmResponse;
@@ -21,6 +22,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -32,27 +35,19 @@ public class PaymentConfirmTransactionService {
     private final PaymentProcessLogCommandRepository
             paymentProcessLogCommandRepository;
 
+    private final RegistrationCommandRepository
+            registrationCommandRepository;
 
-    /*
-     * Tx 1
-     *
-     * Toss 호출 전
-     * READY → CONFIRMING
-     */
+
     /**
-     * Toss confirm 호출 직전에 수행하는 첫 번째 DB Transaction.
+     * Tx1.
      *
-     * 역할:
-     * 1. orderId 기준 Payment 조회
-     * 2. Client가 전달한 amount와 서버 Payment.amount 정합성 검증
-     * 3. READY 상태의 Payment만 confirm 가능하도록 검증
-     * 4. Toss 인증으로 발급된 paymentKey를 Payment에 선저장
-     * 5. Payment 상태를 READY -> CONFIRMING으로 변경
-     * 6. CONFIRM_REQUESTED 로그 저장
-     * 7. Transaction 밖의 Toss HTTP 호출에 필요한 값만 Context로 반환
+     * Toss confirm HTTP 호출 전에
+     * Payment의 현재 상태와 Client 요청값을 검증하고
+     * READY -> CONFIRMING 상태로 전환한다.
      *
-     * 이 메서드 안에서는 Toss HTTP 요청을 절대 수행하지 않는다.
-     * 메서드 종료와 함께 Tx1이 COMMIT된 뒤 외부 Toss API를 호출한다.
+     * 이 메서드 종료 후 Transaction은 COMMIT된다.
+     * Toss HTTP는 이 Transaction 밖에서 수행한다.
      */
     @Transactional
     public PaymentConfirmContext beginConfirm(
@@ -72,16 +67,18 @@ public class PaymentConfirmTransactionService {
                         );
 
 
-        /*
-         * Client가 가져온 amount는 신뢰하지 않는다.
-         */
         BigDecimal requestedAmount =
                 BigDecimal.valueOf(
                         request.amount()
                 );
 
-        if (payment.getAmount()
-                .compareTo(requestedAmount) != 0) {
+
+        if (
+                payment.getAmount()
+                        .compareTo(
+                                requestedAmount
+                        ) != 0
+        ) {
 
             throw new CustomException(
                     ErrorCode.PAYMENT_AMOUNT_MISMATCH
@@ -89,14 +86,10 @@ public class PaymentConfirmTransactionService {
         }
 
 
-        /*
-         * 최초 confirm만 허용.
-         *
-         * CONFIRMING / COMPLETED / UNKNOWN 등이면
-         * 중복 HTTP 호출을 바로 발생시키지 않는다.
-         */
-        if (payment.getProcessStatus()
-                != PaymentProcessStatus.READY) {
+        if (
+                payment.getProcessStatus()
+                        != PaymentProcessStatus.READY
+        ) {
 
             throw new CustomException(
                     ErrorCode.PAYMENT_NOT_CONFIRMABLE
@@ -104,22 +97,65 @@ public class PaymentConfirmTransactionService {
         }
 
 
-        /*
-         * paymentKey를 Toss 호출 전에 저장한다.
-         *
-         * 이후 프로세스가 죽더라도
-         * reconciliation에서 Toss Payment 조회에 사용 가능.
-         */
+        validatePaymentTargetBeforeConfirm(
+                payment
+        );
+
+
+        String registrationId =
+                resolveRegistrationId(
+                        payment
+                );
+
+
+        String organizationId =
+                resolveOrganizationId(
+                        payment
+                );
+
+
         payment.startConfirm(
                 request.paymentKey()
         );
 
 
         PaymentProcessLog processLog =
-                PaymentProcessLog.confirmRequested(
-                        payment,
-                        correlationId
-                );
+                PaymentProcessLog.builder()
+
+                        .registrationId(
+                                registrationId
+                        )
+
+                        .paymentId(
+                                payment.getId()
+                        )
+
+                        .orderId(
+                                payment.getOrderId()
+                        )
+
+                        .paymentKey(
+                                payment.getPaymentKey()
+                        )
+
+                        .idempotencyKey(
+                                payment.getConfirmIdempotencyKey()
+                        )
+
+                        .correlationId(
+                                correlationId
+                        )
+
+                        .processType(
+                                PaymentProcessType.CONFIRM_REQUESTED
+                        )
+
+                        .source(
+                                PaymentProcessSource.API
+                        )
+
+                        .build();
+
 
         paymentProcessLogCommandRepository.save(
                 processLog
@@ -128,39 +164,30 @@ public class PaymentConfirmTransactionService {
 
         return new PaymentConfirmContext(
                 payment.getId(),
-                payment.getRegistration().getId(),
+                registrationId,
+                organizationId,
                 payment.getPaymentKey(),
                 payment.getOrderId(),
-                payment.getAmount().longValueExact(),
+                payment.getAmount()
+                        .longValueExact(),
                 payment.getConfirmIdempotencyKey(),
                 correlationId
         );
     }
 
 
-    /*
-     * Tx 2
-     *
-     * Toss confirm 성공에 따른 Payment 처리내역
-     * CONFIRMING -> COMPLETED
-     */
     /**
-     * Toss confirm API가 HTTP 성공 응답을 반환한 이후 수행하는 두 번째 DB Transaction.
+     * Tx2.
      *
-     * 역할:
-     * 1. Payment를 다시 조회
-     * 2. Toss 성공 응답과 Tx1에서 확정한 Payment 정보 재검증
-     * 3. Payment를 CONFIRMING -> COMPLETED로 변경
-     * 4. Toss 결제상태, 결제수단, 승인시각, transactionKey 등을 반영
-     * 5. Registration.paidAmount 및 RegistrationStatus 갱신
-     * 6. CONFIRM_SUCCEEDED 로그 저장
-     * 7. 최종 API 응답 DTO 생성
+     * Toss confirm HTTP가 성공한 이후
+     * MarvelRun DB에 승인 성공을 확정한다.
      *
-     * Toss 성공 응답의 정합성이 맞지 않으면
-     * InvalidTossSuccessResponseException을 발생시켜 이 Transaction을 rollback한다.
+     * 개인 Payment:
+     * Registration 한 건에 Payment.amount를 반영한다.
      *
-     * 호출 Orchestrator는 해당 예외를 잡고 별도의 Transaction에서
-     * Payment를 UNKNOWN으로 전환해야 한다.
+     * 단체 Payment:
+     * Organization 소속 Registration 전체를 조회하고,
+     * 각 Registration 자신의 contractAmount를 paidAmount에 반영한다.
      */
     @Transactional
     public PaymentConfirmResponse completeConfirm(
@@ -170,7 +197,9 @@ public class PaymentConfirmTransactionService {
 
         Payment payment =
                 paymentCommandRepository
-                        .findById(context.paymentId())
+                        .findById(
+                                context.paymentId()
+                        )
                         .orElseThrow(
                                 () -> new CustomException(
                                         ErrorCode.PAYMENT_NOT_FOUND
@@ -179,12 +208,82 @@ public class PaymentConfirmTransactionService {
 
 
         /*
-         * Toss HTTP는 성공했지만
-         * 실제 response도 우리 Payment와 동일한지 최종 검증.
+         * Tx1 이후 DB target이 비정상적으로 변경되었는지 검증.
+         *
+         * 이 시점은 Toss HTTP 200 이후이므로
+         * 문제 발견 시 단순 FAILED가 아니라 UNKNOWN 복구 흐름으로 보내야 한다.
+         */
+        validatePaymentTargetAfterTossSuccess(
+                payment
+        );
+
+
+        validateContextTarget(
+                context,
+                payment
+        );
+
+
+        /*
+         * Toss가 반환한 결제 정보가
+         * Tx1에서 검증한 Payment와 동일한지 검증한다.
          */
         validateSuccessResponse(
                 context,
                 tossResponse
+        );
+
+
+        if (
+                payment.isRegistrationPayment()
+        ) {
+
+            Registration registration =
+                    payment.getRegistration();
+
+
+            payment.completeConfirm(
+                    tossResponse
+            );
+
+
+            registration.applySuccessfulPayment(
+                    payment.getAmount()
+            );
+
+
+            saveConfirmSucceededLog(
+                    context,
+                    payment
+            );
+
+
+            return PaymentConfirmResponse.fromRegistration(
+                    context.registrationId(),
+                    payment
+            );
+        }
+
+
+        List<Registration> registrations =
+                registrationCommandRepository
+                        .findAllByOrganization_Id(
+                                context.organizationId()
+                        );
+
+
+        /*
+         * Toss에서는 이미 승인에 성공했다.
+         *
+         * 그런데 현재 Organization의 Registration 합계와
+         * 실제 결제금액이 다르다면 로컬 정합성이 깨진 상태다.
+         *
+         * 이 경우 Transaction을 rollback시키고
+         * 호출 Orchestrator가 Payment를 UNKNOWN으로 전환한다.
+         */
+        validateOrganizationPaymentAmount(
+                payment,
+                registrations
         );
 
 
@@ -193,43 +292,34 @@ public class PaymentConfirmTransactionService {
         );
 
 
-        Registration registration =
-                payment.getRegistration();
+        for (
+                Registration registration
+                : registrations
+        ) {
+
+            registration.applySuccessfulPayment(
+                    registration.getContractAmount()
+            );
+        }
 
 
-        registration.applySuccessfulPayment(
-                payment.getAmount()
+        saveConfirmSucceededLog(
+                context,
+                payment
         );
 
 
-        paymentProcessLogCommandRepository.save(
-                PaymentProcessLog.confirmSucceeded(
-                        payment,
-                        context.correlationId()
-                )
-        );
-
-
-        return PaymentConfirmResponse.from(
-                registration,
+        return PaymentConfirmResponse.fromOrganization(
+                context.organizationId(),
+                registrations,
                 payment
         );
     }
 
 
     /**
-     * Toss로부터 "결제가 실제로 완료되지 않았음"을 명확하게 확인한 경우
-     * Payment를 FAILED로 확정하는 Transaction.
-     *
-     * 역할:
-     * 1. Payment 재조회
-     * 2. processStatus를 FAILED로 변경
-     * 3. Toss HTTP status / errorCode / errorMessage를 포함한
-     *    CONFIRM_FAILED 로그 저장
-     *
-     * timeout, 연결 종료, 결과가 불명확한 응답 등
-     * 실제 승인 여부를 확정할 수 없는 상황에서는 이 메서드를 사용하면 안 된다.
-     * 그러한 경우에는 markConfirmUnknown()을 사용한다.
+     * Toss가 결제를 실제로 완료하지 않았다는 사실을
+     * 명확히 반환한 경우 FAILED 처리한다.
      */
     @Transactional
     public void failConfirm(
@@ -242,7 +332,12 @@ public class PaymentConfirmTransactionService {
                         .findById(
                                 context.paymentId()
                         )
-                        .orElseThrow();
+                        .orElseThrow(
+                                () -> new CustomException(
+                                        ErrorCode.PAYMENT_NOT_FOUND
+                                )
+                        );
+
 
         payment.failConfirm();
 
@@ -297,29 +392,17 @@ public class PaymentConfirmTransactionService {
                         .build();
 
 
-        paymentProcessLogCommandRepository.save(log);
+        paymentProcessLogCommandRepository.save(
+                log
+        );
     }
 
+
     /**
-     * Toss 결제가 실제로 성공했는지 실패했는지
-     * 현재 MarvelRun 서버가 확정할 수 없는 경우 사용하는 Transaction.
+     * Toss 결제 성공/실패 여부를
+     * 현재 MarvelRun이 확정할 수 없는 경우 UNKNOWN 처리한다.
      *
-     * 대표적인 대상:
-     * - Toss confirm 요청 이후 Read Timeout
-     * - Connection Reset 등 응답 유실
-     * - 이미 처리된 결제(ALREADY_PROCESSED_PAYMENT)
-     * - Toss 성공 응답을 받았지만 로컬 데이터와 정합성이 맞지 않는 경우
-     *
-     * 역할:
-     * 1. Payment 재조회
-     * 2. processStatus를 UNKNOWN으로 변경
-     * 3. CONFIRM_UNKNOWN 로그 저장
-     *
-     * UNKNOWN에서는 Registration.paidAmount를 임의로 증가시키거나
-     * 새로운 Payment를 즉시 생성하면 안 된다.
-     *
-     * 이후 동일 Idempotency-Key 재시도 또는
-     * Toss 결제 조회/Reconciliation으로 실제 금융 상태를 확정한다.
+     * 이 단계에서는 Registration의 paidAmount를 변경하지 않는다.
      */
     @Transactional
     public void markConfirmUnknown(
@@ -333,7 +416,12 @@ public class PaymentConfirmTransactionService {
                         .findById(
                                 context.paymentId()
                         )
-                        .orElseThrow();
+                        .orElseThrow(
+                                () -> new CustomException(
+                                        ErrorCode.PAYMENT_NOT_FOUND
+                                )
+                        );
+
 
         payment.markConfirmUnknown();
 
@@ -373,71 +461,323 @@ public class PaymentConfirmTransactionService {
                                 PaymentProcessSource.API
                         )
 
-                        .errorCode(errorCode)
-                        .errorMessage(errorMessage)
+                        .errorCode(
+                                errorCode
+                        )
+
+                        .errorMessage(
+                                errorMessage
+                        )
 
                         .build();
 
 
-        paymentProcessLogCommandRepository.save(log);
+        paymentProcessLogCommandRepository.save(
+                log
+        );
     }
 
 
-    /* toss -> 서버로 응답받은 '성공 내역' 검증
-     * 단, 여기서  Exception을 던져도 외부로 보내면 안된다.
-     * Toss에서 200 떴으면 거기선 결제 되었는데, 우리쪽에서 문제가 발생하는 식으로 정합성 깨질 수 있음
-     * */
     /**
-     * Toss confirm 성공 응답이 Tx1에서 확정한 Payment와
-     * 동일한 결제인지 최종 검증한다.
+     * Toss 호출 전에 Payment target XOR을 검증한다.
      *
-     * 검증 대상:
-     * - paymentKey
-     * - orderId
-     * - totalAmount
-     * - Toss payment status == DONE
+     * Toss 호출 전이므로 잘못된 Payment는
+     * PAYMENT_NOT_CONFIRMABLE로 즉시 차단한다.
+     */
+    private void validatePaymentTargetBeforeConfirm(
+            Payment payment
+    ) {
+
+        boolean hasRegistration =
+                payment.isRegistrationPayment();
+
+
+        boolean hasOrganization =
+                payment.isOrgPayment();
+
+
+        if (
+                hasRegistration
+                        == hasOrganization
+        ) {
+
+            throw new CustomException(
+                    ErrorCode.PAYMENT_NOT_CONFIRMABLE
+            );
+        }
+    }
+
+
+    /**
+     * Toss HTTP 성공 이후 Payment target의 정합성을 검증한다.
      *
-     * 하나라도 일치하지 않으면 InvalidTossSuccessResponseException을 발생시킨다.
+     * 이미 외부 금융승인이 발생했을 수 있으므로
+     * 이 시점의 불일치는 FAILED가 아니라 UNKNOWN 대상이다.
+     */
+    private void validatePaymentTargetAfterTossSuccess(
+            Payment payment
+    ) {
+
+        boolean hasRegistration =
+                payment.isRegistrationPayment();
+
+
+        boolean hasOrganization =
+                payment.isOrgPayment();
+
+
+        if (
+                hasRegistration
+                        == hasOrganization
+        ) {
+
+            throw new InvalidTossSuccessResponseException();
+        }
+    }
+
+
+    /**
+     * Tx1에서 확정한 target과
+     * Tx2에서 다시 조회한 Payment target이 동일한지 검증한다.
+     */
+    private void validateContextTarget(
+            PaymentConfirmContext context,
+            Payment payment
+    ) {
+
+        if (
+                payment.isRegistrationPayment()
+        ) {
+
+            String registrationId =
+                    resolveRegistrationId(
+                            payment
+                    );
+
+
+            if (
+                    !Objects.equals(
+                            context.registrationId(),
+                            registrationId
+                    )
+                            || context.organizationId() != null
+            ) {
+
+                throw new InvalidTossSuccessResponseException();
+            }
+
+
+            return;
+        }
+
+
+        String organizationId =
+                resolveOrganizationId(
+                        payment
+                );
+
+
+        if (
+                !Objects.equals(
+                        context.organizationId(),
+                        organizationId
+                )
+                        || context.registrationId() != null
+        ) {
+
+            throw new InvalidTossSuccessResponseException();
+        }
+    }
+
+
+    /**
+     * 단체 최초 결제금액과
+     * 현재 Organization 소속 Registration 계약금액 합계를 비교한다.
+     */
+    private void validateOrganizationPaymentAmount(
+            Payment payment,
+            List<Registration> registrations
+    ) {
+
+        if (
+                registrations == null
+                        || registrations.isEmpty()
+        ) {
+
+            throw new InvalidTossSuccessResponseException();
+        }
+
+
+        BigDecimal totalContractAmount =
+                registrations.stream()
+
+                        .map(
+                                Registration::getContractAmount
+                        )
+
+                        .reduce(
+                                BigDecimal.ZERO,
+                                BigDecimal::add
+                        );
+
+
+        if (
+                totalContractAmount.compareTo(
+                        payment.getAmount()
+                ) != 0
+        ) {
+
+            throw new InvalidTossSuccessResponseException();
+        }
+    }
+
+
+    /**
+     * 개인 Payment의 Registration target ID.
      *
-     * 주의:
-     * 이 검증은 Toss HTTP 200 이후 수행되므로
-     * 실패했다고 Payment를 FAILED 처리하면 안 된다.
+     * 일반적인 Hibernate LAZY Proxy에서는
+     * getId()만으로 대상 Entity 본문 SELECT가 발생하지 않는다.
+     */
+    private String resolveRegistrationId(
+            Payment payment
+    ) {
+
+        if (
+                !payment.isRegistrationPayment()
+        ) {
+
+            return null;
+        }
+
+
+        return payment.getRegistration()
+                .getId();
+    }
+
+
+    /**
+     * 단체 Payment의 Organization target ID.
+     */
+    private String resolveOrganizationId(
+            Payment payment
+    ) {
+
+        if (
+                !payment.isOrgPayment()
+        ) {
+
+            return null;
+        }
+
+
+        return payment.getOrganization()
+                .getId();
+    }
+
+
+    /**
+     * 승인 성공 로그 저장.
      *
-     * Toss에서는 이미 금융 승인이 완료되었을 수 있으므로
-     * 호출자가 UNKNOWN으로 전환한 뒤 실제 Toss 상태를 재확인해야 한다.
+     * 현재 PaymentProcessLog에는 organizationId 필드가 없으므로
+     * 단체 Payment는 registrationId=null로 기록하고
+     * paymentId를 금융 처리의 기준 식별자로 사용한다.
+     */
+    private void saveConfirmSucceededLog(
+            PaymentConfirmContext context,
+            Payment payment
+    ) {
+
+        PaymentProcessLog processLog =
+                PaymentProcessLog.builder()
+
+                        .registrationId(
+                                context.registrationId()
+                        )
+
+                        .paymentId(
+                                payment.getId()
+                        )
+
+                        .orderId(
+                                payment.getOrderId()
+                        )
+
+                        .paymentKey(
+                                payment.getPaymentKey()
+                        )
+
+                        .idempotencyKey(
+                                payment.getConfirmIdempotencyKey()
+                        )
+
+                        .correlationId(
+                                context.correlationId()
+                        )
+
+                        .processType(
+                                PaymentProcessType.CONFIRM_SUCCEEDED
+                        )
+
+                        .source(
+                                PaymentProcessSource.API
+                        )
+
+                        .build();
+
+
+        paymentProcessLogCommandRepository.save(
+                processLog
+        );
+    }
+
+
+    /**
+     * Toss confirm 성공 응답이
+     * Tx1에서 확정한 Payment와 동일한 결제인지 검증한다.
      */
     private void validateSuccessResponse(
             PaymentConfirmContext context,
             TossPaymentConfirmResponse response
     ) {
 
-        if (!context.paymentKey()
-                .equals(response.paymentKey())) {
+        if (
+                !context.paymentKey()
+                        .equals(
+                                response.paymentKey()
+                        )
+        ) {
 
             throw new InvalidTossSuccessResponseException();
         }
 
 
-        if (!context.orderId()
-                .equals(response.orderId())) {
+        if (
+                !context.orderId()
+                        .equals(
+                                response.orderId()
+                        )
+        ) {
 
             throw new InvalidTossSuccessResponseException();
         }
 
 
-        if (context.amount()
-                != response.totalAmount()) {
+        if (
+                context.amount()
+                        != response.totalAmount()
+        ) {
 
             throw new InvalidTossSuccessResponseException();
         }
 
 
-        if (!"DONE".equals(
-                response.status()
-        )) {
+        if (
+                !"DONE".equals(
+                        response.status()
+                )
+        ) {
 
             throw new InvalidTossSuccessResponseException();
         }
     }
-
 }

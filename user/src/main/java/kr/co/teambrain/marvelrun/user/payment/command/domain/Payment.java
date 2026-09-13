@@ -9,6 +9,7 @@ import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProce
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.TossPaymentStatus;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.payment.command.infrastructure.toss.dto.TossPaymentConfirmResponse;
 import lombok.Getter;
@@ -27,9 +28,9 @@ import static lombok.AccessLevel.PROTECTED;
 @Table(name = "payment")
 @NoArgsConstructor(access = PROTECTED)
 public class Payment
-        extends PaymentBase<Registration> {
+        extends PaymentBase<Registration, Organization> {
 
-    public static Payment prepare(
+    public static Payment createInitial(
             Registration registration,
             String orderId,
             String orderName,
@@ -39,7 +40,48 @@ public class Payment
     ) {
 
         return Payment.builder()
-                .registration(registration)
+                .registration(
+                        registration
+                )
+                .organization(
+                        null
+                )
+
+                .orderId(orderId)
+                .orderName(orderName)
+
+                .amount(amount)
+                .purpose(purpose)
+
+                .processStatus(
+                        PaymentProcessStatus.READY
+                )
+
+                .confirmIdempotencyKey(
+                        confirmIdempotencyKey
+                )
+
+                .build();
+    }
+
+    public static Payment createOrgInitial(
+            Organization organization,
+            BigDecimal amount,
+            String orderId,
+            String orderName,
+            PaymentPurpose purpose,
+            String confirmIdempotencyKey
+    ) {
+
+        return Payment.builder()
+
+                .registration(
+                        null
+                )
+
+                .organization(
+                        organization
+                )
 
                 .orderId(orderId)
                 .orderName(orderName)
@@ -119,6 +161,18 @@ public class Payment
 
         this.processStatus =
                 PaymentProcessStatus.UNKNOWN;
+    }
+
+    /** 타겟 검증 - 개인신청 기준인지 */
+    public boolean isRegistrationPayment() {
+
+        return registration != null;
+    }
+
+    /** 타겟 검증 - 단체신청 기준인지 */
+    public boolean isOrgPayment() {
+
+        return organization != null;
     }
 
 

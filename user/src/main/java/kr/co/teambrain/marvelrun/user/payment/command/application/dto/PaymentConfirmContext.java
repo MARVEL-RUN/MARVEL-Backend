@@ -6,6 +6,8 @@ public record PaymentConfirmContext(
 
         String registrationId,
 
+        String organizationId,
+
         String paymentKey,
 
         String orderId,
@@ -15,6 +17,5 @@ public record PaymentConfirmContext(
         String idempotencyKey,
 
         String correlationId
-
 ) {
 }

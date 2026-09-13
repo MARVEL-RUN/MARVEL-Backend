@@ -1,31 +1,41 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
-import kr.co.teambrain.marvelrun.user.payment.command.domain.Payment;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_log.PaymentProcessSource;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_log.PaymentProcessType;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
-import kr.co.teambrain.marvelrun.user.payment.command.domain.PaymentProcessLog;
-import kr.co.teambrain.marvelrun.user.payment.command.domain.repository.PaymentProcessLogCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.application.util.PaymentOrderIdGenerator;
+import kr.co.teambrain.marvelrun.user.payment.command.domain.Payment;
+import kr.co.teambrain.marvelrun.user.payment.command.domain.PaymentProcessLog;
 import kr.co.teambrain.marvelrun.user.payment.command.domain.repository.PaymentCommandRepository;
+import kr.co.teambrain.marvelrun.user.payment.command.domain.repository.PaymentProcessLogCommandRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
-/** 본 클래스는 의도적으로 Transactional을 소유하지 않으므로, Service 가 아닌 Creator로 명명합니다. */
+/**
+ * 본 클래스는 의도적으로 Transactional을 소유하지 않으므로,
+ * Service가 아닌 Creator로 명명한다.
+ */
 @Component
 @RequiredArgsConstructor
 public class PaymentCreator {
 
-    private final PaymentCommandRepository paymentCommandRepository;
+    private final PaymentCommandRepository
+            paymentCommandRepository;
 
-    private final PaymentProcessLogCommandRepository paymentProcessLogCommandRepository;
+    private final PaymentProcessLogCommandRepository
+            paymentProcessLogCommandRepository;
 
-    private final PaymentOrderIdGenerator paymentOrderIdGenerator;
+    private final PaymentOrderIdGenerator
+            paymentOrderIdGenerator;
 
 
     /**
-     * 최초 참가 신청에 대한 Payment를 생성한다.
+     * 개인 최초 참가 신청에 대한 Payment를 생성한다.
      *
      * 별도의 Transaction을 열지 않고
      * RegistrationCommandService의 Transaction에 참여한다.
@@ -38,36 +48,33 @@ public class PaymentCreator {
         String orderId =
                 paymentOrderIdGenerator.generate();
 
-        String orderName =
-                createOrderName(registration);
 
-        /*
-         * 이후 Toss confirm 요청에서 사용할 멱등키.
-         *
-         * Payment 생성 시 한 번 발급하고,
-         * 동일 Payment confirm 재시도 시 새로 만들지 않고
-         * 저장된 값을 계속 사용한다.
-         */
+        String orderName =
+                createOrderName(
+                        registration
+                );
+
+
         String confirmIdempotencyKey =
-                UUID.randomUUID().toString();
+                UUID.randomUUID()
+                        .toString();
 
 
         Payment payment =
-                Payment.prepare(
+                Payment.createInitial(
                         registration,
                         orderId,
                         orderName,
                         registration.getContractAmount(),
-                        PaymentPurpose.REGISTRATION,
+                        PaymentPurpose.REGISTRATION_TRY,
                         confirmIdempotencyKey
                 );
 
 
-        /*
-         * Registration과 동일 Transaction에서 INSERT된다.
-         */
         Payment savedPayment =
-                paymentCommandRepository.save(payment);
+                paymentCommandRepository.save(
+                        payment
+                );
 
 
         savePaymentPreparedLog(
@@ -82,7 +89,64 @@ public class PaymentCreator {
 
 
     /**
-     * Payment 생성 완료 이력을 append-only 로그로 저장한다.
+     * 단체 최초 참가 신청에 대한 Payment를 생성한다.
+     *
+     * 하나의 Organization에 포함된 모든 Registration의
+     * contractAmount 합계를 하나의 Payment.amount로 사용한다. <- amount가 매개변수에서 요구되는 이유
+     *
+     * 별도의 Transaction을 열지 않고
+     * OrgRegistrationCommandService의 Transaction에 참여한다.
+     */
+    public Payment createInitialPayment(
+            Organization organization,
+            BigDecimal amount,
+            String correlationId
+    ) {
+
+        String orderId =
+                paymentOrderIdGenerator.generate();
+
+
+        String orderName =
+                createOrderName(
+                        organization
+                );
+
+
+        String confirmIdempotencyKey =
+                UUID.randomUUID()
+                        .toString();
+
+
+        Payment payment =
+                Payment.createOrgInitial(
+                        organization,
+                        amount,
+                        orderId,
+                        orderName,
+                        PaymentPurpose.REGISTRATION_TRY,
+                        confirmIdempotencyKey
+                );
+
+
+        Payment savedPayment =
+                paymentCommandRepository.save(
+                        payment
+                );
+
+
+        savePaymentPreparedLog(
+                savedPayment,
+                correlationId
+        );
+
+
+        return savedPayment;
+    }
+
+
+    /**
+     * 개인 Payment 생성 완료 이력을 저장한다.
      */
     private void savePaymentPreparedLog(
             Registration registration,
@@ -97,6 +161,7 @@ public class PaymentCreator {
                         correlationId
                 );
 
+
         paymentProcessLogCommandRepository.save(
                 processLog
         );
@@ -104,16 +169,73 @@ public class PaymentCreator {
 
 
     /**
-     * Toss 결제창에 표시할 주문명을 생성한다.
+     * 단체 Payment 생성 완료 이력을 저장한다.
      *
-     * MVP에서는 대회명 + 종목명 정도만 사용한다.
+     * 단체 Payment에는 registrationId가 존재하지 않으므로
+     * Payment 자체의 식별정보를 기준으로 로그를 남긴다.
+     */
+    private void savePaymentPreparedLog(
+            Payment payment,
+            String correlationId
+    ) {
+
+        PaymentProcessLog processLog =
+                PaymentProcessLog.builder()
+                        .registrationId(
+                                null
+                        )
+                        .paymentId(
+                                payment.getId()
+                        )
+                        .orderId(
+                                payment.getOrderId()
+                        )
+                        .idempotencyKey(
+                                payment.getConfirmIdempotencyKey()
+                        )
+                        .correlationId(
+                                correlationId
+                        )
+                        .processType(
+                                PaymentProcessType.PAYMENT_PREPARED
+                        )
+                        .source(
+                                PaymentProcessSource.API
+                        )
+                        .build();
+
+
+        paymentProcessLogCommandRepository.save(
+                processLog
+        );
+    }
+
+
+    /**
+     * 개인 Toss 결제창 주문명.
      */
     private String createOrderName(
             Registration registration
     ) {
 
-        return registration.getEvent().getNameKr()
+        return registration.getEvent()
+                .getNameKr()
                 + " - "
-                + registration.getEventCategory().getName();
+                + registration.getEventCategory()
+                .getName();
+    }
+
+
+    /**
+     * 단체 Toss 결제창 주문명.
+     */
+    private String createOrderName(
+            Organization organization
+    ) {
+
+        return organization.getEvent()
+                .getNameKr()
+                + " - "
+                + organization.getGroupName();
     }
 }

@@ -12,8 +12,8 @@ public record RegistrationCreateResponse(
 
         RegistrationStatus registrationStatus,
 
-        BigDecimal contractAmount,
 
+        // 내부 엔티티 pk
         String paymentId,
 
         /* toss에 기입할 내역들 */
@@ -33,7 +33,6 @@ public record RegistrationCreateResponse(
         return new RegistrationCreateResponse(
                 registration.getId(),
                 registration.getStatus(),
-                registration.getContractAmount(),
                 payment.getId(),
                 payment.getOrderId(),
                 payment.getOrderName(),

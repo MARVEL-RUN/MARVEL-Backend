@@ -71,6 +71,7 @@ public class SecurityConfig {
                                  * 실제 심사 페이지 구성 후 제거 가능
                                  */
                                 "/toss-test.html",
+                                "/toss-test-final.html",
 
                                 /*
                                  * Public API
