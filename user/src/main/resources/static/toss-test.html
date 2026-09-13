@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MarvelRun Toss E2E Test - Souvenir</title>
+<script src="https://js.tosspayments.com/v2/standard"></script>
+<style>
+body{font-family:Arial,sans-serif;background:#f5f6f8;margin:0;padding:30px;color:#222}
+.wrap{max-width:900px;margin:auto}.card{background:#fff;border:1px solid #ddd;border-radius:12px;padding:22px;margin-bottom:18px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.full{grid-column:1/-1}
+label{font-size:13px;font-weight:700;display:block;margin-bottom:5px}
+input,select{width:100%;padding:10px;border:1px solid #bbb;border-radius:7px;box-sizing:border-box;background:white}
+button{padding:12px 18px;border:0;border-radius:8px;cursor:pointer;margin-right:8px}.primary{background:#3182f6;color:white}.secondary{background:#e9ecef}
+button:disabled{opacity:.5;cursor:not-allowed}pre{background:#111;color:#d7ffd7;padding:14px;border-radius:8px;overflow:auto;white-space:pre-wrap}
+.hidden{display:none}.success{background:#eaf9ef}.error{background:#fff0f0}.notice{background:#fff7dc}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>MarvelRun Toss Payments E2E Test</h1>
+
+<div class="card notice">
+<b>Backend 계약</b><br>
+GET /api/public/events/{eventId}/registration-options<br>
+POST /api/public/events/{eventId}/registrations 요청에 souvenirs[] 포함
+</div>
+
+<div id="redirectResult" class="card hidden"></div>
+
+<div id="registrationSection" class="card">
+<h2>1. 참가 신청 + 기념품 선택</h2>
+<div class="grid">
+<div class="full"><label>테스트 Client Key</label><input id="clientKey" placeholder="test_gck_..."></div>
+<div><label>Event ID</label><input id="eventId"></div>
+<div style="align-self:end"><button id="loadOptionsBtn" class="secondary">신청 옵션 불러오기</button></div>
+
+<div><label>종목</label>
+<select id="eventCategoryId" disabled><option value="">먼저 옵션을 불러오세요.</option></select></div>
+
+<div><label>기념품</label>
+<select id="souvenirId" disabled><option value="">먼저 종목을 선택하세요.</option></select></div>
+
+<div><label>기념품 사이즈</label>
+<select id="souvenirSize" disabled><option value="">먼저 기념품을 선택하세요.</option></select></div>
+
+<div><label>이름</label><input id="name" value="테스트신청자"></div>
+<div><label>신청 비밀번호</label><input id="password" value="1234"></div>
+<div><label>전화번호</label><input id="phNum" value="01012345678"></div>
+<div><label>생년월일</label><input id="birth" value="19990101"></div>
+<div><label>GenderClass enum 값</label><input id="gender" value="MALE"></div>
+<div><label>주소</label><input id="address" value="서울특별시"></div>
+<div class="full"><label>상세주소</label><input id="addressDetail" value="테스트 주소"></div>
+</div>
+
+<p><button id="prepareBtn" class="primary">신청 생성 + 결제 준비</button></p>
+<h3>Registration Options</h3>
+<pre id="optionsResult">아직 조회하지 않았습니다.</pre>
+<h3>RegistrationCreateResponse</h3>
+<pre id="registrationResult">아직 호출하지 않았습니다.</pre>
+</div>
+
+<div id="paymentSection" class="card hidden">
+<h2>2. Toss 결제수단 선택</h2>
+<div id="payment-method"></div>
+<div id="agreement"></div>
+<p>
+<button id="payBtn" class="primary" disabled>Toss 테스트 결제 진행</button>
+<button class="secondary" onclick="location.reload()">처음부터 다시</button>
+</p>
+</div>
+
+<div class="card"><h2>진행 로그</h2><pre id="log">페이지 로드 완료</pre></div>
+</div>
+
+<script>
+const BACKEND_BASE_URL = `${window.location.origin}/api`;
+let registrationOptions = null;
+let registrationResponse = null;
+let widgets = null;
+
+const $ = id => document.getElementById(id);
+const value = id => $(id).value.trim();
+
+function log(message, data) {
+  $("log").textContent += `\n\n[${new Date().toLocaleTimeString()}] ${message}` +
+    (data === undefined ? "" : "\n" + JSON.stringify(data, null, 2));
+}
+
+function esc(v) {
+  return String(v ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function selectedCategory() {
+  const categoryId = value("eventCategoryId");
+  if (!categoryId || !registrationOptions) return null;
+
+  return (registrationOptions.categories ?? [])
+    .find(category => category.categoryId === categoryId) ?? null;
+}
+
+function selectedSouvenir() {
+  const category = selectedCategory();
+  const souvenirId = value("souvenirId");
+
+  if (!category || !souvenirId) return null;
+
+  return (category.souvenirs ?? [])
+    .find(souvenir => souvenir.souvenirId === souvenirId) ?? null;
+}
+
+async function loadOptions() {
+  const eventId = value("eventId");
+  if (!eventId) throw new Error("eventId를 입력하세요.");
+
+  const res = await fetch(
+    `${BACKEND_BASE_URL}/public/events/${encodeURIComponent(eventId)}/registration-options`
+  );
+
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`옵션 조회 실패 (${res.status})\n${text}`);
+  }
+
+  registrationOptions = JSON.parse(text);
+  $("optionsResult").textContent = JSON.stringify(registrationOptions, null, 2);
+
+  $("eventCategoryId").innerHTML = '<option value="">종목을 선택하세요.</option>';
+
+  for (const category of registrationOptions.categories ?? []) {
+    const option = document.createElement("option");
+    option.value = category.categoryId;
+
+    const labelParts = [];
+
+    if (category.distance) {
+      labelParts.push(category.distance);
+    }
+
+    if (category.categoryName && category.categoryName !== category.distance) {
+      labelParts.push(category.categoryName);
+    }
+
+    const name = labelParts.length > 0
+      ? labelParts.join(" / ")
+      : category.categoryId;
+
+    option.textContent = category.amount == null
+      ? name
+      : `${name} / ${Number(category.amount).toLocaleString()}원`;
+
+    if (category.isActive === false) {
+      option.disabled = true;
+      option.textContent += " / 마감";
+    }
+
+    $("eventCategoryId").appendChild(option);
+  }
+
+  $("eventCategoryId").disabled = false;
+
+  $("souvenirId").disabled = true;
+  $("souvenirId").innerHTML = '<option value="">먼저 종목을 선택하세요.</option>';
+
+  $("souvenirSize").disabled = true;
+  $("souvenirSize").innerHTML = '<option value="">먼저 기념품을 선택하세요.</option>';
+
+  log("신청 옵션 조회 성공", registrationOptions);
+}
+
+function refreshSouvenirs() {
+  const category = selectedCategory();
+
+  $("souvenirId").innerHTML = '<option value="">기념품을 선택하세요.</option>';
+  $("souvenirSize").innerHTML = '<option value="">먼저 기념품을 선택하세요.</option>';
+  $("souvenirSize").disabled = true;
+
+  if (!category) {
+    $("souvenirId").disabled = true;
+    return;
+  }
+
+  for (const souvenir of category.souvenirs ?? []) {
+    const option = document.createElement("option");
+    option.value = souvenir.souvenirId;
+    option.textContent = souvenir.name ?? souvenir.souvenirId;
+    $("souvenirId").appendChild(option);
+  }
+
+  $("souvenirId").disabled = false;
+}
+
+function refreshSouvenirSizes() {
+  const souvenir = selectedSouvenir();
+
+  $("souvenirSize").innerHTML = '<option value="">사이즈를 선택하세요.</option>';
+
+  if (!souvenir) {
+    $("souvenirSize").disabled = true;
+    return;
+  }
+
+  const sizes = Array.isArray(souvenir.sizes) && souvenir.sizes.length > 0
+    ? souvenir.sizes
+    : ["FREE"];
+
+  for (const size of sizes) {
+    const option = document.createElement("option");
+    option.value = size;
+    option.textContent = size;
+    $("souvenirSize").appendChild(option);
+  }
+
+  $("souvenirSize").disabled = false;
+
+  if (sizes.length === 1) {
+    $("souvenirSize").value = sizes[0];
+  }
+}
+
+async function prepareRegistration() {
+  const clientKey = value("clientKey");
+  const eventId = value("eventId");
+  const eventCategoryId = value("eventCategoryId");
+  const souvenirId = value("souvenirId");
+  const selectedSize = value("souvenirSize");
+
+  if (!clientKey.startsWith("test_gck_")) {
+    throw new Error("테스트 Client Key를 입력하세요.");
+  }
+
+  if (!eventId) {
+    throw new Error("eventId를 입력하세요.");
+  }
+
+  if (!eventCategoryId) {
+    throw new Error("종목을 선택하세요.");
+  }
+
+  if (!souvenirId) {
+    throw new Error("기념품을 선택하세요.");
+  }
+
+  if (!selectedSize) {
+    throw new Error("기념품 사이즈를 선택하세요.");
+  }
+
+  localStorage.setItem(
+    "marvelrun_toss_test_client_key",
+    clientKey
+  );
+
+    const body = {
+        eventCategoryId,
+
+        selectedSouvenirList: [
+            {
+                souvenirId,
+                selectedSize
+            }
+        ],
+
+        password: value("password"),
+        name: value("name"),
+        phNum: value("phNum"),
+        birth: value("birth"),
+        gender: value("gender"),
+        address: value("address"),
+        addressDetail: value("addressDetail")
+    };
+
+  log("Registration 요청", body);
+
+  const res = await fetch(
+    `${BACKEND_BASE_URL}/public/events/${encodeURIComponent(eventId)}/registrations`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    }
+  );
+
+  const text = await res.text();
+
+  if (!res.ok) {
+    throw new Error(`Registration 실패 (${res.status})\n${text}`);
+  }
+
+  registrationResponse = JSON.parse(text);
+  $("registrationResult").textContent = JSON.stringify(registrationResponse, null, 2);
+  log("Registration + Payment READY 생성 성공", registrationResponse);
+
+  const tossPayments = TossPayments(clientKey);
+
+  widgets = tossPayments.widgets({
+    customerKey: TossPayments.ANONYMOUS
+  });
+
+  await widgets.setAmount({
+    currency: "KRW",
+    value: Number(registrationResponse.paymentAmount)
+  });
+
+  await Promise.all([
+    widgets.renderPaymentMethods({
+      selector: "#payment-method",
+      variantKey: "DEFAULT"
+    }),
+    widgets.renderAgreement({
+      selector: "#agreement",
+      variantKey: "AGREEMENT"
+    })
+  ]);
+
+  $("paymentSection").classList.remove("hidden");
+  $("payBtn").disabled = false;
+}
+
+async function requestPayment() {
+  if (!widgets || !registrationResponse) {
+    throw new Error("먼저 참가 신청을 생성하세요.");
+  }
+
+  const callbackPage = `${window.location.origin}/api/toss-test.html`;
+
+  await widgets.requestPayment({
+    orderId: registrationResponse.orderId,
+    orderName: registrationResponse.orderName,
+    successUrl: `${callbackPage}?result=success`,
+    failUrl: `${callbackPage}?result=fail`,
+    customerName: value("name")
+  });
+}
+
+async function handleRedirect() {
+  const q = new URLSearchParams(location.search);
+  const result = q.get("result");
+
+  if (!result) {
+    return;
+  }
+
+  $("registrationSection").classList.add("hidden");
+  $("paymentSection").classList.add("hidden");
+  $("redirectResult").classList.remove("hidden");
+
+  if (result === "fail") {
+    $("redirectResult").classList.add("error");
+    $("redirectResult").innerHTML = `<h2>Toss 인증 실패 또는 취소</h2><pre>${esc(JSON.stringify({
+      code: q.get("code"),
+      message: q.get("message"),
+      orderId: q.get("orderId")
+    }, null, 2))}</pre>`;
+    return;
+  }
+
+  const paymentKey = q.get("paymentKey");
+  const orderId = q.get("orderId");
+  const amount = q.get("amount");
+
+  const res = await fetch(
+    `${BACKEND_BASE_URL}/public/payments/confirm`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        paymentKey,
+        orderId,
+        amount: Number(amount)
+      })
+    }
+  );
+
+  const text = await res.text();
+
+  if (!res.ok) {
+    $("redirectResult").classList.add("error");
+    $("redirectResult").innerHTML = `<h2>Backend confirm 실패</h2><pre>${esc(text)}</pre>`;
+    return;
+  }
+
+  const data = JSON.parse(text);
+
+  $("redirectResult").classList.add("success");
+  $("redirectResult").innerHTML = `<h2>결제 승인 완료</h2><pre>${esc(JSON.stringify(data, null, 2))}</pre>`;
+}
+
+$("loadOptionsBtn").addEventListener("click", async () => {
+  try {
+    await loadOptions();
+  } catch (e) {
+    alert(e.message);
+    log("옵션 조회 실패", {message: e.message});
+  }
+});
+
+$("eventCategoryId").addEventListener("change", () => {
+  refreshSouvenirs();
+});
+
+$("souvenirId").addEventListener("change", () => {
+  refreshSouvenirSizes();
+});
+
+$("prepareBtn").addEventListener("click", async () => {
+  try {
+    await prepareRegistration();
+  } catch (e) {
+    alert(e.message);
+    log("신청 실패", {message: e.message});
+  }
+});
+
+$("payBtn").addEventListener("click", async () => {
+  try {
+    await requestPayment();
+  } catch (e) {
+    alert(e.message);
+    log("결제창 호출 실패", {message: e.message});
+  }
+});
+
+const savedKey = localStorage.getItem(
+  "marvelrun_toss_test_client_key"
+);
+
+if (savedKey) {
+  $("clientKey").value = savedKey;
+}
+
+handleRedirect();
+</script>
+</body>
+</html>
