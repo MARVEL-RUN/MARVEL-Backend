@@ -52,7 +52,7 @@ springdoc:
 
   swagger-ui:
     path: /swagger-ui.html
-    url: /api/v3/api-docs
+    url: /v3/api-docs
     operationsSorter: method
     tagsSorter: alpha
     display-request-duration: true
@@ -60,7 +60,7 @@ springdoc:
     use-root-path: true
     urls:
       - name: MarvelRun User API
-        url: /api/v3/api-docs
+        url: /v3/api-docs
     persistAuthorization: true # swagger 페이지 새로고침해도 로그인 정보 유지
     enabled: true
 
@@ -95,6 +95,14 @@ phone-hmac-secret: ${otp-phnum-hash-secret}
 infra:
   internal-api:
     secret-key: ${infra.admin-server.from-secret-key}
+
+
+toss:
+  payments:
+    base-url: https://api.tosspayments.com
+    secret-key: ${TOSS_SECRET_KEY}
+    connect-timeout: 3s
+    read-timeout: 10s
 
 
 # log.debug 보고싶은 경우 하단 level을 조정
