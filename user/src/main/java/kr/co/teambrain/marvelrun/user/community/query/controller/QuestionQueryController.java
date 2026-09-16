@@ -7,6 +7,7 @@ package kr.co.teambrain.marvelrun.user.community.query.controller;
 import kr.co.teambrain.marvelrun.user.common.dto.PasswordInputRequest;
 import kr.co.teambrain.marvelrun.user.community.query.domain.QuestionSearchTarget;
 import kr.co.teambrain.marvelrun.user.community.query.domain.QuestionSortType;
+import kr.co.teambrain.marvelrun.user.community.query.dto.response.QuestionAndAnswerDetailResponse;
 import kr.co.teambrain.marvelrun.user.community.query.dto.response.QuestionAnswerResponse;
 import kr.co.teambrain.marvelrun.user.community.query.dto.response.QuestionDetailResponse;
 import kr.co.teambrain.marvelrun.user.community.query.service.QuestionQueryService;
@@ -92,7 +93,7 @@ public class QuestionQueryController {
      * Question password 필요.
      */
     @PostMapping("/{questionId}/detail")
-    public ResponseEntity<QuestionDetailResponse>
+    public ResponseEntity<QuestionAndAnswerDetailResponse>
     getQuestionDetail(
 
             @PathVariable

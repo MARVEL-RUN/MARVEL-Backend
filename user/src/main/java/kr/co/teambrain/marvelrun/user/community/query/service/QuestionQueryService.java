@@ -5,17 +5,20 @@ import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomExceptio
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.community.command.application.domain.Question;
 import kr.co.teambrain.marvelrun.user.community.query.domain.QuestionSearchTarget;
-import kr.co.teambrain.marvelrun.user.community.query.domain.QuestionSortType;
 import kr.co.teambrain.marvelrun.user.community.query.dto.AnswerHeader;
 import kr.co.teambrain.marvelrun.user.community.query.dto.AnswerHeaderProjection;
 import kr.co.teambrain.marvelrun.user.community.query.dto.QuestionHeader;
 import kr.co.teambrain.marvelrun.user.community.query.dto.QuestionProjection;
+import kr.co.teambrain.marvelrun.user.community.query.dto.response.AnswerDetailResponse;
+import kr.co.teambrain.marvelrun.user.community.query.dto.response.QuestionAndAnswerDetailResponse;
 import kr.co.teambrain.marvelrun.user.community.query.dto.response.QuestionAnswerResponse;
 import kr.co.teambrain.marvelrun.user.community.query.dto.response.QuestionDetailResponse;
 import kr.co.teambrain.marvelrun.user.community.query.repository.AnswerQueryRepository;
 import kr.co.teambrain.marvelrun.user.community.query.repository.QuestionQueryRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -205,7 +208,7 @@ public class QuestionQueryService {
      * <p>
      * 비밀글만 Question password를 검증한다.
      */
-    public QuestionDetailResponse getQuestionDetail(
+    public QuestionAndAnswerDetailResponse getQuestionDetail(
             PasswordInputRequest passwordRequest,
             String questionId
     ) {
@@ -222,26 +225,29 @@ public class QuestionQueryService {
         );
 
 
-        return QuestionDetailResponse.builder()
-                .id(
-                        question.getId()
-                )
-                .title(
-                        question.getTitle()
-                )
-                .content(
-                        question.getContent()
-                )
-                .author(
-                        question.getAuthorName()
-                )
-                .createdAt(
-                        question.getCreatedAt()
-                )
-                .isSecret(
-                        question.getIsSecret()
-                )
-                .build();
+        QuestionDetailResponse questionDetail =
+                QuestionDetailResponse.from(
+                        question
+                );
+
+
+        AnswerDetailResponse answerDetail =
+                answerQueryRepository
+                        .findByQuestion(
+                                question
+                        )
+                        .map(
+                                AnswerDetailResponse::from
+                        )
+                        .orElse(
+                                null
+                        );
+
+
+        return new QuestionAndAnswerDetailResponse(
+                questionDetail,
+                answerDetail
+        );
     }
 
 

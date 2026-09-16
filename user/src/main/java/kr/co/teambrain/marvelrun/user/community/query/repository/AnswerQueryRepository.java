@@ -1,6 +1,8 @@
 package kr.co.teambrain.marvelrun.user.community.query.repository;
 
+import io.lettuce.core.Value;
 import kr.co.teambrain.marvelrun.user.community.command.application.domain.Answer;
+import kr.co.teambrain.marvelrun.user.community.command.application.domain.Question;
 import kr.co.teambrain.marvelrun.user.community.query.dto.AnswerDetail;
 import kr.co.teambrain.marvelrun.user.community.query.dto.AnswerHeaderProjection;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -63,4 +65,6 @@ public interface AnswerQueryRepository
             @Param("answerId")
             String answerId
     );
+
+    Optional<Answer> findByQuestion(Question question);
 }

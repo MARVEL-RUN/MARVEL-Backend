@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.user.community.query.dto.response;
 
+import kr.co.teambrain.marvelrun.user.community.command.application.domain.Question;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -24,4 +25,18 @@ public class QuestionDetailResponse {
     private LocalDateTime createdAt;
 
     private boolean isSecret;
+
+    public static QuestionDetailResponse from(
+            Question question
+    ) {
+
+        return new QuestionDetailResponse(
+                question.getId(),
+                question.getTitle(),
+                question.getContent(),
+                question.getAuthorName(),
+                question.getCreatedAt(),
+                question.getIsSecret()
+        );
+    }
 }
