@@ -25,6 +25,10 @@ public class SecurityConfig {
 
     private final JwtUtil jwtUtil;
 
+    private static final String[] SWAGGER = {
+            "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/actuator/health/**", "/actuator/health"
+    };
+
     private final JwtAuthenticationEntryPoint
             jwtAuthenticationEntryPoint;
 
