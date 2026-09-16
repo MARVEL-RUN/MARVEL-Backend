@@ -1,13 +1,13 @@
-package kr.co.teambrain.marvelrun.admin.security.filter;
+package kr.co.teambrain.marvelrun.user.common.security.filter;
 
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import kr.co.teambrain.marvelrun.admin.auth.command.application.exception.JwtAuthenticationException;
-import kr.co.teambrain.marvelrun.admin.security.util.JwtAuthenticationEntryPoint;
-import kr.co.teambrain.marvelrun.admin.security.util.JwtUtil;
+import kr.co.teambrain.marvelrun.user.common.exception.JwtAuthenticationException;
+import kr.co.teambrain.marvelrun.user.common.security.config.JwtAuthenticationEntryPoint;
+import kr.co.teambrain.marvelrun.user.common.security.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;

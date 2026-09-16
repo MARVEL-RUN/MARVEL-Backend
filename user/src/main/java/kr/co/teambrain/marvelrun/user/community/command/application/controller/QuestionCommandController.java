@@ -1,25 +1,20 @@
 package kr.co.teambrain.marvelrun.user.community.command.application.controller;
 
 import kr.co.teambrain.marvelrun.user.common.dto.PasswordInputRequest;
-import kr.co.teambrain.marvelrun.user.community.command.application.dto.ArticleDeleteRequestWithPassword;
 import kr.co.teambrain.marvelrun.user.community.command.application.dto.ArticlePatchRequestWrapperWithPassword;
 import kr.co.teambrain.marvelrun.user.community.command.application.dto.ArticlePostRequestWrapperWithPassword;
 import kr.co.teambrain.marvelrun.user.community.command.application.service.QuestionCommandService;
-import kr.co.teambrain.marvelrun.user.community.query.service.QuestionQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/api/v1/questions")
+@RequestMapping("/v1/public/questions")
 public class QuestionCommandController {
 
     private final QuestionCommandService
             questionCommandService;
-
-    private final QuestionQueryService
-            questionQueryService;
 
 
     /**

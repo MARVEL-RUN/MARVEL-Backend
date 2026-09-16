@@ -28,7 +28,7 @@ public class AdminCommandController {
             adminCommandService;
 
 
-    @PostMapping("/login")
+    @PostMapping("/public/login")
     public ResponseEntity<AdminLoginResponse> login(
             @RequestBody
             AdminLoginRequest request

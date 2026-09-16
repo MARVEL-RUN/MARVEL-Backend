@@ -1,4 +1,4 @@
-package kr.co.teambrain.marvelrun.user.community.command.application.controller;
+package kr.co.teambrain.marvelrun.user.community.query.controller;
 
 
 import kr.co.teambrain.marvelrun.user.common.dto.PasswordInputRequest;
@@ -10,8 +10,8 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/api/v1/answers")
-public class AnswerCommandController {
+@RequestMapping("/v1/public/answers")
+public class AnswerQueryController {
 
     private final AnswerQueryService
             answerQueryService;
@@ -19,7 +19,7 @@ public class AnswerCommandController {
 
     /**
      * 답변 상세.
-     *
+     * <p>
      * Answer 자체 password는 없고,
      * 연결된 Question의 secret/password 정책을 사용한다.
      */
