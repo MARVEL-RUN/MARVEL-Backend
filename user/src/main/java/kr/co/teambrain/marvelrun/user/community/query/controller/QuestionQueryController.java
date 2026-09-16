@@ -6,12 +6,15 @@ package kr.co.teambrain.marvelrun.user.community.query.controller;
 
 import kr.co.teambrain.marvelrun.user.common.dto.PasswordInputRequest;
 import kr.co.teambrain.marvelrun.user.community.query.domain.QuestionSearchTarget;
+import kr.co.teambrain.marvelrun.user.community.query.domain.QuestionSortType;
 import kr.co.teambrain.marvelrun.user.community.query.dto.response.QuestionAnswerResponse;
 import kr.co.teambrain.marvelrun.user.community.query.dto.response.QuestionDetailResponse;
 import kr.co.teambrain.marvelrun.user.community.query.service.QuestionQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -44,8 +47,28 @@ public class QuestionQueryController {
             )
             String keyword,
 
-            Pageable pageable
+            @RequestParam(
+                    defaultValue = "0"
+            )
+            int page,
+
+            @RequestParam(
+                    defaultValue = "20"
+            )
+            int size,
+
+            @RequestParam(
+                    defaultValue = "LATEST"
+            )
+            QuestionSortType sort
     ) {
+
+        Pageable pageable =
+                PageRequest.of(
+                        page,
+                        size,
+                        createSort(sort)
+                );
 
         return ResponseEntity.ok(
                 questionQueryService
@@ -86,5 +109,25 @@ public class QuestionQueryController {
                                 questionId
                         )
         );
+    }
+
+    private Sort createSort(
+            QuestionSortType sortType
+    ) {
+
+        return switch (sortType) {
+
+            case LATEST ->
+                    Sort.by(
+                            Sort.Order.desc("createdAt"),
+                            Sort.Order.desc("id")
+                    );
+
+            case OLDEST ->
+                    Sort.by(
+                            Sort.Order.asc("createdAt"),
+                            Sort.Order.asc("id")
+                    );
+        };
     }
 }

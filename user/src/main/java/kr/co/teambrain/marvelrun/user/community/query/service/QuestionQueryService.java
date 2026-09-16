@@ -5,6 +5,7 @@ import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomExceptio
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.community.command.application.domain.Question;
 import kr.co.teambrain.marvelrun.user.community.query.domain.QuestionSearchTarget;
+import kr.co.teambrain.marvelrun.user.community.query.domain.QuestionSortType;
 import kr.co.teambrain.marvelrun.user.community.query.dto.AnswerHeader;
 import kr.co.teambrain.marvelrun.user.community.query.dto.AnswerHeaderProjection;
 import kr.co.teambrain.marvelrun.user.community.query.dto.QuestionHeader;
@@ -14,9 +15,7 @@ import kr.co.teambrain.marvelrun.user.community.query.dto.response.QuestionDetai
 import kr.co.teambrain.marvelrun.user.community.query.repository.AnswerQueryRepository;
 import kr.co.teambrain.marvelrun.user.community.query.repository.QuestionQueryRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.*;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

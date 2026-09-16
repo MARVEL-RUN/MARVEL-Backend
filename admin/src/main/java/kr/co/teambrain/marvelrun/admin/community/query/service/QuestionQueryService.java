@@ -4,6 +4,7 @@ import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.community.command.application.domain.Question;
 import kr.co.teambrain.marvelrun.admin.community.query.domain.QuestionSearchTarget;
+import kr.co.teambrain.marvelrun.admin.community.query.domain.QuestionSortType;
 import kr.co.teambrain.marvelrun.admin.community.query.dto.projection.AdminQuestionAnswerProjection;
 import kr.co.teambrain.marvelrun.admin.community.query.dto.response.AnswerDetailResponse;
 import kr.co.teambrain.marvelrun.admin.community.query.dto.response.QuestionAndAnswerDetailResponse;
@@ -12,9 +13,7 @@ import kr.co.teambrain.marvelrun.admin.community.query.dto.response.QuestionDeta
 import kr.co.teambrain.marvelrun.admin.community.query.repository.AnswerQueryRepository;
 import kr.co.teambrain.marvelrun.admin.community.query.repository.QuestionQueryRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,7 +36,7 @@ public class QuestionQueryService {
             String eventId,
             QuestionSearchTarget target,
             String keyword,
-            Boolean isAnswered,
+            boolean isAnswered,
             Pageable pageable
     ) {
 
@@ -60,7 +59,7 @@ public class QuestionQueryService {
                         : eventId;
 
 
-        Page<AdminQuestionAnswerProjection> page =
+        Page<AdminQuestionAnswerProjection> questionPage =
                 questionQueryRepository.searchQuestions(
                         normalizedEventId,
                         normalizedTarget.name(),
@@ -71,7 +70,7 @@ public class QuestionQueryService {
 
 
         return mapPage(
-                page,
+                questionPage,
                 pageable
         );
     }
@@ -180,27 +179,27 @@ public class QuestionQueryService {
 
 
     private Page<QuestionAndAnswerResponse> mapPage(
-            Page<AdminQuestionAnswerProjection> page,
+            Page<AdminQuestionAnswerProjection> questionPage,
             Pageable pageable
     ) {
 
         long startNo =
-                page.getTotalElements()
+                questionPage.getTotalElements()
                         - pageable.getOffset();
 
 
         List<QuestionAndAnswerResponse> content =
                 new ArrayList<>(
-                        page.getNumberOfElements()
+                        questionPage.getNumberOfElements()
                 );
 
 
         for (int i = 0;
-             i < page.getContent().size();
+             i < questionPage.getContent().size();
              i++) {
 
             AdminQuestionAnswerProjection row =
-                    page.getContent().get(i);
+                    questionPage.getContent().get(i);
 
 
             content.add(
@@ -253,7 +252,7 @@ public class QuestionQueryService {
         return new PageImpl<>(
                 content,
                 pageable,
-                page.getTotalElements()
+                questionPage.getTotalElements()
         );
     }
 }
