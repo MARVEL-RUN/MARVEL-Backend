@@ -79,10 +79,10 @@ public class JwtFilter
                 path
         )
                 || path.equals(
-                "/v1/public/admin/login"
+                "/v1/admin/public/login"
         )
                 || path.equals(
-                "/v1/admin/refresh"
+                "/v1/admin/public/refresh"
         )) {
 
             filterChain.doFilter(
