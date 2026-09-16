@@ -55,7 +55,7 @@ public class AdminCommandController {
     }
 
 
-    @PostMapping("/refresh")
+    @PostMapping("/public/refresh")
     public ResponseEntity<AdminLoginResponse> refresh(
 
             @RequestHeader(

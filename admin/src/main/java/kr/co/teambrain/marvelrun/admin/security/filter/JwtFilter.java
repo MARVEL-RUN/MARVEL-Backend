@@ -79,7 +79,7 @@ public class JwtFilter
                 path
         )
                 || path.equals(
-                "/v1/admin/login"
+                "/v1/public/admin/login"
         )
                 || path.equals(
                 "/v1/admin/refresh"

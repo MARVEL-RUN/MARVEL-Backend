@@ -54,8 +54,8 @@ public class SecurityConfig {
                                                 "/swagger-ui/**",
                                                 "/v3/api-docs/**",
                                                 "/v1/public/**",
-                                                "/v1/admin/login",
-                                                "/v1/admin/refresh"
+                                                "/v1/public/admin/login",
+                                                "/v1/public/admin/refresh"
                                         )
                                         .permitAll()
 
