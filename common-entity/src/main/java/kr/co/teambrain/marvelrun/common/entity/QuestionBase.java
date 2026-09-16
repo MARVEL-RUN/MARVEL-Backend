@@ -22,10 +22,12 @@ public abstract class QuestionBase<U extends UserBase, E extends EventBase> {
     protected String id;
 
     @ManyToOne(
-            fetch = FetchType.LAZY
+            fetch = FetchType.LAZY,
+            optional = false
     )
     @JoinColumn(
-            name = "user_id"
+            name = "user_id",
+            nullable = false
     )
     protected U user;
 

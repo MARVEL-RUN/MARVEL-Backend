@@ -187,7 +187,7 @@ public class OrgRegistrationCommandService {
         return Organization.builder()
                 .account(
                         request.account()
-                                .organizationAccount()
+                                .organizationLoginId()
                 )
                 .accountPassword(
                         request.account()

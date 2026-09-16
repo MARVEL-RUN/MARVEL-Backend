@@ -35,11 +35,11 @@ public abstract class UserBase {
     @Enumerated(EnumType.STRING)
     protected GenderClass gender;
 
-    @Column(name = "account", nullable = false, length = 30)
-    protected String account;
+    @Column(name = "login_id", nullable = false, length = 30)
+    protected String loginId;
 
-    @Column(name = "account_password", nullable = false, length = 127)
-    protected String accountPassword;
+    @Column(name = "password", nullable = false, length = 127)
+    protected String password;
 
     @Column(name = "address", nullable = false)
     protected String address;
@@ -51,7 +51,7 @@ public abstract class UserBase {
     @Enumerated(EnumType.STRING)
     protected Auth auth;
 
-    @Column(name = "email", nullable = false, length = 40)
+    @Column(name = "email", nullable = true, length = 40)
     protected String email;
 
 }

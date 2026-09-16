@@ -9,5 +9,5 @@ import java.util.Optional;
 @Repository
 public interface UserCommandRepository extends JpaRepository<User,String> {
 
-    Optional<User> findByAccount(String accountId);
+    Optional<User> findByLoginId(String accountId);
 }

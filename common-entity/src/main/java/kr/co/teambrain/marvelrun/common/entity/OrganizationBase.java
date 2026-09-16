@@ -37,7 +37,7 @@ public abstract class OrganizationBase<E extends EventBase> {
     @Column(name = "leader_ph_num", nullable = false, length = 30)
     protected String leaderPhNum;
 
-    @Column(name = "email", nullable = false, length = 30)
+    @Column(name = "email", nullable = true, length = 30)
     protected String email;
 
     // 각 단체는 오직 한 개의 이벤트만 참여 가능하다.

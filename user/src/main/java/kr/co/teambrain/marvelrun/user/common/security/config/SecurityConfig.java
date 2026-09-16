@@ -2,6 +2,8 @@ package kr.co.teambrain.marvelrun.user.common.security.config;
 
 
 import jakarta.servlet.http.HttpServletResponse;
+import kr.co.teambrain.marvelrun.user.common.security.filter.JwtFilter;
+import kr.co.teambrain.marvelrun.user.common.security.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -9,6 +11,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -24,143 +27,188 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.filter.CorsFilter;
 
+import java.util.List;
+
 @Configuration
-@EnableWebSecurity // 스프링 시큐리티 필터가 스프링 필터체인에 등록된다.
+@EnableMethodSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
-//    private final LoginSuccessHandler loginSuccessHandler;
-//
-//    private final JwtFilter jwtFilter;
 
-    private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
+    private final JwtUtil jwtUtil;
 
     private static final String[] SWAGGER = {
             "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/actuator/health/**", "/actuator/health"
     };
 
+    private final JwtAuthenticationEntryPoint
+            jwtAuthenticationEntryPoint;
+
+
     @Bean
-    public SecurityFilterChain filterChain(
+    public SecurityFilterChain securityFilterChain(
             HttpSecurity http
     ) throws Exception {
 
         http
-                .csrf(AbstractHttpConfigurer::disable)
-
-                .cors(cors ->
-                        cors.configurationSource(
-                                corsConfigurationSource()
-                        )
+                .csrf(
+                        csrf ->
+                                csrf.disable()
                 )
 
-                .authorizeHttpRequests(auth -> auth
+                .authorizeHttpRequests(
+                        authorize ->
+                                authorize
+                                        .requestMatchers(
+                                                "/health",
+                                                "/actuator/health",
+                                                "/actuator/health/**",
+                                                "/swagger-ui/**",
+                                                "/v3/api-docs/**",
+                                                "/v1/public/**",
+                                                "/v1/admin/login",
+                                                "/v1/admin/refresh"
+                                        )
+                                        .permitAll()
 
-                        .requestMatchers(
-                                HttpMethod.OPTIONS,
-                                "/**"
-                        ).permitAll()
-
-                        .requestMatchers(
-                                "/v3/api-docs/**",
-                                "/swagger-ui/**",
-                                "/swagger-ui.html",
-                                "/actuator/health",
-                                "/actuator/health/**",
-
-                                /*
-                                 * MVP E2E 테스트 페이지
-                                 * 실제 심사 페이지 구성 후 제거 가능
-                                 */
-                                "/toss-test.html",
-                                "/toss-test-final.html",
-
-                                /*
-                                 * Public API
-                                 */
-                                "/public/**",
-                                "/internal/**",
-                                "/auth/**"
-                        ).permitAll()
-
-                        .anyRequest()
-                        .authenticated()
+                                        .anyRequest()
+                                        .authenticated()
                 )
 
-                .sessionManagement(session ->
-                        session.sessionCreationPolicy(
-                                SessionCreationPolicy.STATELESS
-                        )
+                .sessionManagement(
+                        session ->
+                                session.sessionCreationPolicy(
+                                        SessionCreationPolicy.STATELESS
+                                )
                 )
 
-                .securityContext(context ->
-                        context.securityContextRepository(
-                                new NullSecurityContextRepository()
-                        )
+                .cors(
+                        cors ->
+                                cors.configurationSource(
+                                        corsConfigurationSource()
+                                )
                 )
 
-                .exceptionHandling(exception ->
-                        exception.authenticationEntryPoint(
-                                jwtAuthenticationEntryPoint
-                        )
-                )
-
-                .formLogin(
-                        AbstractHttpConfigurer::disable
-                )
-
-                .httpBasic(
-                        AbstractHttpConfigurer::disable
+                .exceptionHandling(
+                        exception ->
+                                exception.authenticationEntryPoint(
+                                        jwtAuthenticationEntryPoint
+                                )
                 );
 
+
+        http.addFilterBefore(
+                new JwtFilter(
+                        jwtUtil,
+                        jwtAuthenticationEntryPoint
+                ),
+                UsernamePasswordAuthenticationFilter.class
+        );
+
+
         return http.build();
+    }
+
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+
+        return new BCryptPasswordEncoder();
+    }
+
+
+    @Bean
+    public UrlBasedCorsConfigurationSource
+    corsConfigurationSource() {
+
+        CorsConfiguration config =
+                new CorsConfiguration();
+
+
+        /*
+         * Cookie 기반 인증은 사용하지 않지만,
+         * Authorization / refreshToken 등 인증 관련 헤더를
+         * 포함한 credential 요청을 허용하기 위해 유지.
+         */
+        config.setAllowCredentials(
+                true
+        );
+
+
+        /*
+         * MarvelRun Admin Frontend Origin
+         *
+         * localhost:
+         *   로컬 프론트 개발 환경
+         *
+         * marathontest2026.duckdns.org:
+         *   AWS 테스트 환경
+         *
+         * marvelrunkorea2026.com:
+         *   실제 운영 환경
+         */
+        config.setAllowedOrigins(
+                List.of(
+                        "http://localhost:3000",
+                        "https://marathontest2026.duckdns.org",
+                        "https://marvelrunkorea2026.com"
+                )
+        );
+
+
+        config.addAllowedHeader(
+                "*"
+        );
+
+        config.addAllowedMethod(
+                "*"
+        );
+
+
+        /*
+         * 브라우저 Javascript에서 읽어야 하는 응답 헤더.
+         *
+         * Authorization
+         *   새 Access Token
+         *
+         * refreshToken
+         *   새 Refresh Token
+         *
+         * Content-Disposition
+         *   Excel/PDF 등의 파일 다운로드 시 사용
+         */
+        config.setExposedHeaders(
+                List.of(
+                        "Authorization",
+                        "refreshToken",
+                        "Content-Disposition"
+                )
+        );
+
+
+        /*
+         * Preflight 결과 캐시.
+         * 1시간 동안 동일 CORS preflight 요청을 재사용.
+         */
+        config.setMaxAge(
+                3600L
+        );
+
+
+        UrlBasedCorsConfigurationSource source =
+                new UrlBasedCorsConfigurationSource();
+
+
+        source.registerCorsConfiguration(
+                "/**",
+                config
+        );
+
+
+        return source;
     }
 
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration configuration) throws Exception {
         return configuration.getAuthenticationManager();
-    }
-
-    @Bean
-    public PasswordEncoder passwordEncoder() { // BCrypt: 단방향 해시
-        return new BCryptPasswordEncoder();
-    }
-
-    @Bean
-    public UrlBasedCorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration config =
-                new CorsConfiguration();
-
-        config.setAllowCredentials(true);
-
-        config.addAllowedOrigin(
-                "http://localhost:3000"
-        );
-
-        config.addAllowedOriginPattern(
-                "http://192.168.0.*:3000"
-        );
-
-        config.addAllowedOrigin(
-                "https://marathontest2026.com"
-        );
-
-        config.addAllowedOrigin(
-                "https://marathontest2026.duckdns.org"
-        );
-
-        config.addAllowedOrigin(
-                "https://marvelrunkorea2026.com"
-        );
-
-        config.addAllowedOriginPattern(
-                "https://*.marvelrunkorea2026.com"
-        );
-        config.addAllowedHeader("*"); // 모든 헤더 허용
-        config.addAllowedMethod("*"); // 모든 HTTP 메소드 허용
-        config.addExposedHeader("Authorization");      // Auth 헤더 허용
-        config.addExposedHeader("refreshToken");      // Refresh 헤더 허용
-
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config);
-        return source;
     }
 }
