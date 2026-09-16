@@ -61,6 +61,6 @@ tasks.named('test') {
 	useJUnitPlatform()
 }
 tasks.named('bootJar') {
-	archiveFileName = 'user-app.jar'
+	archiveFileName = 'admin-app.jar'
 }
 
