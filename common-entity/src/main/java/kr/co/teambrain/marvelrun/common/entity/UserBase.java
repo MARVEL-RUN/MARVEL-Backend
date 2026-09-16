@@ -51,7 +51,7 @@ public abstract class UserBase {
     @Enumerated(EnumType.STRING)
     protected Auth auth;
 
-    @Column(name = "email", nullable = false, length = 40)
+    @Column(name = "email", nullable = true, length = 40)
     protected String email;
 
 }

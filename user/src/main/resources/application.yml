@@ -25,6 +25,10 @@ spring:
         format_sql: true
         default_batch_fetch_size: 1000
         use_sql_comments: true
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 15MB
 
   data:
     redis:
@@ -89,6 +93,23 @@ management:
       probes:
         enabled: true          # /actuator/health/liveness, /readiness 활성화
         add-additional-paths: true    # 별도 management port 사용 시에도 8080에 /livez, /readyz 추가 노출
+
+
+# 이미지 파일 저장 경로
+attachment:
+  storage:
+    default-type: LOCAL
+    local:
+      root-path: /app/data/attachments
+  upload:
+    max-count: 3
+    max-file-size: 5MB
+    max-total-size: 15MB
+    max-pixels: 40000000
+    allowed-types:
+      - JPEG
+      - PNG
+
 
 phone-hmac-secret: ${otp-phnum-hash-secret}
 
