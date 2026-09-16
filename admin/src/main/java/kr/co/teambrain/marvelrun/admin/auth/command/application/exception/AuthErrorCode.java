@@ -106,6 +106,12 @@ public enum AuthErrorCode {
             HttpStatus.UNAUTHORIZED,
             "인증이 필요합니다.",
             false
+    ),
+
+    INVALID_ISSUER(
+            HttpStatus.UNAUTHORIZED,
+            "유효하지 않은 토큰 발급자입니다.",
+            false
     );
 
 

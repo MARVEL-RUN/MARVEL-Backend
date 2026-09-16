@@ -6,8 +6,8 @@ import io.jsonwebtoken.security.Keys;
 import kr.co.teambrain.marvelrun.admin.auth.command.application.exception.AuthErrorCode;
 import kr.co.teambrain.marvelrun.admin.auth.command.application.exception.JwtAuthenticationException;
 import kr.co.teambrain.marvelrun.admin.common.redis.RedisService;
+import kr.co.teambrain.marvelrun.admin.security.config.TokenProperties;
 import kr.co.teambrain.marvelrun.admin.security.details.CustomAdminDetail;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
@@ -23,16 +23,13 @@ public class JwtUtil {
 
 
     public JwtUtil(
-
-            @Value("${token.secret}")
-            String secretKey,
-
+            TokenProperties tokenProperties,
             RedisService redisService
     ) {
 
         byte[] keyBytes =
                 Decoders.BASE64.decode(
-                        secretKey
+                        tokenProperties.secret()
                 );
 
 
@@ -47,13 +44,15 @@ public class JwtUtil {
                         .setSigningKey(
                                 key
                         )
+                        .requireIssuer(
+                                tokenProperties.issuer()
+                        )
                         .build();
 
 
         this.redisService =
                 redisService;
     }
-
 
     public Claims validateAccessToken(
             String accessToken
@@ -84,7 +83,6 @@ public class JwtUtil {
 
         return claims;
     }
-
 
     public Claims validateRefreshToken(
             String refreshToken
@@ -206,13 +204,20 @@ public class JwtUtil {
                     e
             );
 
-        } catch (JwtException e) {
+        } catch (MissingClaimException | IncorrectClaimException e) {
 
-            throw new JwtAuthenticationException(
-                    AuthErrorCode.TOKEN_VALIDATE_FAILED,
-                    e
-            );
-        }
+        throw new JwtAuthenticationException(
+                AuthErrorCode.INVALID_ISSUER,
+                e
+        );
+
+    } catch (JwtException e) {
+
+        throw new JwtAuthenticationException(
+                AuthErrorCode.TOKEN_VALIDATE_FAILED,
+                e
+        );
+    }
     }
 
 

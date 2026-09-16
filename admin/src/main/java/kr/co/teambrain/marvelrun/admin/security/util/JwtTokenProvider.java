@@ -50,7 +50,10 @@ public class JwtTokenProvider {
         return buildToken(
                 admin,
                 ACCESS_TOKEN_TYPE,
-                tokenProperties.accessTokenExpirationTime()
+                tokenProperties
+                        .expirationTime()
+                        .accessToken()
+                        .toMillis()
         );
     }
 
@@ -62,7 +65,10 @@ public class JwtTokenProvider {
         return buildToken(
                 admin,
                 REFRESH_TOKEN_TYPE,
-                tokenProperties.refreshTokenExpirationTime()
+                tokenProperties
+                        .expirationTime()
+                        .refreshToken()
+                        .toMillis()
         );
     }
 
@@ -97,7 +103,12 @@ public class JwtTokenProvider {
 
         return Jwts.builder()
                 .setClaims(claims)
-                .setSubject(admin.getUsername())
+                .setSubject(
+                        admin.getUsername()
+                )
+                .setIssuer(
+                        tokenProperties.issuer()
+                )
                 .setIssuedAt(now)
                 .setExpiration(
                         new Date(

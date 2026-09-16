@@ -98,7 +98,10 @@ public class AdminCommandService {
                 .saveWhitelistRefreshToken(
                         admin.getId(),
                         refreshToken,
-                        tokenProperties.refreshTokenExpirationTime(),
+                        tokenProperties
+                                .expirationTime()
+                                .refreshToken()
+                                .toMillis(),
                         TimeUnit.MILLISECONDS
                 );
 
@@ -177,7 +180,10 @@ public class AdminCommandService {
         redisService.saveWhitelistRefreshToken(
                 adminId,
                 newRefreshToken,
-                tokenProperties.refreshTokenExpirationTime(),
+                tokenProperties
+                        .expirationTime()
+                        .refreshToken()
+                        .toMillis(),
                 TimeUnit.MILLISECONDS
         );
 
