@@ -8,7 +8,7 @@ import lombok.Getter;
 
 @Getter
 @Entity
-@Table(name = "answer", schema = "kma")
+@Table(name = "answer")
 public class Answer extends AnswerBase<Admin, Question> {
 
 }

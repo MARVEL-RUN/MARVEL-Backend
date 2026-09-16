@@ -1,4 +1,4 @@
-package kr.co.teambrain.marvelrun.user.community.query.repository;
+package kr.co.teambrain.marvelrun.user.community.command.repository;
 
 import kr.co.teambrain.marvelrun.user.community.command.application.domain.Question;
 import org.springframework.data.jpa.repository.JpaRepository;

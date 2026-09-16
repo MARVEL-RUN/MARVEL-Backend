@@ -99,7 +99,7 @@ POST /api/public/payments/confirm — 개인/단체 공통 결제 승인
 <h3>단체 계정</h3>
 <div class="grid">
 <div><label>단체명</label><input id="organizationName" value="마블런테스트팀"></div>
-<div><label>단체 계정</label><input id="organizationAccount" value="marveltest01"></div>
+<div><label>단체 계정</label><input id="organizationLoginId" value="marveltest01"></div>
 <div class="full"><label>단체 비밀번호</label><input id="organizationPassword" value="test1234!"></div>
 </div>
 
@@ -517,7 +517,7 @@ async function prepareOrganizationRegistration() {
   const body = {
     account: {
       organizationName: value("organizationName"),
-      organizationAccount: value("organizationAccount"),
+      organizationLoginId: value("organizationLoginId"),
       organizationPassword: value("organizationPassword")
     },
     profile: {

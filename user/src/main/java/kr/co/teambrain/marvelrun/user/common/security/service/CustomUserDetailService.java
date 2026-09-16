@@ -20,10 +20,10 @@ public class CustomUserDetailService implements UserDetailsService {
     /** 사용자 아이디 기반 검색하여 CustomUserDetail 반환 */
     @Override
     @Transactional(readOnly = true)
-    public UserDetails loadUserByUsername(String accountId) throws UsernameNotFoundException {
+    public UserDetails loadUserByUsername(String loginId) throws UsernameNotFoundException {
 
-        User user = userCommandRepository.findByAccount(accountId)
-                .orElseThrow(() -> new UsernameNotFoundException("User not found by accountId : " + accountId)); // UserDetailsService의 Exception은 CustomError 등으로 래핑할 경우 Spring이 “인증 제공자 내부 오류”로 판단해 에러를 일으킴.
+        User user = userCommandRepository.findByLoginId(loginId)
+                .orElseThrow(() -> new UsernameNotFoundException("User not found by accountId : " + loginId)); // UserDetailsService의 Exception은 CustomError 등으로 래핑할 경우 Spring이 “인증 제공자 내부 오류”로 판단해 에러를 일으킴.
 
 
         return new CustomUserDetail(user);

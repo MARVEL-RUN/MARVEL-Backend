@@ -30,7 +30,7 @@ public class CustomUserDetail implements UserDetails {
 
     @Override
     public String getPassword() {
-        return user.getAccountPassword();
+        return user.getLoginId();
     }
 
     // Returns the username used to authenticate -> 사용자 명이나 닉네임이 아닌, PK 값 반환 목적.

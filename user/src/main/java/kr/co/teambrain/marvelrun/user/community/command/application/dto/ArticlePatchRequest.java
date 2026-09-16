@@ -6,8 +6,6 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-import java.util.List;
-
 @Getter
 @Setter
 @NoArgsConstructor
@@ -22,5 +20,5 @@ public class ArticlePatchRequest {
 
     private boolean secret;
 
-    private List<String> deletedAttachmentIds;
+//    private List<String> deletedAttachmentIds;
 }

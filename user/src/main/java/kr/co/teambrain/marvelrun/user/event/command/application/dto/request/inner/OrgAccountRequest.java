@@ -14,7 +14,7 @@ public record OrgAccountRequest(
                 regexp = "^(?=.{5,20}$)[\\x21-\\x7E]+$",
                 message = "아이디는 5~20자이며, 영문 대소문자, 숫자, 특수문자(ASCII)만 허용됩니다."
         )
-        String organizationAccount,
+        String organizationLoginId,
 
         @NotBlank
         @Size(
