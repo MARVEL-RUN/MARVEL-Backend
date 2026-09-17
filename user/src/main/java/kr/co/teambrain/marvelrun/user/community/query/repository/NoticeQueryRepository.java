@@ -65,10 +65,6 @@ public interface NoticeQueryRepository
                                 AND n.admin.name LIKE CONCAT('%', :keyword, '%')
                             )
                         )
-                    
-                    ORDER BY
-                        n.createdAt DESC,
-                        n.id DESC
                     """,
 
             countQuery = """

@@ -19,6 +19,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -104,9 +105,42 @@ public class QuestionQueryService {
                 );
 
 
+        /*
+         * Pageable에 설정된 createdAt 정렬 방향 확인.
+         *
+         * LATEST -> DESC
+         * OLDEST -> ASC
+         */
+        Sort.Order createdAtOrder =
+                pageable.getSort()
+                        .getOrderFor(
+                                "createdAt"
+                        );
+
+
+        boolean oldest =
+                createdAtOrder != null
+                        && createdAtOrder.isAscending();
+
+
+        long total =
+                questionPage.getTotalElements();
+
+        long offset =
+                pageable.getOffset();
+
+
+        /*
+         * LATEST:
+         * total - offset 부터 감소
+         *
+         * OLDEST:
+         * offset + 1 부터 증가
+         */
         long startNo =
-                questionPage.getTotalElements()
-                        - pageable.getOffset();
+                oldest
+                        ? offset + 1
+                        : total - offset;
 
 
         List<QuestionAnswerResponse> responseList =
@@ -124,7 +158,9 @@ public class QuestionQueryService {
 
 
             long no =
-                    startNo - i;
+                    oldest
+                            ? startNo + i
+                            : startNo - i;
 
 
             QuestionHeader questionHeader =
@@ -169,6 +205,10 @@ public class QuestionQueryService {
                 }
 
 
+                /*
+                 * Answer는 대응되는 Question과
+                 * 동일한 게시판 번호를 사용한다.
+                 */
                 answerHeader =
                         new AnswerHeader(
                                 no,

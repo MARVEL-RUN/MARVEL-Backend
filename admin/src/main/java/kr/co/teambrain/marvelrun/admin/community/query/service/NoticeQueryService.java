@@ -14,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -53,12 +54,65 @@ public class NoticeQueryService {
                 normalizedKeyword,
                 pageable
         );
-        // 넘버링에 사용할 변수
-        long total = page.getTotalElements();
-        long start = total - pageable.getOffset();
 
-        AtomicLong counter = new AtomicLong(start);
-        page.forEach(p -> p.setNo(counter.getAndDecrement())); // Decrement로 감소시키기(최신순이기 때문)
+        /*
+         * 게시글 번호 부여.
+         *
+         * LATEST:
+         * total, total-1, ...
+         *
+         * OLDEST:
+         * 1, 2, ...
+         */
+        long total =
+                page.getTotalElements();
+
+        long offset =
+                pageable.getOffset();
+
+
+        Sort.Order createdAtOrder =
+                pageable.getSort()
+                        .getOrderFor(
+                                "createdAt"
+                        );
+
+
+        if (createdAtOrder != null
+                && createdAtOrder.isAscending()) {
+
+            long start =
+                    offset + 1;
+
+            AtomicLong counter =
+                    new AtomicLong(
+                            start
+                    );
+
+            page.forEach(
+                    notice ->
+                            notice.setNo(
+                                    counter.getAndIncrement()
+                            )
+            );
+
+        } else {
+
+            long start =
+                    total - offset;
+
+            AtomicLong counter =
+                    new AtomicLong(
+                            start
+                    );
+
+            page.forEach(
+                    notice ->
+                            notice.setNo(
+                                    counter.getAndDecrement()
+                            )
+            );
+        }
 
         return page;
     }

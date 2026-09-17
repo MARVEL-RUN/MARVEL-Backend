@@ -83,7 +83,6 @@ public interface QuestionQueryRepository
                                 and q.authorName like concat(:keyword, '%')
                             )
                         )
-                    order by q.createdAt desc, q.id desc
                     """,
 
             countQuery = """
