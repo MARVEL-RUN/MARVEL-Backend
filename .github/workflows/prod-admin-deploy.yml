@@ -233,7 +233,7 @@ jobs:
               'docker logout "$ECR_REGISTRY" || true',
               'rm -rf "$DOCKER_CONFIG_TMP"',
               'DOCKER_CONFIG_TMP=""',
-              "docker image prune -f",
+              "docker image prune -af",
           ]
 
           with open("/tmp/ssm-parameters.json", "w", encoding="utf-8") as f:

@@ -169,6 +169,47 @@ public class AnswerCommandService {
         question.reopenQuestion();
     }
 
+    /**
+     * Question 삭제.
+     *
+     * 연결된 Answer가 존재하면 Answer를 먼저 삭제한 뒤
+     * Question을 삭제한다.
+     *
+     * Answer 생성/삭제와 동일하게 Question row lock을 기준으로
+     * 동시성을 제어한다.
+     */
+    @Transactional
+    public void deleteQuestionAndAnswer(
+            String questionId
+    ) {
+
+        /*
+         * 해당 Question에 대한 Answer 생성/삭제와
+         * 동일한 row lock을 획득한다.
+         */
+        Question question =
+                getQuestionForUpdate(
+                        questionId
+                );
+
+
+        /*
+         * Answer가 존재하는 경우 먼저 삭제한다.
+         *
+         * Answer.question FK가 Question을 참조하므로
+         * Question보다 Answer를 먼저 삭제해야 한다.
+         */
+        answerCommandRepository
+                .findByQuestion_Id(questionId)
+                .ifPresent(answer -> {
+                    answerCommandRepository.delete(answer);
+                    answerCommandRepository.flush();
+                });
+
+        questionCommandRepository.delete(question);
+    }
+
+
 
     private Admin getAdmin() {
 
@@ -187,7 +228,7 @@ public class AnswerCommandService {
     private Question getQuestionForUpdate(
             String questionId
     ) {
-
+        // 대상 question에 대해 락을 걸고 가져와 삭제처리한다
         return questionCommandRepository
                 .findByIdForUpdate(
                         questionId

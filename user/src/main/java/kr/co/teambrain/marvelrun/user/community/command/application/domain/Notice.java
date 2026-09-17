@@ -1,0 +1,19 @@
+package kr.co.teambrain.marvelrun.user.community.command.application.domain;
+
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.Table;
+import kr.co.teambrain.marvelrun.common.entity.NoticeBase;
+import kr.co.teambrain.marvelrun.user.common.entities.Admin;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
+import lombok.Getter;
+
+@Getter
+@Entity
+@Table(name = "notice")
+public class Notice extends NoticeBase<NoticeCategory, Admin, Event> {
+
+    public void updateViewCount() {
+        this.viewCount += 1L;
+    }
+}
