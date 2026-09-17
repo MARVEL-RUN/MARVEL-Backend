@@ -82,4 +82,15 @@ public class AnswerCommandController {
         return ResponseEntity.noContent()
                 .build();
     }
+
+    @DeleteMapping("/question/{questionId}")
+
+    public ResponseEntity<Void> deleteQuestionAndAnswer(
+            @PathVariable
+            String questionId
+    ) {
+        answerCommandService.deleteQuestionAndAnswer(questionId);
+
+        return ResponseEntity.noContent().build();
+    }
 }

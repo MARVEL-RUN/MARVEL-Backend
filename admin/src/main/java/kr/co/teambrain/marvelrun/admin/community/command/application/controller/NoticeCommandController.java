@@ -1,10 +1,10 @@
 package kr.co.teambrain.marvelrun.admin.community.command.application.controller;
 
-import kr.co.teambrain.marvelrun.admin.common.exception.SuccessCode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import kr.co.teambrain.marvelrun.admin.common.dto.response.IdResponse;
+import kr.co.teambrain.marvelrun.admin.common.exception.SuccessCode;
 import kr.co.teambrain.marvelrun.admin.community.command.application.dto.NoticeCreate;
 import kr.co.teambrain.marvelrun.admin.community.command.application.dto.NoticeUpdate;
 import kr.co.teambrain.marvelrun.admin.community.command.application.service.NoticeCommandService;
@@ -13,7 +13,6 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequiredArgsConstructor
@@ -25,7 +24,7 @@ public class NoticeCommandController {
     private final NoticeCommandService noticeCommandService;
 
     @PostMapping(
-            value = { "/event/{eventId}/notice", "/notice"},
+            value = {"/event/{eventId}/notice", "/notice"},
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE
     )
