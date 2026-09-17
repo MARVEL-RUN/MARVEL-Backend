@@ -24,13 +24,11 @@ public class NoticeCommandController {
     private final NoticeCommandService noticeCommandService;
 
     @PostMapping(
-            value = {"/event/{eventId}/notice", "/notice"},
-            consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
-            produces = MediaType.APPLICATION_JSON_VALUE
+            value = {"/event/{eventId}/notice", "/notice"}
     )
     @Operation(summary = "공지사항 생성", description = "공지사항 생성 기능입니다.")
     ResponseEntity<IdResponse> createEventNotice(
-            @RequestPart(name = "noticeCreate") NoticeCreate noticeCreate,
+            @RequestBody NoticeCreate noticeCreate,
             @PathVariable(name = "eventId", required = false) String eventId
 
     ) {
@@ -44,14 +42,11 @@ public class NoticeCommandController {
 
 
     @PutMapping(
-            value = "/notice/{noticeId}",
-            consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
-            produces = MediaType.APPLICATION_JSON_VALUE
+            value = "/notice/{noticeId}"
     )
     @Operation(summary = "공지사항 수정", description = "공지사항 ID로 공지사항을 수정합니다.")
     ResponseEntity<SuccessCode> updateNotice(
-            @Parameter(description = "noticeUpdate의 deleteFileUrls에는 삭제될 첨부파일의 url을 담아주시면 됩니다. 삭제되는게 없는경우 빈 배열로 보내주시면 됩니다.")
-            @RequestPart(name = "noticeUpdate") NoticeUpdate noticeUpdate,
+            @RequestBody NoticeUpdate noticeUpdate,
             @PathVariable(name = "noticeId") String noticeId
     ) {
 
