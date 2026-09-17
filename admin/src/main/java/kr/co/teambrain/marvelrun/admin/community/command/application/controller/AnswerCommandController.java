@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.admin.community.command.application.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
 import kr.co.teambrain.marvelrun.admin.common.dto.response.IdResponse;
 import kr.co.teambrain.marvelrun.admin.community.command.application.dto.AnswerRequest;
 import kr.co.teambrain.marvelrun.admin.community.command.application.dto.AnswerUpdate;
@@ -84,7 +85,7 @@ public class AnswerCommandController {
     }
 
     @DeleteMapping("/question/{questionId}")
-
+    @Operation(summary = "질문 - 답변 쌍 제거", description = "대상 질문을 삭제하고, 답변도 존재할 경우 같이 삭제합니다.")
     public ResponseEntity<Void> deleteQuestionAndAnswer(
             @PathVariable
             String questionId
