@@ -70,9 +70,6 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
     protected AddressBase addressBase;
 
     // 소유 신청인 경우에만 사용.
-    @Column(name = "guardian_base", nullable = true, length = 15)
-    @Enumerated(EnumType.STRING)
-    protected GuardianBase guardianBase; // nullable, 소유신청 한정 사용
 
     /**
      * uniqueInfo 및 개인정보
@@ -99,6 +96,19 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
 
     @Column(name = "address_detail")
     protected String addressDetail;
+
+    // 보호자 정보의 참조 기준. 단체 신청은 ORG_LEADER를 사용하며
+    // 소유신청 구성에 따라 수정 가능
+    @Column(name = "guardian_base", nullable = true, length = 15)
+    @Enumerated(EnumType.STRING)
+    protected GuardianBase guardianBase; // nullable, 소유신청 한정 사용
+
+    @Builder.Default
+    @Column(name = "guardian_consent", nullable = false)
+    protected boolean guardianConsent = false;
+
+    @Column(name = "guardian_name", length = 50)
+    protected String guardianName;
 
     @Column(name = "guardian_ph_num", length = 14)
     protected String guardianPhNum; // 보호자 연락처 (Nullable)

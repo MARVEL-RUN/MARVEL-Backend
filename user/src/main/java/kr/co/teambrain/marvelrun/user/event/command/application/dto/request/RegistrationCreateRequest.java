@@ -16,7 +16,7 @@ public record RegistrationCreateRequest(
         String eventCategoryId,
 
         @NotEmpty
-        List<@Valid SouvenirJson> selectedSouvenirList,
+        List<@NotNull @Valid SouvenirJson> selectedSouvenirList,
 
         @NotBlank
         @Size(max = 127)
@@ -40,7 +40,12 @@ public record RegistrationCreateRequest(
         @Size(max = 300)
         String address,
 
-        String addressDetail
+        String addressDetail,
+
+        @Size(max = 50)
+        String guardianName,
+
+        Boolean guardianConsent
 
 ) {
 }

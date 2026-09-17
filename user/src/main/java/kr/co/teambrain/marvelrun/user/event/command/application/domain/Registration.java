@@ -19,6 +19,7 @@ import lombok.experimental.SuperBuilder;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.GuardianBase;
 
 @Getter
 @Entity
@@ -42,44 +43,40 @@ public class Registration extends RegistrationBase<
             LocalDateTime expiresAt
     ) {
 
+        String guardianName = request.guardianName();
+
+        if (guardianName != null) {
+            guardianName = guardianName.strip();
+
+            if (guardianName.isEmpty()) {
+                guardianName = null;
+            }
+        }
+
         return Registration.builder()
-
-                /*
-                 * MVP 임시 생략.
-                 *
-                 * 실운영에서는 반드시 GUEST/USER를
-                 * reconcile한 후 non-null User를 연결해야 한다.
-                 */
                 .user(null)
-
                 .event(event)
                 .eventCategory(eventCategory)
-                .souvenirJson(request.selectedSouvenirList())
-
+                .souvenirJson(souvenirJsons)
                 .password(request.password())
-
                 .name(request.name())
                 .phNum(request.phNum())
                 .birth(request.birth())
                 .gender(request.gender())
-
                 .address(request.address())
                 .addressDetail(request.addressDetail())
-
+                .guardianName(guardianName)
+                .guardianConsent(
+                        Boolean.TRUE.equals(request.guardianConsent())
+                )
                 .contractAmount(contractAmount)
                 .paidAmount(BigDecimal.ZERO)
-
-                .status(
-                        RegistrationStatus.PAYMENT_PENDING
-                )
-
+                .status(RegistrationStatus.PAYMENT_PENDING)
                 .expiresAt(expiresAt)
-
                 .build();
     }
-    
-    /** 단체 신청에 따른 registration 구성 */
 
+    /** 단체 신청에 따른 registration 구성 */
     public static Registration createForOrgPaymentMvp(
             Event event,
             EventCategory eventCategory,
@@ -115,7 +112,7 @@ public class Registration extends RegistrationBase<
                  * 임시 하드코딩 비밀번호를 사용한다.
                  */
                 .password(
-                        "MVP_ORG_TEMP_PASSWORD"
+                        "%^MVP_ORG_T&*EM^&#P_PA$%SSWO@!RD"
                 )
 
                 .name(
@@ -144,6 +141,19 @@ public class Registration extends RegistrationBase<
                 )
                 .addressBase(
                         AddressBase.ORGANIZATION
+                )
+
+                /*
+                 * 단체 신청 참가자의 보호자 정보는 Organization에서 참조한다.
+                 *
+                 * 이름은 leaderName,
+                 * 연락처는 leaderPhNum,
+                 * 동의 여부는 Organization.guardianConsent를 사용한다.
+                 *
+                 * Registration의 개별 보호자 필드에는 복사하지 않는다.
+                 */
+                .guardianBase(
+                        GuardianBase.ORG_LEADER
                 )
 
                 .status(

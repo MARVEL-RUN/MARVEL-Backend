@@ -1,6 +1,7 @@
 package kr.co.teambrain.marvelrun.common.entity;
 
 import jakarta.persistence.*;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -36,6 +37,12 @@ public abstract class OrganizationBase<E extends EventBase> {
 
     @Column(name = "leader_ph_num", nullable = false, length = 30)
     protected String leaderPhNum;
+
+    // 단체 참가자에게 적용할 법정대리인 동의 여부.
+    // 법정대리인 동의는 필수가 아니다.
+    @Builder.Default
+    @Column(name = "guardian_consent", nullable = false)
+    protected boolean guardianConsent = false;
 
     @Column(name = "email", nullable = true, length = 30)
     protected String email;

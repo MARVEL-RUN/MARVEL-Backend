@@ -36,6 +36,9 @@ public record OrgProfileRequest(
         String email,
 
         @NotBlank
-        String leaderName
+        String leaderName,
+
+        @NotNull
+        Boolean guardianConsent
 ) {
 }

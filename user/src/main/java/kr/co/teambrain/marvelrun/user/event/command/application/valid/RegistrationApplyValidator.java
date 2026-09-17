@@ -17,6 +17,7 @@ import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationComma
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -55,7 +56,8 @@ public class RegistrationApplyValidator {
      */
     public RegistrationCreateContext validate(
             String eventId,
-            RegistrationCreateRequest request
+            RegistrationCreateRequest request,
+            LocalDateTime now
     ) {
 
         Event event =

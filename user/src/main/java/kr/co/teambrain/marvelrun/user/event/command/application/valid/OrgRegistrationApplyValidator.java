@@ -14,6 +14,9 @@ import kr.co.teambrain.marvelrun.user.event.command.repository.EventCommandRepos
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -22,6 +25,9 @@ import java.util.Set;
 @Component
 public class OrgRegistrationApplyValidator
         extends RegistrationApplyValidator {
+
+    private static final ZoneId REGISTRATION_ZONE =
+            ZoneId.of("Asia/Seoul");
 
     public OrgRegistrationApplyValidator(
             RegistrationCommandRepository registrationCommandRepository,
@@ -41,7 +47,8 @@ public class OrgRegistrationApplyValidator
 
     public OrgRegistrationCreateContext validate(
             String eventId,
-            OrgRegistrationCreateRequest request
+            OrgRegistrationCreateRequest request,
+            LocalDateTime now
     ) {
 
         Event event =
@@ -52,6 +59,16 @@ public class OrgRegistrationApplyValidator
 
         validateEvent(
                 event
+        );
+
+        LocalDate applicationDate =
+                LocalDate.now(
+                        REGISTRATION_ZONE
+                );
+
+        validateOrganizationLeaderAge(
+                request.profile().birth(),
+                applicationDate
         );
 
 
@@ -125,6 +142,38 @@ public class OrgRegistrationApplyValidator
                         registrationContexts
                 )
         );
+    }
+
+    /**
+     * 단체장은 신청일 기준 만 19세 이상이어야 한다.
+     *
+     * 신청일과 단체장의 19번째 생일을 비교하며,
+     * 19번째 생일 당일부터 단체 신청을 허용한다.
+     *
+     * applicationDate를 인자로 받아
+     * 날짜 경계 테스트에서 기준일을 고정할 수 있도록 한다.
+     */
+    protected void validateOrganizationLeaderAge(
+            LocalDate leaderBirth,
+            LocalDate applicationDate
+    ) {
+
+        if (leaderBirth == null) {
+
+            throw new CustomException(
+                    ErrorCode.ORGANIZATION_LEADER_BIRTH_REQUIRED
+            );
+        }
+
+        LocalDate nineteenthBirthday =
+                leaderBirth.plusYears(19);
+
+        if (applicationDate.isBefore(nineteenthBirthday)) {
+
+            throw new CustomException(
+                    ErrorCode.ORGANIZATION_LEADER_MUST_BE_ADULT
+            );
+        }
     }
 
 

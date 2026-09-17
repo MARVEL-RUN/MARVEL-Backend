@@ -8,6 +8,46 @@ import org.springframework.http.HttpStatus;
 @AllArgsConstructor
 public enum ErrorCode {
 
+    ORGANIZATION_LEADER_BIRTH_REQUIRED(
+            HttpStatus.BAD_REQUEST,
+            "단체장 생년월일을 입력해주세요."
+    ),
+
+    ORGANIZATION_LEADER_MUST_BE_ADULT(
+            HttpStatus.BAD_REQUEST,
+            "단체장은 신청일 기준 만 19세 이상이어야 합니다."
+    ),
+    REGISTRATION_POLICY_CONFIGURATION_ERROR(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "참가신청 정책 설정을 확인할 수 없습니다. 관리자에게 문의해주세요."
+    ),
+
+    INVALID_REGISTRATION_BIRTH(
+            HttpStatus.BAD_REQUEST,
+            "생년월일은 오늘 이전의 유효한 날짜를 yyyy-MM-dd 형식으로 입력해주세요."
+    ),
+
+    REGISTRATION_CATEGORY_BIRTH_NOT_ALLOWED(
+            HttpStatus.BAD_REQUEST,
+            "참가자의 연령 조건으로는 해당 종목을 신청할 수 없습니다."
+    ),
+
+    REGISTRATION_SOUVENIR_SIZE_NOT_ALLOWED(
+            HttpStatus.BAD_REQUEST,
+            "참가자의 연령 조건으로는 해당 기념품 사이즈를 선택할 수 없습니다."
+    ),
+
+    GUARDIAN_CONSENT_REQUIRED(
+            HttpStatus.BAD_REQUEST,
+            "해당 참가자는 법정대리인 동의가 필요합니다."
+    ),
+
+    GUARDIAN_NAME_REQUIRED(
+            HttpStatus.BAD_REQUEST,
+            "해당 참가자는 보호자 이름을 입력해야 합니다."
+    ),
+
+
     // =========================================================
     // Question
     // =========================================================

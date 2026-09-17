@@ -48,7 +48,7 @@ public abstract class EventBase {
     @Enumerated(EnumType.STRING)
     protected EventVisibleStatus visibleStatus = EventVisibleStatus.OPEN; // event의 메인 표기 여부 + 관련된 모든 요청 가능 여부에만 영향
 
-    @Column(name = "regist_start_date")
+    @Column(name = "regist_start_date", nullable = false)
     protected LocalDateTime registStartDate;
 
     @Column(name = "regist_deadline", nullable = false)

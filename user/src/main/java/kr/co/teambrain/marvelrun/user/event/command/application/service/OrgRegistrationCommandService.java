@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.OrgRegistrationCreateContext;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization;
@@ -39,6 +40,8 @@ public class OrgRegistrationCommandService {
     private final PaymentCreator
             paymentCreator;
 
+    private final ServerTimeProvider serverTimeProvider;
+
 
     /**
      * 단체 신청 생성.
@@ -53,6 +56,8 @@ public class OrgRegistrationCommandService {
             String eventId,
             OrgRegistrationCreateRequest request
     ) {
+        LocalDateTime now = serverTimeProvider.currentDateTime();
+
 
         /*
          * Event / Category / Souvenir /
@@ -61,7 +66,8 @@ public class OrgRegistrationCommandService {
         OrgRegistrationCreateContext context =
                 orgRegistrationApplyValidator.validate(
                         eventId,
-                        request
+                        request,
+                        now
                 );
 
 
@@ -183,7 +189,6 @@ public class OrgRegistrationCommandService {
                         : request.profile()
                         .email();
 
-
         return Organization.builder()
                 .account(
                         request.account()
@@ -209,6 +214,12 @@ public class OrgRegistrationCommandService {
                 .leaderPhNum(
                         request.profile()
                                 .phNum()
+                )
+                .guardianConsent(
+                        Boolean.TRUE.equals(
+                                request.profile()
+                                        .guardianConsent()
+                        )
                 )
                 .email(
                         email

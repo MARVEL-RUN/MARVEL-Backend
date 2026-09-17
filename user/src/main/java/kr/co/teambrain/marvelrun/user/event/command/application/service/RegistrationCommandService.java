@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
 
 @Service
 @RequiredArgsConstructor
@@ -43,12 +44,15 @@ public class RegistrationCommandService {
     private final PaymentCreator
             paymentCreator;
 
+    private final ServerTimeProvider serverTimeProvider;
+
 
     @Transactional
     public RegistrationCreateResponse register(
             String eventId,
             RegistrationCreateRequest request
     ) {
+        LocalDateTime now = serverTimeProvider.currentDateTime();
 
         /*
          * 신청 생성에 필요한 Entity 조회,
@@ -56,11 +60,7 @@ public class RegistrationCommandService {
          * Souvenir size 정규화까지 Validator에서 완료한다.
          */
         RegistrationCreateContext context =
-                registrationApplyValidator
-                        .validate(
-                                eventId,
-                                request
-                        );
+                registrationApplyValidator.validate(eventId, request, now);
 
 
         Event event =
