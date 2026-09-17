@@ -139,7 +139,7 @@ public interface NoticeQueryRepository
                     OR
                     (:eventId IS NOT NULL AND n.event.id = :eventId)
                 )
-                AND n.category.name = '공지'
+                AND n.category.name = '필독'
             ORDER BY
                 n.createdAt DESC,
                 n.id DESC
