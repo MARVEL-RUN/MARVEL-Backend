@@ -209,7 +209,7 @@ jobs:
               'test -n "$CONTAINER_ID"',
               'test "$(docker inspect --format \'{{.State.Running}}\' "$CONTAINER_ID")" = "true"',
               f"docker logout {registry} || true",
-              "docker image prune -f",
+              "docker image prune -af",
           ]
 
           with open("/tmp/ssm-parameters.json", "w", encoding="utf-8") as f:
