@@ -36,7 +36,7 @@ public class QuestionQueryService {
             String eventId,
             QuestionSearchTarget target,
             String keyword,
-            boolean isAnswered,
+            Boolean isAnswered,
             Pageable pageable
     ) {
 
