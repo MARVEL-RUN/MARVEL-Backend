@@ -176,11 +176,11 @@ public class OrgRegistrationCommandService {
                         .email();
 
         return Organization.builder()
-                .account(
+                .loginId(
                         request.account()
                                 .organizationLoginId()
                 )
-                .accountPassword(
+                .password(
                         request.account()
                                 .organizationPassword()
                 )
