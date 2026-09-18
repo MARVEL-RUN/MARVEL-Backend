@@ -19,11 +19,11 @@ public abstract class OrganizationBase<E extends EventBase> {
     @Column(name = "id", nullable = false, length = 40)
     protected String id;
 
-    @Column(name = "account", nullable = false, length = 30)
-    protected String account;
+    @Column(name = "login_id", nullable = false, length = 30)
+    protected String loginId;
 
-    @Column(name = "account_password", nullable = false, length = 127)
-    protected String accountPassword;
+    @Column(name = "password", nullable = false, length = 127)
+    protected String password;
 
     @Column(name = "group_name", nullable = false, length = 30)
     protected String groupName;
