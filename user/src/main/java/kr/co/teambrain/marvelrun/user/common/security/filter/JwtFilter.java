@@ -113,6 +113,7 @@ public class JwtFilter
                         path)
         ) {
 
+
             authenticatePublicRequest(
                     authorizationHeader
             );
