@@ -150,6 +150,7 @@ public class ReservationReleaseService {
          * 동일 Capacity의 수량을 합산하여 ID 순서로 반환한다.
          * active=false여도 기존 확보분의 반환은 허용한다.
          */
+        // quantities 내에 저장된 capacityId : id대상차감값총합 을 가져옴
         for (Map.Entry<String, Integer> entry : quantities.entrySet()) {
 
             int updated = capacityRepository.releaseHeld(
