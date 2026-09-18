@@ -110,7 +110,7 @@ public class ReservationReleaseService {
                 itemRepository.findAllocations(releaseReservationIds);
 
         Set<String> recordedReservationIds = new HashSet<>();
-        Map<String, Integer> quantities = new TreeMap<>();
+        Map<String, Integer> quantities = new TreeMap<>(); // capacity : 차감할 내역
 
         /*
          * 현재 종목·기념품 설정을 재계산하지 않고,
@@ -129,6 +129,7 @@ public class ReservationReleaseService {
 
             recordedReservationIds.add(allocation.reservationId());
 
+            // 각 capacityId에 대해 최종적으로 얼마를 차감해야하는지 합계해둠.
             quantities.merge(
                     allocation.capacityId(), // 1. 확인할 Key
                     allocation.quantity(), // 2. 만약 Key가 없다면 넣을 최초 Value (각 아이템의 홀딩된 개수)

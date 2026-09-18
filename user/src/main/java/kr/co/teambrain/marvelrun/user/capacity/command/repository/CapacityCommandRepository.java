@@ -131,7 +131,7 @@ public interface CapacityCommandRepository
     /**
      * 기존 홀딩 수량을 반환한다.
      *
-     * active 여부와 무관하게 처리한다.
+     * active 여부와 무관하게 처리한다.(active는 신규 추가만 방지)
      * 해당 예약의 반환 가능 상태와 중복 처리는 서비스에서 검증한다.
      *
      * @return 반환 성공 시 1, 홀딩 부족 또는 대상 부재 시 0
