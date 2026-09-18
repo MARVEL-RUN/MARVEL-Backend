@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.capacity.command.application.service;
 
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
+import kr.co.teambrain.marvelrun.common.json_object.ReservationHistoryEntry;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.domain.Reservation;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.dto.ReservationAllocation;
 import kr.co.teambrain.marvelrun.user.capacity.command.repository.CapacityCommandRepository;
@@ -7,6 +9,8 @@ import kr.co.teambrain.marvelrun.user.capacity.command.repository.ReservationCom
 import kr.co.teambrain.marvelrun.user.capacity.command.repository.ReservationItemCommandRepository;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.PaymentCommandRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -31,17 +35,21 @@ public class ReservationReleaseService {
     private final ReservationCommandRepository reservationRepository;
     private final ReservationItemCommandRepository itemRepository;
     private final CapacityCommandRepository capacityRepository;
+    private final PaymentCommandRepository paymentCommandRepository;
 
     /**
-     * 지정한 신청들의 HELD 예약을 반환한다.
+     * 지정한 신청들의 기존 최초 참가비 주문을 무효화하고 HELD 예약을 반환한다.
      *
-     * 이미 RELEASED인 예약은 제외한다.
-     * 결제 처리 중이거나 확정된 예약이 하나라도 있으면 전체를 실패시킨다.
+     * 관련 Payment를 먼저 잠금 조회한 뒤 예약 상태를 변경한다.
+     * 단체 주문이 무효화되더라도 수량은 요청받은 신청들에 대해서만 반환한다.
      *
-     * 버전 충돌이나 수량 불일치가 발생하면 상태와 카운터를 모두 롤백한다.
+     * 이미 RELEASED인 예약은 수량과 이력을 다시 변경하지 않는다.
+     * 승인 진행 중, 결과 불명 또는 승인 완료 주문이 있으면 반환을 거절한다.
+     *
+     * 버전 충돌이나 수량 불일치가 발생하면 주문·예약·카운터를 모두 롤백한다.
      *
      * @param eventId 반환 대상 대회
-     * @param registrationIds 호출부에서 반환을 허용한 신청 식별자 목록
+     * @param registrationIds 호출부에서 소유권과 반환 가능 여부를 검증한 신청 목록
      * @param now 호출 서비스에서 구한 현재 시각
      */
     public void releaseUnpaid(
@@ -57,6 +65,17 @@ public class ReservationReleaseService {
         }
 
         Set<String> uniqueIds = new HashSet<>(registrationIds);
+
+        /*
+         * 승인 시작과 동일하게 Payment를 먼저 잠근다.
+         *
+         * READY 주문은 무효화하고,
+         * 승인 진행 중이거나 결과 불명인 주문이 있으면 반환을 중단한다.
+         *
+         * 이후 예약 검증이나 수량 반환이 실패하면
+         * 여기서 변경한 Payment 상태도 함께 롤백된다.
+         */
+        invalidateRelatedPayments(uniqueIds);
 
         List<Reservation> reservations =
                 reservationRepository.findAllByRegistrationIds(uniqueIds);
@@ -88,7 +107,19 @@ public class ReservationReleaseService {
                 );
             }
 
+            /*
+             * 이번 호출에서 실제로 RELEASED로 전환된 예약에만 이력을 추가한다.
+             * 이미 반환된 예약에는 로그나 수량 변경을 반복하지 않는다.
+             */
             if (reservation.releaseHeld()) {
+                reservation.appendHistory(
+                        ReservationHistoryEntry.Action.RELEASE,
+                        now,
+                        null,
+                        "미결제 예약의 확보 수량 반환",
+                        List.of()
+                );
+
                 releaseReservationIds.add(reservation.getId());
             }
         }
@@ -168,6 +199,32 @@ public class ReservationReleaseService {
                                 + ", quantity=" + entry.getValue()
                 );
             }
+        }
+    }
+
+    /**
+     * 반환 대상 신청과 관련된 최초 참가비 주문을 잠그고 무효화한다.
+     *
+     * READY 주문은 INVALIDATED로 변경한다.
+     * FAILED와 INVALIDATED는 기존 상태를 유지한다.
+     * CONFIRMING, UNKNOWN, COMPLETED는 도메인 메서드에서 거절한다.
+     *
+     * 주문이 없는 경우에도 예약 자체의 반환 검증은 계속 수행한다.
+     * 신규 로그는 추가하지 않으며 기존 Payment 행을 유지한다.
+     */
+    private void invalidateRelatedPayments(
+            Set<String> registrationIds
+    ) {
+
+        List<Payment> payments =
+                paymentCommandRepository
+                        .findAllRelatedToRegistrationsForUpdate(
+                                registrationIds,
+                                PaymentPurpose.REGISTRATION_TRY
+                        );
+
+        for (Payment payment : payments) {
+            payment.invalidateForReservationRelease();
         }
     }
 }

@@ -34,9 +34,6 @@ public abstract class EventBase {
     @Column(name = "organizer", nullable = false, length = 20)
     protected String organizer;
 
-    @Column(name = "regist_maximum", nullable = false)
-    protected Integer registMaximum;
-
     @Column(name = "events_page_url", nullable = true)
     protected String eventsPageUrl;
 

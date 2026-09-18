@@ -223,20 +223,19 @@ class RegistrationPolicyTestDatabaseTest {
 
         assertThat(context.souvenirJsons())
                 .extracting(SouvenirJson::souvenirId)
-                .containsExactlyInAnyOrder(
-                        "souvenir-medal-tr",
-                        "souvenir-strap",
-                        "souvenir-tshirt"
-                );
+                .containsExactly("souvenir-tshirt");
     }
 
+    /**
+     * 유일한 필수 기념품인 티셔츠 선택이 누락되면 신청을 거절한다.
+     */
     @Test
-    void missingMedalIsRejected() {
+    void missingTshirtIsRejected() {
         List<SouvenirJson> selections =
                 new ArrayList<>(souvenirs("category-2", "M"));
 
         selections.removeIf(
-                item -> item.souvenirId().equals("souvenir-medal-tr")
+                item -> item.souvenirId().equals("souvenir-tshirt")
         );
 
         expectError(
@@ -255,8 +254,11 @@ class RegistrationPolicyTestDatabaseTest {
         );
     }
 
+    /**
+     * 선택 개수가 같더라도 매핑되지 않은 기념품으로 대체하면 거절한다.
+     */
     @Test
-    void wrongMedalWithSameSelectionCountIsRejected() {
+    void unmappedSouvenirWithSameSelectionCountIsRejected() {
         List<SouvenirJson> selections =
                 new ArrayList<>(souvenirs("category-2", "M"));
 
@@ -531,13 +533,16 @@ class RegistrationPolicyTestDatabaseTest {
         );
     }
 
+    /**
+     * 단체원 한 명의 정상 선택이 다른 단체원의 티셔츠 누락을 대신하지 못한다.
+     */
     @Test
     void anotherParticipantCannotCoverMissingSouvenir() {
         List<SouvenirJson> incomplete =
                 new ArrayList<>(souvenirs("category-2", "130"));
 
         incomplete.removeIf(
-                item -> item.souvenirId().equals("souvenir-medal-tr")
+                item -> item.souvenirId().equals("souvenir-tshirt")
         );
 
         expectError(
@@ -679,22 +684,17 @@ class RegistrationPolicyTestDatabaseTest {
         );
     }
 
+    /**
+     * 현재 신청 대상으로 매핑된 티셔츠 선택값을 생성한다.
+     *
+     * 모든 종목이 같은 티셔츠를 사용한다.
+     * 기존 테스트 호출부 호환을 위해 categoryId 매개변수를 유지한다.
+     */
     private List<SouvenirJson> souvenirs(
             String categoryId,
             String shirtSize
     ) {
-        String medalId = switch (categoryId) {
-            case "category-1" -> "souvenir-medal-dd";
-            case "category-2" -> "souvenir-medal-tr";
-            case "category-3" -> "souvenir-medal-cp";
-            default -> throw new IllegalArgumentException(
-                    "알 수 없는 테스트 종목: " + categoryId
-            );
-        };
-
         return List.of(
-                new SouvenirJson(medalId, "FREE"),
-                new SouvenirJson("souvenir-strap", "A타입"),
                 new SouvenirJson("souvenir-tshirt", shirtSize)
         );
     }

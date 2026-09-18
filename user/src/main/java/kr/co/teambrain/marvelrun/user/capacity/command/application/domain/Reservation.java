@@ -6,6 +6,7 @@ import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import kr.co.teambrain.marvelrun.common.entity.ReservationBase;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
+import kr.co.teambrain.marvelrun.common.json_object.ReservationHistoryEntry;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
@@ -13,6 +14,10 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
+
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 
 /**
@@ -76,6 +81,23 @@ public class Reservation extends ReservationBase<Registration> {
     }
 
     /**
+     * 반환된 예약을 새로운 확보 회차의 HELD 상태로 전환한다.
+     *
+     * Reservation 행과 기존 이력은 유지하고 확보 회차만 증가시킨다.
+     * 실제 수량 확보, 상세 교체 및 REHOLD 이력은 호출 서비스에서 처리한다.
+     *
+     * 수량 확보에 실패하면 이 상태 변경과 회차 증가도 함께 롤백해야 한다.
+     */
+    public void reacquireHeld() {
+
+        requireStatus(ReservationStatus.RELEASED);
+
+        status = ReservationStatus.HELD;
+        holdSequence++;
+        expiresAt = null;
+    }
+
+    /**
      * 확보된 예약을 결제 처리 중 상태로 전환한다.
      *
      * 이미 처리 중이거나 확정·반환된 예약은 신규 승인에 사용할 수 없다.
@@ -107,6 +129,41 @@ public class Reservation extends ReservationBase<Registration> {
         requireStatus(ReservationStatus.PROCESSING);
         status = ReservationStatus.CONSUMED;
     }
+
+    /**
+     * 현재 확보 회차와 처리 후 상태를 포함하여 "이력" 한 건을 추가한다.
+     *
+     * 기존 목록을 복사한 뒤 새 목록으로 교체하여 JSON 변경을 명시한다.
+     * 기존 이력과 전달받은 상세 목록은 직접 수정하지 않는다.
+     *
+     * 상태 및 Capacity 변경과 동일 트랜잭션에서 호출해야 한다.
+     */
+    public void appendHistory(
+            ReservationHistoryEntry.Action action,
+            LocalDateTime occurredAt,
+            String paymentId,
+            String reason,
+            List<ReservationHistoryEntry.Item> items
+    ) {
+        ReservationHistoryEntry entry =
+                new ReservationHistoryEntry(
+                        action,
+                        holdSequence,
+                        occurredAt,
+                        status,
+                        paymentId,
+                        reason,
+                        items
+                );
+
+        List<ReservationHistoryEntry> updatedHistory =
+                new ArrayList<>(history);
+
+        updatedHistory.add(entry);
+
+        history = updatedHistory;
+    }
+
 
     /**
      * 현재 상태가 요청한 전이를 허용하는지 검증한다.

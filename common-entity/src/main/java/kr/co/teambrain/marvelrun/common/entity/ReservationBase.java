@@ -3,14 +3,20 @@ package kr.co.teambrain.marvelrun.common.entity;
 
 import jakarta.persistence.*;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
+import kr.co.teambrain.marvelrun.common.json_object.ReservationHistoryEntry;
 import lombok.AccessLevel;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
+import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 
 /**
@@ -65,4 +71,27 @@ public abstract class ReservationBase<
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     protected LocalDateTime updatedAt;
+
+    /**
+     * 현재 확보 회차.
+     * registration - reservation이 1:1 관계임에 따라
+     * 로그 누적형으로 이력을 관리해야하므로 구성된 별도의 버전처리.
+     *
+     * 최초 확보는 1이며 반환 후 재확보할 때 한정으로 증가한다.
+     * 동시성 검증용 version과는 별개이다.
+     */
+    @Builder.Default
+    @Column(name = "hold_sequence", nullable = false)
+    protected int holdSequence = 1;
+
+    /**
+     * 예약 동작을 발생 순서대로 누적한 JSON 배열이다.
+     *
+     * 기존 항목을 수정하거나 삭제하지 않고 새 항목을 추가한다.
+     * 상태 및 수량 변경과 동일 트랜잭션에서 저장한다.
+     */
+    @Builder.Default
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "history", nullable = false, columnDefinition = "JSON")
+    protected List<ReservationHistoryEntry> history = new ArrayList<>();
 }

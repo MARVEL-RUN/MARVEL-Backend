@@ -61,6 +61,14 @@ public abstract class CapacityBase<
     @Column(name = "size", nullable = false, length = 100)
     protected String size = "";
 
+    /**
+     * 이 자원의 최대 점유 수량.
+     *
+     * EVENT_TOTAL이면 해당 대회의 최대 참가 인원이며,
+     * 다른 유형이면 해당 종목·복합 정원·기념품의 한도이다.
+     *
+     * heldCount + confirmedCount는 이 값을 초과할 수 없다.
+     */
     @Column(name = "limit_count", nullable = false)
     protected int limitCount;
 

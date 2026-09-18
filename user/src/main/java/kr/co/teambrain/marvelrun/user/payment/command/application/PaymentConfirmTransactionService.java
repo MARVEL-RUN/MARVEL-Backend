@@ -7,6 +7,7 @@ import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_log.Payme
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationPaymentService;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
+import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
@@ -42,6 +43,8 @@ import java.util.Objects;
 @Service
 @RequiredArgsConstructor
 public class PaymentConfirmTransactionService {
+
+    private final ServerTimeProvider serverTimeProvider;
 
     private final ReservationPaymentService reservationPaymentService;
 
@@ -161,10 +164,16 @@ public class PaymentConfirmTransactionService {
         List<Registration> registrations =
                 resolvePaymentRegistrations(payment);
 
+        /*
+         * 예약 상태와 결제 시작 이력을 함께 저장한다.
+         * Payment 상태 변경 및 요청 로그 저장도 같은 트랜잭션에 포함된다.
+         */
         reservationPaymentService.startPayment(
                 registrations.stream()
                         .map(Registration::getId)
-                        .toList()
+                        .toList(),
+                payment.getId(),
+                now
         );
 
         payment.startConfirm(
@@ -357,6 +366,7 @@ public class PaymentConfirmTransactionService {
         /*
          * 예약을 PROCESSING에서 CONSUMED로 변경하고,
          * 예약 상세에 기록된 수량을 heldCount에서 confirmedCount로 이동한다.
+         * 결제 식별자를 예약 이력에 기록하면서 확보 수량을 확정한다.
          *
          * 예약 버전 충돌이나 수량 불일치가 발생하면
          * 이 트랜잭션의 변경을 모두 롤백한다.
@@ -366,6 +376,7 @@ public class PaymentConfirmTransactionService {
                 registrations.stream()
                         .map(Registration::getId)
                         .toList(),
+                payment.getId(),
                 now
         );
 
@@ -489,6 +500,14 @@ public class PaymentConfirmTransactionService {
                 payment
         );
 
+
+        /*
+         * 실패 반영 시각을 한 번 구해 대상 예약들의 이력에 공통으로 사용한다.
+         * 결제 실패 시점은 승인 요청 시작 시각과 구분한다.
+         */
+        LocalDateTime failedAt =
+                serverTimeProvider.currentDateTime();
+
         /*
          * 결제 실패는 신청 취소가 아니므로 자원을 반환하지 않는다.
          *
@@ -498,9 +517,10 @@ public class PaymentConfirmTransactionService {
         reservationPaymentService.restoreHeldAfterFailure(
                 resolvePaymentRegistrations(payment).stream()
                         .map(Registration::getId)
-                        .toList()
+                        .toList(),
+                payment.getId(),
+                failedAt
         );
-
         payment.failConfirm();
 
         /*

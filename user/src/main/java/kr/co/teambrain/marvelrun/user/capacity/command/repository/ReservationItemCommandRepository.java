@@ -3,6 +3,7 @@ package kr.co.teambrain.marvelrun.user.capacity.command.repository;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.domain.ReservationItem;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.dto.ReservationAllocation;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Propagation;
@@ -23,7 +24,7 @@ public interface ReservationItemCommandRepository
 
     /**
      * 지정한 예약들의 확보 내역을 Capacity 식별자 순서로 조회한다.
-     *
+     * <p>
      * 서비스에서 동일 Capacity의 수량을 합산한 뒤,
      * Capacity 식별자 순서로 수량 UPDATE를 수행한다.
      * reservationIds가 비어 있으면 호출하지 않는다.
@@ -39,4 +40,21 @@ public interface ReservationItemCommandRepository
     List<ReservationAllocation> findAllocations(
             @Param("reservationIds") Collection<String> reservationIds
     );
+
+    /**
+     * 재확보 대상 예약의 이전 확보 상세를 삭제한다.(Reservation은 Registration과 1:1 구성이므로, 재확보 시 기존 사용한 Reservation Item을 비우고 새로 구성해야한다.)
+     * <p>
+     * 과거 확보 내역은 Reservation의 JSON 이력에 유지한다.
+     * 호출 서비스는 같은 트랜잭션에서 새 상세를 저장해야 한다.
+     * reservationIds가 비어 있으면 호출하지 않는다.
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("""
+        delete from ReservationItem ri
+        where ri.reservation.id in :reservationIds
+        """)
+    int deleteAllByReservationIds(
+            @Param("reservationIds") Collection<String> reservationIds
+    );
+
 }

@@ -234,7 +234,15 @@ public enum ErrorCode {
     ),
     MUST_NEED_PASSWORD(HttpStatus.FORBIDDEN,"올바른 비밀번호 입력이 필요합니다"),
     MUST_NEED_GUEST_NAMED_USER(HttpStatus.INTERNAL_SERVER_ERROR, "question 매핑 목적의 '비회원' user가 db내에 존재하지않음"), 
-    NOTICE_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 공지를 찾을 수 없습니다");
+    NOTICE_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 공지를 찾을 수 없습니다"),
+    /**
+     * 신청 또는 단체의 본인 확인 정보가 일치하지 않는 경우.
+     * 어떤 입력 항목이 틀렸는지는 응답으로 구분하지 않는다.
+     */
+    REGISTRATION_ACCESS_DENIED(
+            HttpStatus.FORBIDDEN,
+            "신청 확인 정보가 일치하지 않습니다."
+    ),;
     
     private final HttpStatus httpStatus;
     private final String message;

@@ -66,7 +66,7 @@ dependencies {
  */
 tasks.named('test', Test) {
 	useJUnitPlatform {
-		excludeTags 'policy-db', 'payment-db'
+		excludeTags 'policy-db', 'payment-db', 'capacity-db'
 	}
 }
 /*
@@ -94,6 +94,31 @@ tasks.register('policyDbTest', Test) {
      * 외부 DB의 데이터 변경은 Gradle 입력 파일에 반영되지 않는다.
      * 이전 성공 결과를 재사용하지 않고 명시적 실행마다 검증한다.
      */
+	outputs.upToDateWhen { false }
+	outputs.cacheIf { false }
+}
+
+/*
+ * 정원·예약 MVP의 실제 DB 테스트를 명시적으로 실행한다.
+ *
+ * 일반 build/check에는 연결하지 않는다.
+ * 외부 DB 상태가 달라질 수 있으므로 실행 결과를 재사용하지 않는다.
+ */
+tasks.register('capacityDbTest', Test) {
+	group = 'verification'
+	description = '정원·예약 MVP의 DB 동작을 검증합니다.'
+
+	dependsOn tasks.named('testClasses')
+
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+
+	useJUnitPlatform {
+		includeTags 'capacity-db'
+	}
+
+	maxParallelForks = 1
+
 	outputs.upToDateWhen { false }
 	outputs.cacheIf { false }
 }

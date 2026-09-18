@@ -192,7 +192,7 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
     protected LocalDateTime modifiedAt;
 
     @Column(name = "is_del") // true == 소프트딜리트
-    protected boolean is_del = false;
+    protected boolean softDeleted = false;
 
     /**
      * 관리자
