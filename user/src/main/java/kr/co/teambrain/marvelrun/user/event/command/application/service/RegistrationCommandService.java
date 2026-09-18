@@ -1,6 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
 
+import kr.co.teambrain.marvelrun.user.capacity.command.application.service.RegistrationCapacityService;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationCreateContext;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
@@ -18,12 +19,21 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
 
+/**
+ * 개인 신청, 자원 예약, 최초 결제를 하나의 트랜잭션에서 생성한다.
+ *
+ * 대회를 잠근 뒤 기존 정책 검증을 수행하고,
+ * 필요한 정원과 기념품 확보에 성공한 신청만 저장을 확정한다.
+ */
 @Service
 @RequiredArgsConstructor
 public class RegistrationCommandService {
+
+    private final RegistrationCapacityService registrationCapacityService;
 
     private final EventCommandRepository
             eventCommandRepository;
@@ -43,6 +53,14 @@ public class RegistrationCommandService {
     private final ServerTimeProvider serverTimeProvider;
 
 
+    /**
+     * 개인 신청을 생성하고 정원·기념품을 임시 확보한다.
+     *
+     * 대회 잠금 → 정책 검증 → 신청 저장 → 자원 확보 및 마감
+     * → 최초 Payment 생성 순서로 처리한다.
+     *
+     * 어느 단계든 실패하면 동일 트랜잭션의 변경을 모두 롤백한다.
+     */
     @Transactional
     public RegistrationCreateResponse register(
             String eventId,
@@ -50,27 +68,19 @@ public class RegistrationCommandService {
     ) {
         LocalDateTime now = serverTimeProvider.currentDateTime();
 
-        /*
-         * 신청 생성에 필요한 Entity 조회,
-         * Event / Category / Souvenir 검증,
-         * Souvenir size 정규화까지 Validator에서 완료한다.
-         */
+        registrationCapacityService.lockEvent(eventId);
+
         RegistrationCreateContext context =
-                registrationApplyValidator.validate(eventId, request, now);
+                registrationApplyValidator.validate(
+                        eventId,
+                        request,
+                        now
+                );
 
+        Event event = context.event();
+        EventCategory eventCategory = context.eventCategory();
 
-        Event event =
-                context.event();
-
-
-        EventCategory eventCategory =
-                context.eventCategory();
-
-
-        BigDecimal contractAmount =
-                eventCategory.getAmount();
-
-
+        BigDecimal contractAmount = eventCategory.getAmount();
 
         Registration registration =
                 Registration.createForPaymentMvp(
@@ -81,27 +91,25 @@ public class RegistrationCommandService {
                         contractAmount
                 );
 
+        Registration savedRegistration =
+                registrationCommandRepository.save(registration);
 
-        registrationCommandRepository.save(
-                registration
+        registrationCapacityService.holdAndCloseIfFull(
+                event,
+                List.of(savedRegistration),
+                now
         );
 
-
-        String correlationId =
-                UUID.randomUUID()
-                        .toString();
-
+        String correlationId = UUID.randomUUID().toString();
 
         Payment payment =
-                paymentCreator
-                        .createInitialPayment(
-                                registration,
-                                correlationId
-                        );
-
+                paymentCreator.createInitialPayment(
+                        savedRegistration,
+                        correlationId
+                );
 
         return RegistrationCreateResponse.from(
-                registration,
+                savedRegistration,
                 payment
         );
     }

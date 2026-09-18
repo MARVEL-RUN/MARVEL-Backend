@@ -57,6 +57,65 @@ public enum ErrorCode {
             "대회 결제 정책 설정을 확인해주세요."
     ),
 
+    //
+    // Capacity & Resevation
+    //
+
+    /**
+     * 정원·예약 처리에 필요한 내부 참조 또는 수량이 잘못된 경우.
+     */
+    INVALID_RESERVATION_ARGUMENT(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "예약 처리에 필요한 정보가 올바르지 않습니다."
+    ),
+
+    /**
+     * 필수 정원 설정이 없거나 적용 대상 설정이 잘못된 경우.
+     */
+    CAPACITY_CONFIGURATION_ERROR(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "정원 또는 기념품 재고 설정을 확인해주세요."
+    ),
+
+    /**
+     * 신규 확보가 차단되었거나 남은 수량이 부족한 경우.
+     */
+    CAPACITY_ACQUIRE_FAILED(
+            HttpStatus.CONFLICT,
+            "선택한 종목 또는 기념품의 확보 가능한 수량이 부족하거나 접수가 중단되었습니다."
+    ),
+
+    /**
+     * 예약 내역과 실제 카운터가 일치하지 않아 수량을 이동할 수 없는 경우.
+     */
+    CAPACITY_COUNTER_MISMATCH(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "예약 수량 처리 중 오류가 발생했습니다."
+    ),
+
+    /**
+     * 신청에 대응하는 예약이 존재하지 않는 경우.
+     */
+    RESERVATION_NOT_FOUND(
+            HttpStatus.NOT_FOUND,
+            "신청의 예약 정보를 찾을 수 없습니다."
+    ),
+
+    /**
+     * 현재 예약 상태에서 요청한 처리를 수행할 수 없는 경우.
+     */
+    RESERVATION_STATE_CONFLICT(
+            HttpStatus.CONFLICT,
+            "현재 예약 상태에서는 요청한 처리를 진행할 수 없습니다."
+    ),
+
+    /**
+     * 다른 요청이 동일 데이터를 먼저 변경하여 현재 작업을 완료할 수 없는 경우. (낙관적 잠금 충돌)
+     */
+    CONCURRENT_MODIFICATION(
+            HttpStatus.CONFLICT,
+            "다른 요청에서 상태가 변경되었습니다. 현재 상태를 다시 확인해주세요."
+    ),
 
     // =========================================================
     // Question

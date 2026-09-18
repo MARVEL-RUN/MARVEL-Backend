@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import kr.co.teambrain.marvelrun.user.capacity.command.application.service.RegistrationCapacityService;
 import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.OrgRegistrationCreateContext;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
@@ -21,9 +22,18 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+
+/**
+ * 단체와 구성원 신청, 자원 예약, 단체 최초 결제를 생성한다.
+ *
+ * 구성원 전체의 필요 수량을 합산하여 한 번에 확보한다.
+ * 한 자원이라도 부족하면 단체 전체의 생성을 롤백한다.
+ */
 @Service
 @RequiredArgsConstructor
 public class OrgRegistrationCommandService {
+
+    private final RegistrationCapacityService registrationCapacityService;
 
     private final OrgRegistrationApplyValidator
             orgRegistrationApplyValidator;
@@ -41,12 +51,13 @@ public class OrgRegistrationCommandService {
 
 
     /**
-     * 단체 신청 생성.
+     * 단체 구성원 전체의 신청과 자원을 하나의 트랜잭션으로 처리한다.
      *
-     * Organization 1건,
-     * Registration N건,
-     * Organization 대상 최초 Payment 1건을
-     * 하나의 Transaction에서 생성한다.
+     * 대회 잠금과 정책 검증 후 단체 및 신청을 저장하고,
+     * 구성원 전체의 정원·기념품을 일괄 확보한다.
+     *
+     * 정원 부족 시 일부 구성원만 접수하지 않고 전체를 롤백한다.
+     * 최초 Payment는 단체 대상으로 한 건만 생성한다.
      */
     @Transactional
     public OrgRegistrationCreateResponse register(
@@ -55,11 +66,8 @@ public class OrgRegistrationCommandService {
     ) {
         LocalDateTime now = serverTimeProvider.currentDateTime();
 
+        registrationCapacityService.lockEvent(eventId);
 
-        /*
-         * Event / Category / Souvenir /
-         * 동일 참가자 중복 신청 여부 검증.
-         */
         OrgRegistrationCreateContext context =
                 orgRegistrationApplyValidator.validate(
                         eventId,
@@ -67,75 +75,34 @@ public class OrgRegistrationCommandService {
                         now
                 );
 
+        Event event = context.event();
 
-        Event event =
-                context.event();
-
-
-        /*
-         * Organization 생성.
-         *
-         * MVP에서는 단체 비밀번호를
-         * 암호화하지 않고 요청값 그대로 저장한다.
-         */
         Organization organization =
-                createOrganization(
-                        event,
-                        request
-                );
-
+                createOrganization(event, request);
 
         Organization savedOrganization =
-                organizationCommandRepository.save(
-                        organization
-                );
+                organizationCommandRepository.save(organization);
 
-
-        /*
-         * 검증 완료된 ParticipantContext들을
-         * 실제 Registration Entity로 변환한다.
-         */
         List<Registration> registrations =
                 createRegistrations(
                         savedOrganization,
                         context
                 );
 
-
         List<Registration> savedRegistrations =
-                registrationCommandRepository.saveAll(
-                        registrations
-                );
+                registrationCommandRepository.saveAll(registrations);
 
+        registrationCapacityService.holdAndCloseIfFull(
+                event,
+                savedRegistrations,
+                now
+        );
 
-        /*
-         * 단체 결제금액은 Client가 결정하지 않는다.
-         *
-         * 실제 생성된 각 Registration의
-         * contractAmount 합계가 Source of Truth다.
-         */
         BigDecimal totalContractAmount =
-                calculateTotalContractAmount(
-                        savedRegistrations
-                );
+                calculateTotalContractAmount(savedRegistrations);
 
+        String correlationId = UUID.randomUUID().toString();
 
-        /*
-         * 단체 신청 생성 Transaction과
-         * Payment 생성 로그를 연결하기 위한 correlationId.
-         */
-        String correlationId =
-                UUID.randomUUID()
-                        .toString();
-
-
-        /*
-         * 단체 전체 최초 Payment는 딱 1건 생성한다.
-         *
-         * registration = null
-         * organization = savedOrganization
-         * amount = 전체 Registration.contractAmount 합계
-         */
         Payment payment =
                 paymentCreator.createInitialPayment(
                         savedOrganization,
@@ -143,11 +110,6 @@ public class OrgRegistrationCommandService {
                         correlationId
                 );
 
-
-        /*
-         * Frontend가 바로 Toss 결제 인증을 시작할 수 있도록
-         * orderId / orderName / paymentAmount를 반환한다.
-         */
         return OrgRegistrationCreateResponse.from(
                 savedOrganization,
                 savedRegistrations,
