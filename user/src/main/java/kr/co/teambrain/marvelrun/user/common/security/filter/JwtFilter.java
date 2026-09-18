@@ -112,6 +112,7 @@ public class JwtFilter
                         "/**/public/**", path)
         ) {
 
+
             authenticatePublicRequest(
                     authorizationHeader
             );
