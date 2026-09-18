@@ -107,11 +107,8 @@ public class JwtFilter
          */
         if (pathMatcher.match(
                 "/v1/public/**",
-                path) ||
-                pathMatcher.match(
-                        "/**/public/**",
-                        path)
-        ) {
+                path
+        )) {
 
             authenticatePublicRequest(
                     authorizationHeader
