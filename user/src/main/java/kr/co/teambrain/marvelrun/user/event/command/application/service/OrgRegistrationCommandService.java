@@ -10,7 +10,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.Org
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.OrgRegistrationApplyValidator;
 import kr.co.teambrain.marvelrun.user.event.command.repository.OrganizationCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
-import kr.co.teambrain.marvelrun.user.payment.command.domain.Payment;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,9 +24,6 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class OrgRegistrationCommandService {
-
-    private static final long PAYMENT_PENDING_MINUTES = 30L;
-
 
     private final OrgRegistrationApplyValidator
             orgRegistrationApplyValidator;
@@ -95,24 +92,13 @@ public class OrgRegistrationCommandService {
 
 
         /*
-         * 하나의 단체 신청으로 생성되는 Registration들은
-         * 동일한 최초 결제 만료시각을 사용한다.
-         */
-        LocalDateTime expiresAt =
-                calculatePaymentExpiresAt(
-                        event
-                );
-
-
-        /*
          * 검증 완료된 ParticipantContext들을
          * 실제 Registration Entity로 변환한다.
          */
         List<Registration> registrations =
                 createRegistrations(
                         savedOrganization,
-                        context,
-                        expiresAt
+                        context
                 );
 
 
@@ -251,27 +237,20 @@ public class OrgRegistrationCommandService {
      */
     private List<Registration> createRegistrations(
             Organization organization,
-            OrgRegistrationCreateContext context,
-            LocalDateTime expiresAt
+            OrgRegistrationCreateContext context
     ) {
-
         List<Registration> registrations =
                 new ArrayList<>(
-                        context.registrations()
-                                .size()
+                        context.registrations().size()
                 );
 
-
-        for (
-                OrgRegistrationCreateContext.ParticipantContext participantContext
-                : context.registrations()
-        ) {
+        for (OrgRegistrationCreateContext.ParticipantContext participantContext
+                : context.registrations()) {
 
             BigDecimal contractAmount =
                     participantContext
                             .eventCategory()
                             .getAmount();
-
 
             Registration registration =
                     Registration.createForOrgPaymentMvp(
@@ -280,16 +259,13 @@ public class OrgRegistrationCommandService {
                             organization,
                             participantContext.request(),
                             participantContext.souvenirJsons(),
-                            contractAmount,
-                            expiresAt
+                            contractAmount
                     );
-
 
             registrations.add(
                     registration
             );
         }
-
 
         return registrations;
     }
@@ -314,36 +290,5 @@ public class OrgRegistrationCommandService {
                         BigDecimal.ZERO,
                         BigDecimal::add
                 );
-    }
-
-
-    /**
-     * 개인 신청과 동일한 결제 대기 만료 정책.
-     *
-     * 신청 생성시각 + 30분과
-     * Event.paymentDeadline 중 더 이른 값을 사용한다.
-     */
-    private LocalDateTime calculatePaymentExpiresAt(
-            Event event
-    ) {
-
-        LocalDateTime pendingExpiresAt =
-                LocalDateTime.now()
-                        .plusMinutes(
-                                PAYMENT_PENDING_MINUTES
-                        );
-
-
-        if (
-                pendingExpiresAt.isAfter(
-                        event.getPaymentDeadline()
-                )
-        ) {
-
-            return event.getPaymentDeadline();
-        }
-
-
-        return pendingExpiresAt;
     }
 }

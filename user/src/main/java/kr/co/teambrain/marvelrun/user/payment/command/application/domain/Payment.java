@@ -1,4 +1,4 @@
-package kr.co.teambrain.marvelrun.user.payment.command.domain;
+package kr.co.teambrain.marvelrun.user.payment.command.application.domain;
 
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;

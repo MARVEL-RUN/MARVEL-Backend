@@ -1,13 +1,11 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
 
-import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
-import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationCreateContext;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationApplyValidator;
-import kr.co.teambrain.marvelrun.user.payment.command.domain.Payment;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationCreateRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.RegistrationCreateResponse;
@@ -26,8 +24,6 @@ import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
 @Service
 @RequiredArgsConstructor
 public class RegistrationCommandService {
-
-    private static final long PAYMENT_PENDING_MINUTES = 30L;
 
     private final EventCommandRepository
             eventCommandRepository;
@@ -75,11 +71,6 @@ public class RegistrationCommandService {
                 eventCategory.getAmount();
 
 
-        LocalDateTime expiresAt =
-                calculatePaymentExpiresAt(
-                        event
-                );
-
 
         Registration registration =
                 Registration.createForPaymentMvp(
@@ -87,8 +78,7 @@ public class RegistrationCommandService {
                         eventCategory,
                         context.souvenirJsons(),
                         request,
-                        contractAmount,
-                        expiresAt
+                        contractAmount
                 );
 
 
@@ -117,28 +107,4 @@ public class RegistrationCommandService {
     }
 
 
-    private LocalDateTime calculatePaymentExpiresAt(
-            Event event
-    ) {
-
-        LocalDateTime pendingExpiresAt =
-                LocalDateTime.now()
-                        .plusMinutes(
-                                PAYMENT_PENDING_MINUTES
-                        );
-
-        /*
-         * Registration 자체의 결제 대기시간보다
-         * Event.paymentDeadline이 먼저 오면
-         * 대회의 결제 마감시각을 우선한다.
-         */
-        if (pendingExpiresAt.isAfter(
-                event.getPaymentDeadline()
-        )) {
-
-            return event.getPaymentDeadline();
-        }
-
-        return pendingExpiresAt;
-    }
 }

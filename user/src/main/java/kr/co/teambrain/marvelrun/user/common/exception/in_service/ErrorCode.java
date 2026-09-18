@@ -47,6 +47,16 @@ public enum ErrorCode {
             "해당 참가자는 보호자 이름을 입력해야 합니다."
     ),
 
+    EVENT_PAYMENT_CLOSED(
+            HttpStatus.BAD_REQUEST,
+            "대회 결제가 마감되었습니다."
+    ),
+
+    PAYMENT_POLICY_CONFIGURATION_ERROR(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "대회 결제 정책 설정을 확인해주세요."
+    ),
+
 
     // =========================================================
     // Question

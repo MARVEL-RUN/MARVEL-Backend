@@ -2,7 +2,7 @@ package kr.co.teambrain.marvelrun.user.event.command.application.dto.response;
 
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
-import kr.co.teambrain.marvelrun.user.payment.command.domain.Payment;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
 
 import java.math.BigDecimal;
 import java.util.List;

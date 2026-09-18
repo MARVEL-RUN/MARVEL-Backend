@@ -39,8 +39,7 @@ public class Registration extends RegistrationBase<
             EventCategory eventCategory,
             List<SouvenirJson> souvenirJsons,
             RegistrationCreateRequest request,
-            BigDecimal contractAmount,
-            LocalDateTime expiresAt
+            BigDecimal contractAmount
     ) {
 
         String guardianName = request.guardianName();
@@ -72,7 +71,6 @@ public class Registration extends RegistrationBase<
                 .contractAmount(contractAmount)
                 .paidAmount(BigDecimal.ZERO)
                 .status(RegistrationStatus.PAYMENT_PENDING)
-                .expiresAt(expiresAt)
                 .build();
     }
 
@@ -83,8 +81,7 @@ public class Registration extends RegistrationBase<
             Organization organization,
             OrgRegistrationParticipantRequest request,
             List<SouvenirJson> souvenirJsons,
-            BigDecimal contractAmount,
-            LocalDateTime expiresAt
+            BigDecimal contractAmount
     ) {
 
         return Registration.builder()
@@ -164,9 +161,6 @@ public class Registration extends RegistrationBase<
                 )
                 .paidAmount(
                         BigDecimal.ZERO
-                )
-                .expiresAt(
-                        expiresAt
                 )
 
                 .build();

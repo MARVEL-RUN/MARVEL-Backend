@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/public/events")
+@RequestMapping("/v1/public/events")
 public class RegistrationCommandController {
 
     private final RegistrationCommandService

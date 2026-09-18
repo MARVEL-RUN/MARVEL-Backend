@@ -1,6 +1,6 @@
-package kr.co.teambrain.marvelrun.user.payment.command.domain.repository;
+package kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository;
 
-import kr.co.teambrain.marvelrun.user.payment.command.domain.PaymentProcessLog;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.PaymentProcessLog;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 

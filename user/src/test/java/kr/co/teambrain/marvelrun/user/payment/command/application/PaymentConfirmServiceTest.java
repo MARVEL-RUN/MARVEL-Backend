@@ -3,14 +3,17 @@ package kr.co.teambrain.marvelrun.user.payment.command.application;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.TossPaymentStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
+import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentConfirmRequest;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentConfirmResponse;
-import kr.co.teambrain.marvelrun.user.payment.command.domain.Payment;
-import kr.co.teambrain.marvelrun.user.payment.command.domain.repository.PaymentCommandRepository;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.PaymentCommandRepository;
 import kr.co.teambrain.marvelrun.user.payment.command.infrastructure.toss.client.TossPaymentClient;
 import kr.co.teambrain.marvelrun.user.payment.command.infrastructure.toss.dto.TossPaymentConfirmRequest;
 import kr.co.teambrain.marvelrun.user.payment.command.infrastructure.toss.dto.TossPaymentConfirmResponse;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -24,6 +27,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 
+@Tag("payment-db")
 @SpringBootTest
 class PaymentConfirmServiceTest {
 
@@ -32,6 +36,10 @@ class PaymentConfirmServiceTest {
 
     @Autowired
     private PaymentCommandRepository paymentCommandRepository;
+
+    @Autowired
+    private RegistrationCommandRepository registrationCommandRepository;
+
 
     /*
      * 실제 Toss HTTP 호출만 대체한다.
@@ -144,7 +152,7 @@ class PaymentConfirmServiceTest {
          * API 결과 검증
          */
         assertThat(
-                response.paymentStatus()
+                response.processStatus()
         ).isEqualTo(
                 PaymentProcessStatus.COMPLETED
         );
@@ -161,10 +169,42 @@ class PaymentConfirmServiceTest {
                 RegistrationStatus.CONFIRMED
         );
 
+        /*
+         * 응답의 amount는 이번 Payment의 결제금액이다.
+         */
         assertThat(
-                response.paidAmount()
+                response.amount()
         ).isEqualByComparingTo(
                 payment.getAmount()
+        );
+
+        /*
+         * 누적 납부금액은 응답에 포함되지 않으므로
+         * 승인 처리 후 Registration을 다시 조회하여 확인한다.
+         *
+         * 이 테스트는 미납 상태에서 참가비 전액을 최초 결제하는 경우를 전제로 한다.
+         */
+        assertThat(
+                response.registrationId()
+        ).isNotNull();
+
+        Registration confirmedRegistration =
+                registrationCommandRepository
+                        .findById(
+                                response.registrationId()
+                        )
+                        .orElseThrow();
+
+        assertThat(
+                confirmedRegistration.getPaidAmount()
+        ).isEqualByComparingTo(
+                payment.getAmount()
+        );
+
+        assertThat(
+                confirmedRegistration.getStatus()
+        ).isEqualTo(
+                RegistrationStatus.CONFIRMED
         );
 
 

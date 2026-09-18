@@ -15,11 +15,17 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 
+import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
+
+import java.time.LocalDateTime;
+
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class PaymentConfirmService {
+
+    private final ServerTimeProvider serverTimeProvider;
 
     private final PaymentConfirmTransactionService
             paymentConfirmTransactionService;
@@ -31,6 +37,8 @@ public class PaymentConfirmService {
     public PaymentConfirmResponse confirm(
             PaymentConfirmRequest request
     ) {
+        LocalDateTime now =
+                serverTimeProvider.currentDateTime();
 
         String correlationId =
                 UUID.randomUUID().toString();
@@ -49,7 +57,8 @@ public class PaymentConfirmService {
                     paymentConfirmTransactionService
                             .beginConfirm(
                                     request,
-                                    correlationId
+                                    correlationId,
+                                    now
                             );
 
         } catch (

@@ -174,14 +174,6 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
     )
     protected Long version;
 
-    /*
-     * PAYMENT_PENDING 상태를 무기한 유지하지 않기 위한 만료시각.(대회 신청은 했으나 결제가 즉시 이루어지지 않거나 오류로 인해 취소된 경우)
-     *
-     * 구체적인 TTL 정책은 추후 신청 생성 로직에서 결정한다.
-     */
-    @Column(name = "expires_at")
-    protected LocalDateTime expiresAt;
-
 
     /**
      * 관리자 및 개발 작업 필드

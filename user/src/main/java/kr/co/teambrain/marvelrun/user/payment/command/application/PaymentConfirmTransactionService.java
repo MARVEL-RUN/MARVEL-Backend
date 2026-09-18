@@ -5,16 +5,18 @@ import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_log.Payme
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_log.PaymentProcessType;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentConfirmContext;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentConfirmRequest;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentConfirmResponse;
 import kr.co.teambrain.marvelrun.user.payment.command.application.exception.InvalidTossSuccessResponseException;
-import kr.co.teambrain.marvelrun.user.payment.command.domain.Payment;
-import kr.co.teambrain.marvelrun.user.payment.command.domain.PaymentProcessLog;
-import kr.co.teambrain.marvelrun.user.payment.command.domain.repository.PaymentCommandRepository;
-import kr.co.teambrain.marvelrun.user.payment.command.domain.repository.PaymentProcessLogCommandRepository;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.PaymentProcessLog;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.PaymentCommandRepository;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.PaymentProcessLogCommandRepository;
+import kr.co.teambrain.marvelrun.user.payment.command.application.valid.EventPaymentPolicyValidator;
 import kr.co.teambrain.marvelrun.user.payment.command.infrastructure.toss.dto.TossPaymentConfirmResponse;
 import kr.co.teambrain.marvelrun.user.payment.command.infrastructure.toss.exception.TossPaymentApiException;
 import lombok.RequiredArgsConstructor;
@@ -22,12 +24,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
 public class PaymentConfirmTransactionService {
+
+    private final EventPaymentPolicyValidator eventPaymentPolicyValidator;
 
     private final PaymentCommandRepository
             paymentCommandRepository;
@@ -52,7 +57,8 @@ public class PaymentConfirmTransactionService {
     @Transactional
     public PaymentConfirmContext beginConfirm(
             PaymentConfirmRequest request,
-            String correlationId
+            String correlationId,
+            LocalDateTime now
     ) {
 
         Payment payment =
@@ -99,6 +105,22 @@ public class PaymentConfirmTransactionService {
 
         validatePaymentTargetBeforeConfirm(
                 payment
+        );
+
+        /*
+         * 새로운 승인 처리를 시작하기 전에 대회 결제 마감을 검증한다.
+         *
+         * 개인 Payment는 Registration의 Event를,
+         * 단체 Payment는 Organization의 Event를 사용한다.
+         *
+         * 이 검증은 상태 변경과 Toss HTTP 호출 전에만 수행한다.
+         */
+        Event event =
+                resolvePaymentEvent(payment);
+
+        eventPaymentPolicyValidator.validateNewPayment(
+                event,
+                now
         );
 
 
@@ -779,5 +801,21 @@ public class PaymentConfirmTransactionService {
 
             throw new InvalidTossSuccessResponseException();
         }
+    }
+
+    /**
+     * 결제 대상이 소속된 대회를 반환한다.
+     *
+     * validatePaymentTargetBeforeConfirm()으로
+     * 개인·단체 대상의 XOR 검증을 완료한 뒤 호출한다.
+     */
+    private Event resolvePaymentEvent(
+            Payment payment
+    ) {
+        if (payment.isRegistrationPayment()) {
+            return payment.getRegistration().getEvent();
+        }
+
+        return payment.getOrganization().getEvent();
     }
 }
