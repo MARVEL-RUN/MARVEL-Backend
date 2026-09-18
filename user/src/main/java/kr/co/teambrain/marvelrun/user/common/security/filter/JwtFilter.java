@@ -109,7 +109,8 @@ public class JwtFilter
                 "/v1/public/**",
                 path) ||
                 pathMatcher.match(
-                        "/**/public/**", path)
+                        "/public/**",
+                        path)
         ) {
 
             authenticatePublicRequest(
