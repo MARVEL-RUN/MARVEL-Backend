@@ -58,6 +58,21 @@ class ReservationLifecycleMvpDatabaseTest extends CapacityMvpTestSupport {
     void partialGroupReleaseAndRepaymentPreserveOtherHolds() {
         var group = group(categoryA, categoryB);
 
+        /*
+         * 최초 단체 Payment에는 구성원별 Allocation 2건이 존재한다.
+         */
+        assertThat(
+                allocationCount(
+                        group.paymentId()
+                )
+        ).isEqualTo(2);
+
+        assertThat(
+                allocationSum(
+                        group.paymentId()
+                )
+        ).isEqualByComparingTo("80000");
+
         String releasedId = group.registrationIds().get(0);
         String retainedId = group.registrationIds().get(1);
 
@@ -83,6 +98,32 @@ class ReservationLifecycleMvpDatabaseTest extends CapacityMvpTestSupport {
                 eventId, group.organizationId()
         );
 
+        /*
+         * 재결제로 생성된 새 단체 Payment에도
+         * 참가자별 Allocation이 새로 생성되어야 한다.
+         */
+        assertThat(
+                allocationCount(
+                        repayment.paymentId()
+                )
+        ).isEqualTo(2);
+
+        assertThat(
+                allocationSum(
+                        repayment.paymentId()
+                )
+        ).isEqualByComparingTo("80000");
+
+        /*
+         * 최초 Payment의 Allocation은 과거 금융이력으로
+         * 그대로 유지되어야 한다.
+         */
+        assertThat(
+                allocationCount(
+                        group.paymentId()
+                )
+        ).isEqualTo(2);
+
         reservation(releasedId, "HELD", 2, 3);
         reservation(retainedId, "HELD", 1, 1);
 
@@ -104,7 +145,25 @@ class ReservationLifecycleMvpDatabaseTest extends CapacityMvpTestSupport {
      */
     @Test
     void personalRepaymentReusesReservationAndReplacesItems() {
+
+        // ① 최초 신청
         var original = personal(categoryA, "S", "1990-01-01");
+
+        /*
+         * 최초 신청 Payment에도 Allocation 1건이
+         * 이미 생성되어 있어야 한다.
+         */
+        assertThat(
+                allocationCount(
+                        original.paymentId()
+                )
+        ).isEqualTo(1);
+
+        assertThat(
+                allocationSum(
+                        original.paymentId()
+                )
+        ).isEqualByComparingTo("40000");
 
         String reservationId = s(
                 "select id from reservation where registration_id = ?",
@@ -115,9 +174,58 @@ class ReservationLifecycleMvpDatabaseTest extends CapacityMvpTestSupport {
 
         registrations.releaseReservation(eventId, original.registrationId());
 
+        // ③ 재결제 준비
         var repayment = registrations.prepareRepayment(
                 eventId, original.registrationId()
         );
+
+
+        assertThat(allocationCount(repayment.paymentId()))
+                .isEqualTo(1);
+
+        assertThat(
+                allocationAmount(
+                        repayment.paymentId(),
+                        original.registrationId()
+                )
+        ).isEqualByComparingTo("40000");
+
+        /*
+         * prepareRepayment는 새 Payment를 만들므로
+         * 새 Payment에도 새로운 Allocation 1건이 있어야 한다.
+         */
+        assertThat(
+                allocationCount(
+                        repayment.paymentId()
+                )
+        ).isEqualTo(1);
+
+        assertThat(
+                allocationAmount(
+                        repayment.paymentId(),
+                        original.registrationId()
+                )
+        ).isEqualByComparingTo("40000");
+
+        /*
+         * 동일 Registration에는
+         * 최초 Payment Allocation + 재결제 Payment Allocation
+         * 총 2건이 남아 있어야 한다.
+         */
+        assertThat(
+                allocationCountForRegistration(
+                        original.registrationId()
+                )
+        ).isEqualTo(2);
+
+        /*
+         * 과거 Payment의 Allocation도 삭제되지 않는다.
+         */
+        assertThat(
+                allocationCount(
+                        original.paymentId()
+                )
+        ).isEqualTo(1);
 
         assertThat(repayment.registrationId()).isEqualTo(original.registrationId());
         assertThat(repayment.paymentId()).isNotEqualTo(original.paymentId());

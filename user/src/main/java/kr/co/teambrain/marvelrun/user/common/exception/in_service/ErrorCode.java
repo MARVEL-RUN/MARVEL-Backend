@@ -197,6 +197,15 @@ public enum ErrorCode {
             "결제 금액이 일치하지 않습니다."
     ),
 
+    /**
+     * 서버 내부에서 구성한 PaymentAllocation의 대상 또는 금액 정합성이
+     * Payment와 일치하지 않는 경우.
+     */
+    PAYMENT_ALLOCATION_INTEGRITY_ERROR(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "결제 금액 귀속 정보가 일치하지 않습니다."
+    ),
+
     PAYMENT_NOT_CONFIRMABLE(
             HttpStatus.CONFLICT,
             "현재 승인할 수 없는 결제입니다."
@@ -210,6 +219,35 @@ public enum ErrorCode {
     PAYMENT_CONFIRM_UNKNOWN(
             HttpStatus.SERVICE_UNAVAILABLE,
             "결제 결과를 확인하고 있습니다."
+    ),
+    REGISTRATION_NOT_FOUND(
+            HttpStatus.NOT_FOUND,
+            "신청 정보를 찾을 수 없습니다."
+    ),
+
+    ORGANIZATION_NOT_FOUND(
+            HttpStatus.NOT_FOUND,
+            "단체 신청 정보를 찾을 수 없습니다."
+    ),
+
+    REGISTRATION_ACCESS_DENIED(
+            HttpStatus.FORBIDDEN,
+            "수정 요청의 신청 본인 확인 정보가 일치하지 않습니다."
+    ),
+
+    ORGANIZATION_ACCESS_DENIED(
+            HttpStatus.FORBIDDEN,
+            "수정 요청의 단체 본인 확인 정보가 일치하지 않습니다."
+    ),
+
+    INVALID_REGISTRATION_MODIFICATION_TARGET(
+            HttpStatus.BAD_REQUEST,
+            "수정할 수 없는 신청 대상이 포함되어 있습니다."
+    ),
+
+    DUPLICATE_REGISTRATION_MODIFICATION_TARGET(
+            HttpStatus.BAD_REQUEST,
+            "동일한 신청 ID가 수정 요청에 중복되어 있습니다."
     ),
 
     EVENT_CATEGORY_NOT_FOUND(HttpStatus.NOT_FOUND, "종목을 찾을 수 없습니다"),
@@ -235,14 +273,7 @@ public enum ErrorCode {
     MUST_NEED_PASSWORD(HttpStatus.FORBIDDEN,"올바른 비밀번호 입력이 필요합니다"),
     MUST_NEED_GUEST_NAMED_USER(HttpStatus.INTERNAL_SERVER_ERROR, "question 매핑 목적의 '비회원' user가 db내에 존재하지않음"), 
     NOTICE_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 공지를 찾을 수 없습니다"),
-    /**
-     * 신청 또는 단체의 본인 확인 정보가 일치하지 않는 경우.
-     * 어떤 입력 항목이 틀렸는지는 응답으로 구분하지 않는다.
-     */
-    REGISTRATION_ACCESS_DENIED(
-            HttpStatus.FORBIDDEN,
-            "신청 확인 정보가 일치하지 않습니다."
-    ),;
+   ;
     
     private final HttpStatus httpStatus;
     private final String message;

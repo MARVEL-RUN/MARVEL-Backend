@@ -10,10 +10,12 @@ import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.*;
-import kr.co.teambrain.marvelrun.user.event.command.application.util.PaymentOrderIdGenerator;
+import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentAllocationCreator;
+import kr.co.teambrain.marvelrun.user.payment.command.application.generator.PaymentOrderIdGenerator;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.loader.RegistrationPolicyLoader;
 import kr.co.teambrain.marvelrun.user.payment.command.application.*;
+import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentCreator;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.*;
 import kr.co.teambrain.marvelrun.user.payment.command.application.valid.EventPaymentPolicyValidator;
 import kr.co.teambrain.marvelrun.user.payment.command.infrastructure.toss.TossConfirmFailureClassifier;
@@ -75,15 +77,21 @@ import static org.mockito.Mockito.*;
         RegistrationCapacityService.class,
         ReservationReleaseService.class,
         ReservationPaymentService.class,
+
         RegistrationCommandService.class,
         OrgRegistrationCommandService.class,
+        RegistrationPricingService.class,
+
         RegistrationApplyValidator.class,
         OrgRegistrationApplyValidator.class,
         RegistrationPolicyValidator.class,
         RegistrationPolicyLoader.class,
         EventPaymentPolicyValidator.class,
+
         PaymentCreator.class,
+        PaymentAllocationCreator.class,
         PaymentOrderIdGenerator.class,
+
         PaymentConfirmService.class,
         PaymentConfirmTransactionService.class,
         TossConfirmFailureClassifier.class
@@ -122,6 +130,13 @@ abstract class CapacityMvpTestSupport {
 
     @MockitoSpyBean
     protected PaymentCreator paymentCreator;
+
+    /*
+     * Allocation 생성 실패 시 신청 전체 Transaction rollback을
+     * 검증하기 위해 실제 Bean을 Spy로 유지한다.
+     */
+    @MockitoSpyBean
+    protected PaymentAllocationCreator paymentAllocationCreator;
 
     protected TransactionTemplate tx;
 
@@ -580,6 +595,95 @@ abstract class CapacityMvpTestSupport {
     }
 
     /**
+     * 지정 Payment에 저장된 PaymentAllocation 개수를 조회한다.
+     *
+     * @param paymentId 조회할 Payment
+     * @return Allocation 행 개수
+     */
+    protected int allocationCount(
+            String paymentId
+    ) {
+        return n(
+                """
+                select count(*)
+                from payment_allocation
+                where payment_id = ?
+                """,
+                paymentId
+        );
+    }
+
+
+    /**
+     * 지정 Payment의 전체 귀속금액 합계를 조회한다.
+     *
+     * @param paymentId 조회할 Payment
+     * @return Allocation 합계
+     */
+    protected BigDecimal allocationSum(
+            String paymentId
+    ) {
+        return jdbc.queryForObject(
+                """
+                select coalesce(sum(allocated_amount), 0)
+                from payment_allocation
+                where payment_id = ?
+                """,
+                BigDecimal.class,
+                paymentId
+        );
+    }
+
+
+    /**
+     * 지정 Payment에서 특정 Registration에 귀속된 금액을 조회한다.
+     *
+     * @param paymentId Payment ID
+     * @param registrationId Registration ID
+     * @return 해당 Registration 귀속금액
+     */
+    protected BigDecimal allocationAmount(
+            String paymentId,
+            String registrationId
+    ) {
+        return jdbc.queryForObject(
+                """
+                select allocated_amount
+                from payment_allocation
+                where payment_id = ?
+                  and registration_id = ?
+                """,
+                BigDecimal.class,
+                paymentId,
+                registrationId
+        );
+    }
+
+
+    /**
+     * 한 Registration에 과거부터 현재까지 연결된
+     * 전체 PaymentAllocation 개수를 조회한다.
+     *
+     * 재결제 시 기존 Allocation이 삭제되지 않고
+     * 새 Payment용 Allocation이 추가되는지 검증할 때 사용한다.
+     *
+     * @param registrationId Registration ID
+     * @return 누적 Allocation 개수
+     */
+    protected int allocationCountForRegistration(
+            String registrationId
+    ) {
+        return n(
+                """
+                select count(*)
+                from payment_allocation
+                where registration_id = ?
+                """,
+                registrationId
+        );
+    }
+
+    /**
      * 이 테스트에서 생성한 데이터만 외래 키 참조의 역순으로 삭제한다.
      *
      * 정책 원본 및 다른 대회의 신청·결제 데이터는 보존한다.
@@ -601,6 +705,28 @@ abstract class CapacityMvpTestSupport {
                             + "(select id from payment where "
                             + paymentTargets + ")",
                     eventId, eventId
+            );
+
+            jdbc.update(
+                    """
+                    delete from payment_allocation
+                    where payment_id in (
+                        select id
+                        from payment
+                        where registration_id in (
+                            select id
+                            from registration
+                            where event_id = ?
+                        )
+                        or organization_id in (
+                            select id
+                            from organization
+                            where event_id = ?
+                        )
+                    )
+                    """,
+                    eventId,
+                    eventId
             );
 
             jdbc.update(

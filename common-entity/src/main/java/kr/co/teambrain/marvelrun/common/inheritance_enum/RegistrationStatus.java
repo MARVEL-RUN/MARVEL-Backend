@@ -28,6 +28,12 @@ public enum RegistrationStatus {
     ADDITIONAL_PAYMENT_REQUIRED,
 
     /**
+     * 계약금액이 기존 순결제금액보다 감소하여
+     * 일부 결제금액의 환불 처리가 필요한 상태.
+     */
+    PARTIAL_REFUND_REQUIRED,
+
+    /**
      * 참가 자체의 취소가 요청됐으며
      * 필요한 환불 등 후속 처리가 아직 완료되지 않은 상태.
      */

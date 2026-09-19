@@ -1,4 +1,4 @@
-package kr.co.teambrain.marvelrun.user.event.command.application.util;
+package kr.co.teambrain.marvelrun.user.payment.command.application.generator;
 
 
 import org.springframework.stereotype.Component;

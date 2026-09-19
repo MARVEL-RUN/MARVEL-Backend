@@ -4,9 +4,6 @@ package kr.co.teambrain.marvelrun.user.event.command.application.service;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationReleaseService;
 
-import java.util.HashSet;
-import java.util.Set;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.RegistrationCapacityService;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
@@ -14,6 +11,8 @@ import kr.co.teambrain.marvelrun.user.event.command.application.context.Registra
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationApplyValidator;
+import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentAllocationCreator;
+import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentCreator;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationCreateRequest;
@@ -21,6 +20,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.Reg
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategoryCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
+import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentAllocationTarget;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -57,8 +57,14 @@ public class RegistrationCommandService {
     private final RegistrationApplyValidator
             registrationApplyValidator;
 
+    private final RegistrationPricingService
+            registrationPricingService;
+
     private final PaymentCreator
             paymentCreator;
+
+    private final PaymentAllocationCreator
+            paymentAllocationCreator;
 
     private final ServerTimeProvider serverTimeProvider;
 
@@ -90,7 +96,20 @@ public class RegistrationCommandService {
         Event event = context.event();
         EventCategory eventCategory = context.eventCategory();
 
-        BigDecimal contractAmount = eventCategory.getAmount();
+        /*
+         * Validation을 통과한 신청정보를 기준으로
+         * 서버에서 최종 계약금액을 계산한다.
+         *
+         * Client에서 전달한 금액은 사용하지 않으며,
+         * 현재 9/22 MVP에서는 대상 MarvelRun Event의 어린이에게만
+         * 40,000원 고정가격을 적용한다.
+         */
+        BigDecimal contractAmount =
+                registrationPricingService.calculateContractAmount(
+                        event,
+                        eventCategory,
+                        request.birth()
+                );
 
         Registration registration =
                 Registration.createForPaymentMvp(
@@ -117,6 +136,22 @@ public class RegistrationCommandService {
                         savedRegistration,
                         correlationId
                 );
+
+        /*
+         * 개인 Payment도 금융 귀속을 PaymentAllocation으로 통일한다.
+         *
+         * Payment.registration은 주문의 직접 대상을 나타내는 기존 관계로 유지하고,
+         * 실제 금액 귀속 원장은 PaymentAllocation 1건으로 별도 보존한다.
+         */
+        paymentAllocationCreator.create(
+                payment,
+                List.of(
+                        new PaymentAllocationTarget(
+                                registration,
+                                registration.getContractAmount()
+                        )
+                )
+        );
 
         return RegistrationCreateResponse.from(
                 savedRegistration,
@@ -182,6 +217,16 @@ public class RegistrationCommandService {
                         registration,
                         UUID.randomUUID().toString()
                 );
+
+        paymentAllocationCreator.create(
+                payment,
+                List.of(
+                        new PaymentAllocationTarget(
+                                registration,
+                                registration.getContractAmount()
+                        )
+                )
+        );
 
         return RegistrationCreateResponse.from(
                 registration,

@@ -1,11 +1,11 @@
-package kr.co.teambrain.marvelrun.user.event.command.application.service;
+package kr.co.teambrain.marvelrun.user.payment.command.application.creator;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_log.PaymentProcessSource;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_log.PaymentProcessType;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
-import kr.co.teambrain.marvelrun.user.event.command.application.util.PaymentOrderIdGenerator;
+import kr.co.teambrain.marvelrun.user.payment.command.application.generator.PaymentOrderIdGenerator;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.PaymentProcessLog;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.PaymentCommandRepository;
@@ -17,8 +17,13 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 /**
- * 본 클래스는 의도적으로 Transactional을 소유하지 않으므로,
- * Service가 아닌 Creator로 명명한다.
+ * 최초 결제에 필요한 Payment와 생성 이력을 구성하여 저장한다.
+ *
+ * 참가신청 전체 Use Case를 지휘하지 않고,
+ * RegistrationCommandService 또는 OrgRegistrationCommandService가
+ * 이미 검증·확정한 신청 정보를 기반으로 Payment 생성 책임만 수행한다.
+ *
+ * 별도의 Transaction을 시작하지 않으며 호출자의 신청 Transaction에 참여한다.
  */
 @Component
 @RequiredArgsConstructor

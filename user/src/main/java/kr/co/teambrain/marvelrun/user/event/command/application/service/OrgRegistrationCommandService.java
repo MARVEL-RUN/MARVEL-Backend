@@ -5,7 +5,7 @@ import kr.co.teambrain.marvelrun.user.capacity.command.application.service.Reser
 
 import java.util.HashSet;
 import java.util.Set;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
+
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.RegistrationCapacityService;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
@@ -19,7 +19,10 @@ import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.Org
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.OrgRegistrationApplyValidator;
 import kr.co.teambrain.marvelrun.user.event.command.repository.OrganizationCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
+import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentAllocationCreator;
+import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentCreator;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
+import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentAllocationTarget;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -53,8 +56,14 @@ public class OrgRegistrationCommandService {
     private final RegistrationCommandRepository
             registrationCommandRepository;
 
+    private final RegistrationPricingService
+            registrationPricingService;
+
     private final PaymentCreator
             paymentCreator;
+
+    private final PaymentAllocationCreator
+            paymentAllocationCreator;
 
     private final ServerTimeProvider serverTimeProvider;
 
@@ -112,12 +121,42 @@ public class OrgRegistrationCommandService {
 
         String correlationId = UUID.randomUUID().toString();
 
+
+        /*
+         * 단체 전체 최초 Payment는 딱 1건 생성한다.
+         *
+         * registration = null
+         * organization = savedOrganization
+         * amount = 전체 Registration.contractAmount 합계
+         */
         Payment payment =
                 paymentCreator.createInitialPayment(
                         savedOrganization,
                         totalContractAmount,
                         correlationId
                 );
+
+        /*
+         * 단체 Payment 금액을 실제 참가자 Registration별로 귀속한다.
+         *
+         * 각 Allocation은 해당 Payment 생성 당시의
+         * Registration.contractAmount를 보존한다.
+         *
+         * PaymentAllocationCreator 내부에서
+         * 전체 Allocation 합과 Payment.amount 일치 여부도 검증한다.
+         */
+        paymentAllocationCreator.create(
+                payment,
+                savedRegistrations.stream()
+                        .map(
+                                registration ->
+                                        new PaymentAllocationTarget(
+                                                registration,
+                                                registration.getContractAmount()
+                                        )
+                        )
+                        .toList()
+        );
 
         return OrgRegistrationCreateResponse.from(
                 savedOrganization,
@@ -193,6 +232,21 @@ public class OrgRegistrationCommandService {
                         totalContractAmount,
                         UUID.randomUUID().toString()
                 );
+
+        paymentAllocationCreator.create(
+                payment,
+                registrations.stream()
+                        .map(
+                                registration ->
+                                        new PaymentAllocationTarget(
+                                                registration,
+                                                registration.getContractAmount()
+                                        )
+                        )
+                        .toList()
+        );
+
+
 
         return OrgRegistrationCreateResponse.from(
                 organization,
@@ -375,6 +429,9 @@ public class OrgRegistrationCommandService {
      * 단체 신청이므로 Registration.organization만
      * 생성된 Organization을 가리킨다.
      *
+     * 각 참가자의 contractAmount는 개인 신청과 동일한
+     * RegistrationPricingService를 통해 서버에서 계산한다.
+     *
      * password / address / addressBase 등의 단체 전용 차이는
      * Registration.createForOrgPaymentMvp() 내부에서 처리한다.
      */
@@ -390,10 +447,20 @@ public class OrgRegistrationCommandService {
         for (OrgRegistrationCreateContext.ParticipantContext participantContext
                 : context.registrations()) {
 
+            /*
+             * 검증 완료된 참가자 정보를 기준으로
+             * 개인 신청과 동일한 서버 Pricing을 사용하여
+             * 서버에서 참가자별 최종 계약금액을 계산한다.
+             *
+             * Client 금액은 사용하지 않으며,
+             * 개인 신청과 동일한 RegistrationPricingService를 사용한다.
+             */
             BigDecimal contractAmount =
-                    participantContext
-                            .eventCategory()
-                            .getAmount();
+                    registrationPricingService.calculateContractAmount(
+                            context.event(),
+                            participantContext.eventCategory(),
+                            participantContext.request().birth()
+                    );
 
             Registration registration =
                     Registration.createForOrgPaymentMvp(
