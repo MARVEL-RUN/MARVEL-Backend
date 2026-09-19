@@ -5,10 +5,15 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import kr.co.teambrain.marvelrun.common.entity.RegistrationBase;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.AddressBase;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.GuardianBase;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
+import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
+import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationCreateRequest;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationModificationRequest;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.OrgRegistrationModificationParticipantRequest;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.OrgRegistrationParticipantRequest;
 import kr.co.teambrain.marvelrun.user.userinfo.command.application.domain.User;
 import lombok.AccessLevel;
@@ -17,9 +22,8 @@ import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.List;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.GuardianBase;
+import java.util.Objects;
 
 @Getter
 @Entity
@@ -74,7 +78,9 @@ public class Registration extends RegistrationBase<
                 .build();
     }
 
-    /** 단체 신청에 따른 registration 구성 */
+    /**
+     * 단체 신청에 따른 registration 구성
+     */
     public static Registration createForOrgPaymentMvp(
             Event event,
             EventCategory eventCategory,
@@ -166,7 +172,9 @@ public class Registration extends RegistrationBase<
                 .build();
     }
 
-    /** 결제 성공금액 반영 */
+    /**
+     * 결제 성공금액 반영
+     */
     public void applySuccessfulPayment(
             BigDecimal amount
     ) {
@@ -206,4 +214,258 @@ public class Registration extends RegistrationBase<
         this.status =
                 RegistrationStatus.CONFIRMED;
     }
+
+    /**
+     * 정책검증과 Capacity 이동이 완료된 개인 수정 후보를 반영한다.
+     *
+     * 종목과 기념품은 Validator가 검증·정규화한 값을 사용한다.
+     * 계약금액은 서버 Pricing 결과를 사용한다.
+     *
+     * 비밀번호·실제 순결제금액·금융 상태는 이 메서드에서 변경하지 않는다.
+     * 금융 상태 결정은 같은 수정 트랜잭션의 후속 단계가 담당한다.
+     */
+    public void applyPersonalModification(
+            EventCategory validatedCategory,
+            List<SouvenirJson> validatedSouvenirs,
+            RegistrationModificationRequest request,
+            BigDecimal newContractAmount
+    ) {
+        if (organization != null || softDeleted) {
+            throw new CustomException(
+                    ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET,
+                    " 활성 개인 신청만 수정할 수 있습니다."
+            );
+        }
+
+        if (request == null) {
+            throw new CustomException(
+                    ErrorCode.INVALID_REGISTRATION_MODIFICATION_ARGUMENT,
+                    " 개인 신청 수정 요청이 없습니다."
+            );
+        }
+
+        validateModificationArguments(
+                validatedCategory,
+                validatedSouvenirs,
+                newContractAmount
+        );
+
+        /*
+         * 필드 변경 전에 복사와 정규화를 완료한다.
+         * 요청의 원본 기념품 목록을 직접 저장하지 않는다.
+         */
+        List<SouvenirJson> souvenirs =
+                List.copyOf(validatedSouvenirs);
+
+        String normalizedGuardianName =
+                request.guardianName();
+
+        if (normalizedGuardianName != null) {
+            normalizedGuardianName = normalizedGuardianName.strip();
+
+            if (normalizedGuardianName.isEmpty()) {
+                normalizedGuardianName = null;
+            }
+        }
+
+        this.eventCategory = validatedCategory;
+        this.souvenirJson = souvenirs;
+
+        this.name = request.name();
+        this.phNum = request.phNum();
+        this.birth = request.birth();
+        this.gender = request.gender();
+
+        this.address = request.address();
+        this.addressDetail = request.addressDetail();
+
+        this.guardianName = normalizedGuardianName;
+        this.guardianConsent =
+                Boolean.TRUE.equals(request.guardianConsent());
+
+        this.contractAmount = newContractAmount;
+    }
+
+    /**
+     * 검증과 Capacity 이동을 마친 기존 단체 구성원의 후보를 반영한다.
+     *
+     * 단체 귀속·주소 참조·보호자 참조·비밀번호는 유지한다.
+     * 실제 순결제금액과 금융 상태는 후속 금융 처리에서 관리한다.
+     */
+    public void applyOrganizationModification(
+            EventCategory validatedCategory,
+            List<SouvenirJson> validatedSouvenirs,
+            OrgRegistrationModificationParticipantRequest request,
+            BigDecimal newContractAmount
+    ) {
+        if (organization == null || softDeleted) {
+            throw new CustomException(
+                    ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET,
+                    " 활성 단체 구성원만 수정할 수 있습니다."
+            );
+        }
+
+        if (request == null) {
+            throw new CustomException(
+                    ErrorCode.INVALID_REGISTRATION_MODIFICATION_ARGUMENT,
+                    " 단체 구성원 수정 요청이 없습니다."
+            );
+        }
+
+        if (id == null || !Objects.equals(id, request.registrationId())) {
+            throw new CustomException(
+                    ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET,
+                    " 수정 요청과 Registration 식별자가 일치하지 않습니다."
+            );
+        }
+
+        validateModificationArguments(
+                validatedCategory,
+                validatedSouvenirs,
+                newContractAmount
+        );
+
+        List<SouvenirJson> souvenirs =
+                List.copyOf(validatedSouvenirs);
+
+        this.eventCategory = validatedCategory;
+        this.souvenirJson = souvenirs;
+
+        this.name = request.name();
+        this.phNum = request.phNum();
+        this.birth = request.birth();
+        this.gender = request.gender();
+
+        this.contractAmount = newContractAmount;
+    }
+
+    /**
+     * 자원 반환을 마친 단체 구성원을 활성 참가 목록에서 제거한다.
+     *
+     * 참가 의무가 없어지므로 현재 계약금액은 0으로 변경한다.
+     * 실제 순결제금액과 Organization 연결은 환불 추적을 위해 보존한다.
+     *
+     * 순결제금액이 남아 있으면 취소 후속 처리 대기 상태로 둔다.
+     * 결제금액이 없으면 참가 취소를 완료한다.
+     */
+    public void removeFromOrganization() {
+        if (organization == null || softDeleted) {
+            throw new CustomException(
+                    ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET,
+                    " 활성 단체 구성원만 제거할 수 있습니다."
+            );
+        }
+
+        if (paidAmount == null || paidAmount.signum() < 0) {
+            throw new CustomException(
+                    ErrorCode.REGISTRATION_FINANCIAL_STATE_INVALID,
+                    " 신청의 순결제금액이 없거나 음수입니다."
+            );
+        }
+
+        this.softDeleted = true;
+        this.contractAmount = BigDecimal.ZERO;
+
+        this.status = paidAmount.signum() > 0
+                ? RegistrationStatus.CANCELLATION_PENDING
+                : RegistrationStatus.CANCELED;
+    }
+
+    /**
+     * 신청 수정 후 계약금액과 실제 순결제금액으로 금융 상태를 결정한다.
+     *
+     * 최초 미결제 여부는 paidAmount == 0만으로 판단하지 않는다.
+     * HELD 예약은 최초 결제 대기, CONSUMED 예약은 기존 확정 참가로 구분한다.
+     *
+     * 실제 순결제금액과 과거 Payment·Allocation은 변경하지 않는다.
+     *
+     * @return 새 계약금액 - 실제 순결제금액
+     */
+    public BigDecimal reconcileModificationFinancialState(
+            ReservationStatus reservationStatus
+    ) {
+        if (contractAmount == null
+                || contractAmount.signum() < 0
+                || paidAmount == null
+                || paidAmount.signum() < 0) {
+            throw new CustomException(
+                    ErrorCode.REGISTRATION_FINANCIAL_STATE_INVALID,
+                    " 계약금액 또는 순결제금액이 올바르지 않습니다."
+            );
+        }
+
+        BigDecimal balance = contractAmount.subtract(paidAmount);
+
+        if (softDeleted) {
+            if (reservationStatus != ReservationStatus.RELEASED
+                    || contractAmount.signum() != 0) {
+                throw new CustomException(
+                        ErrorCode.REGISTRATION_FINANCIAL_STATE_INVALID,
+                        " 제거된 신청의 계약금액 또는 예약 상태가 올바르지 않습니다."
+                );
+            }
+
+            this.status = paidAmount.signum() > 0
+                    ? RegistrationStatus.CANCELLATION_PENDING
+                    : RegistrationStatus.CANCELED;
+
+            return balance;
+        }
+
+        if (reservationStatus != ReservationStatus.HELD
+                && reservationStatus != ReservationStatus.CONSUMED) {
+            throw new CustomException(
+                    ErrorCode.RESERVATION_STATE_CONFLICT,
+                    " 수정 후 금융 상태를 결정할 수 없는 예약 상태입니다."
+            );
+        }
+
+        /*
+         * 정상적인 최초 미결제 HELD 예약에는 순결제금액이 없어야 한다.
+         * 이런 불일치를 추가 결제나 환불로 임의 보정하지 않는다.
+         */
+        if (reservationStatus == ReservationStatus.HELD
+                && paidAmount.signum() != 0) {
+            throw new CustomException(
+                    ErrorCode.REGISTRATION_FINANCIAL_STATE_INVALID,
+                    " 최초 홀딩 예약에 순결제금액이 존재합니다."
+            );
+        }
+
+        if (balance.signum() > 0) {
+            this.status = reservationStatus == ReservationStatus.HELD
+                    ? RegistrationStatus.PAYMENT_PENDING
+                    : RegistrationStatus.ADDITIONAL_PAYMENT_REQUIRED;
+        } else if (balance.signum() < 0) {
+            this.status = RegistrationStatus.PARTIAL_REFUND_REQUIRED;
+        } else {
+            this.status = RegistrationStatus.CONFIRMED;
+        }
+
+        return balance;
+    }
+
+    /**
+     * 실제 Entity 반영에 필요한 후보값과 계약금액을 확인한다.
+     *
+     * 상세 정책검증을 대신하지 않으며,
+     * 내부 호출의 필수 값 누락과 잘못된 금액을 차단한다.
+     */
+    private void validateModificationArguments(
+            EventCategory validatedCategory,
+            List<SouvenirJson> validatedSouvenirs,
+            BigDecimal newContractAmount
+    ) {
+        if (validatedCategory == null
+                || validatedSouvenirs == null
+                || validatedSouvenirs.stream().anyMatch(Objects::isNull)
+                || newContractAmount == null
+                || newContractAmount.signum() < 0) {
+            throw new CustomException(
+                    ErrorCode.INVALID_REGISTRATION_MODIFICATION_ARGUMENT
+            );
+        }
+    }
+
+
 }

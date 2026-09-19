@@ -46,7 +46,7 @@ public class Reservation extends ReservationBase<Registration> {
 
     /**
      * 검증과 저장을 마친 신청에 연결할 HELD 예약 객체를 생성한다.
-     * <p>
+     *
      * DB 저장과 Capacity 수량 변경은 호출 서비스에서 처리한다.
      */
     public static Reservation createHeld(Registration registration) {
@@ -164,6 +164,47 @@ public class Reservation extends ReservationBase<Registration> {
         history = updatedHistory;
     }
 
+    /**
+     * 참가자 제거에 따라 현재 점유를 반환 상태로 전환한다.
+     *
+     * HELD와 CONSUMED를 허용하며 PROCESSING은 거절한다.
+     * 이미 RELEASED이면 중복 반환하지 않는다.
+     *
+     * 호출자는 변경 전 상태를 기준으로 heldCount 또는 confirmedCount를
+     * 같은 트랜잭션에서 반환해야 한다.
+     *
+     * 결제 충돌 차단과 참가 취소 가능 여부는 외부 수정 흐름의 책임이다.
+     */
+    public boolean releaseForParticipantRemoval() {
+        if (status == ReservationStatus.RELEASED) {
+            return false;
+        }
+
+        if (status != ReservationStatus.HELD
+                && status != ReservationStatus.CONSUMED) {
+            throw new CustomException(
+                    ErrorCode.RESERVATION_STATE_CONFLICT,
+                    " 참가자 제거를 위해 반환할 수 없는 예약 상태입니다."
+                            + " reservationId=" + id
+                            + ", actual=" + status
+            );
+        }
+
+        status = ReservationStatus.RELEASED;
+        return true;
+    }
+
+    /**
+     * 계약금액과 순결제금액이 모두 0인 신청의 예약을 확정한다.
+     *
+     * 금액 검증은 호출 서비스에서 수행한다.
+     * 외부 결제 승인 없이 heldCount를 confirmedCount로 이동해야 한다.
+     */
+    public void consumeWithoutPayment() {
+        requireStatus(ReservationStatus.HELD);
+        status = ReservationStatus.CONSUMED;
+    }
+
 
     /**
      * 현재 상태가 요청한 전이를 허용하는지 검증한다.
@@ -180,4 +221,5 @@ public class Reservation extends ReservationBase<Registration> {
             );
         }
     }
+
 }

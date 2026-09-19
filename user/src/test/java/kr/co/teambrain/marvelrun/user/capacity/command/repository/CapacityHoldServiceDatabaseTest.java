@@ -46,7 +46,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @AutoConfigureTestDatabase(
         replace = AutoConfigureTestDatabase.Replace.NONE
 )
-@Import(CapacityHoldService.class)
+@Import({
+        CapacityHoldService.class,
+        CapacityRequirementResolver.class
+})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class CapacityHoldServiceDatabaseTest {
 

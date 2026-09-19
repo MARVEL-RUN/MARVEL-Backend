@@ -117,6 +117,30 @@ public enum ErrorCode {
             "다른 요청에서 상태가 변경되었습니다. 현재 상태를 다시 확인해주세요."
     ),
 
+    /**
+     * 검증된 수정 후보의 필수 값 또는 계약금액이 올바르지 않은 경우.
+     */
+    INVALID_REGISTRATION_MODIFICATION_ARGUMENT(
+            HttpStatus.BAD_REQUEST,
+            "신청 수정 정보가 올바르지 않습니다."
+    ),
+
+    /**
+     * 저장된 신청의 순결제금액이 없거나 음수인 경우.
+     */
+    REGISTRATION_FINANCIAL_STATE_INVALID(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "신청의 결제금액 상태를 확인해주세요."
+    ),
+
+    /**
+     * 관련 결제가 승인 진행 중이거나 결과 불명 상태여서 신청을 수정할 수 없는 경우.
+     */
+    REGISTRATION_MODIFICATION_PAYMENT_CONFLICT(
+            HttpStatus.CONFLICT,
+            "진행 중이거나 결과 확인이 필요한 결제가 있어 신청을 수정할 수 없습니다."
+    ),
+
     // =========================================================
     // Question
     // =========================================================
@@ -273,6 +297,8 @@ public enum ErrorCode {
     MUST_NEED_PASSWORD(HttpStatus.FORBIDDEN,"올바른 비밀번호 입력이 필요합니다"),
     MUST_NEED_GUEST_NAMED_USER(HttpStatus.INTERNAL_SERVER_ERROR, "question 매핑 목적의 '비회원' user가 db내에 존재하지않음"), 
     NOTICE_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 공지를 찾을 수 없습니다"),
+
+
    ;
     
     private final HttpStatus httpStatus;

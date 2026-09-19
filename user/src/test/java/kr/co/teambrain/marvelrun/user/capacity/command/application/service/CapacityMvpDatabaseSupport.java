@@ -67,6 +67,7 @@ import static org.mockito.Mockito.when;
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Import({
         CapacityHoldService.class,
+        CapacityRequirementResolver.class,
         RegistrationCapacityService.class,
         ReservationReleaseService.class,
         ReservationPaymentService.class,

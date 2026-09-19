@@ -126,4 +126,78 @@ public interface PaymentCommandRepository
             @Param("registrationIds") Collection<String> registrationIds,
             @Param("purpose") PaymentPurpose purpose
     );
+
+    /**
+     * 개인 신청 수정에 관련된 모든 목적의 Payment를 잠금 조회한다.
+     *
+     * 직접 Registration 연결과 Allocation 귀속을 모두 확인한다.
+     * Allocation이 여러 건이어도 같은 Payment는 한 번만 반환한다.
+     *
+     * 호출자는 대회를 먼저 잠그고, Registration을 읽기 전에 호출해야 한다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Transactional(propagation = Propagation.MANDATORY)
+    @Query("""
+        select p
+        from Payment p
+        left join p.registration directRegistration
+        where (
+            directRegistration.id = :registrationId
+            and directRegistration.event.id = :eventId
+        )
+        or exists (
+            select pa.id
+            from PaymentAllocation pa
+            join pa.registration allocatedRegistration
+            where pa.payment = p
+              and allocatedRegistration.id = :registrationId
+              and allocatedRegistration.event.id = :eventId
+        )
+        order by p.id
+        """)
+    List<Payment> findAllForPersonalModificationForUpdate(
+            @Param("eventId") String eventId,
+            @Param("registrationId") String registrationId
+    );
+
+    /**
+     * 단체 수정에 관련된 모든 목적의 Payment를 잠금 조회한다.
+     *
+     * 단체 직접 주문, 구성원 직접 주문, Allocation 귀속 주문을 포함한다.
+     * 삭제된 구성원의 진행 중 금융 처리도 놓치지 않도록
+     * Registration의 소프트 삭제 조건은 적용하지 않는다.
+     *
+     * 호출자는 대회를 먼저 잠그고, 구성원을 읽기 전에 호출해야 한다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Transactional(propagation = Propagation.MANDATORY)
+    @Query("""
+        select p
+        from Payment p
+        left join p.organization directOrganization
+        left join p.registration directRegistration
+        left join directRegistration.organization memberOrganization
+        where (
+            directOrganization.id = :organizationId
+            and directOrganization.event.id = :eventId
+        )
+        or (
+            memberOrganization.id = :organizationId
+            and directRegistration.event.id = :eventId
+        )
+        or exists (
+            select pa.id
+            from PaymentAllocation pa
+            join pa.registration allocatedRegistration
+            join allocatedRegistration.organization allocatedOrganization
+            where pa.payment = p
+              and allocatedOrganization.id = :organizationId
+              and allocatedRegistration.event.id = :eventId
+        )
+        order by p.id
+        """)
+    List<Payment> findAllForOrganizationModificationForUpdate(
+            @Param("eventId") String eventId,
+            @Param("organizationId") String organizationId
+    );
 }

@@ -10,6 +10,8 @@ import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCate
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrgRegistrationCreateRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.OrgRegistrationParticipantRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.dto.RegistrationPolicyInput;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.dto.RegistrationPolicySelection;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.dto.RegistrationPolicyValidationResult;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.loader.RegistrationPolicyLoader;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategoryCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategorySouvenirCommandRepository;
@@ -22,13 +24,18 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
 
+
+/**
+ * 단체 최초 신청의 단체장·참가자·선택 정책을 검증하고
+ * 전체 참가자의 생성 Context를 구성한다.
+ */
 @Component
 public class OrgRegistrationApplyValidator
         extends AbstractRegistrationApplyValidator {
 
-    private static final ZoneId REGISTRATION_ZONE =
-            ZoneId.of("Asia/Seoul");
-
+    /**
+     * 단체 신청 검증에 필요한 기존 조회·정책 의존성을 연결한다.
+     */
     public OrgRegistrationApplyValidator(
             RegistrationCommandRepository registrationCommandRepository,
             EventCommandRepository eventCommandRepository,
@@ -132,44 +139,28 @@ public class OrgRegistrationApplyValidator
                     registrationRequest.birth()
             );
 
-            LocalDate birth =
-                    registrationPolicyValidator.validateParticipant(
+            RegistrationPolicyValidationResult validated =
+                    validateParticipantSelection(
                             event,
-                            policies.eventPolicy(),
-                            new RegistrationPolicyInput(
-                                    registrationRequest.birth(),
-                                    request.profile().leaderName(),
-                                    request.profile().guardianConsent()
+                            new RegistrationPolicySelection(
+                                    registrationRequest.eventCategoryId(),
+                                    registrationRequest.selectedSouvenirList(),
+                                    new RegistrationPolicyInput(
+                                            registrationRequest.birth(),
+                                            request.profile().leaderName(),
+                                            request.profile().guardianConsent()
+                                    )
                             ),
+                            selections,
+                            policies,
                             applicationDate
-                    );
-
-            EventCategory eventCategory =
-                    selections.categories().get(
-                            registrationRequest.eventCategoryId()
-                    );
-
-            registrationPolicyValidator.validateCategoryBirth(
-                    eventCategory,
-                    policies.categoryPolicies().get(eventCategory.getId()),
-                    birth
-            );
-
-            List<SouvenirJson> souvenirJsons =
-                    validateSouvenirs(
-                            registrationRequest.selectedSouvenirList(),
-                            selections.mappingsByCategory().get(
-                                    eventCategory.getId()
-                            ),
-                            birth,
-                            policies
                     );
 
             registrationContexts.add(
                     new OrgRegistrationCreateContext.ParticipantContext(
                             registrationRequest,
-                            eventCategory,
-                            souvenirJsons
+                            validated.eventCategory(),
+                            validated.souvenirJsons()
                     )
             );
         }
@@ -178,35 +169,6 @@ public class OrgRegistrationApplyValidator
                 event,
                 List.copyOf(registrationContexts)
         );
-    }
-
-    /**
-     * 단체장은 대회 당일 기준 만 19세 이상이어야 한다.
-     *
-     * 대회 당일과 단체장의 19번째 생일을 비교하며,
-     * 19번째 생일 당일부터 단체 신청을 허용한다.
-     *
-     * applicationDate를 인자로 받아
-     * 날짜 경계 테스트에서 기준일을 고정할 수 있도록 한다.
-     */
-    protected void validateOrganizationLeaderAge(
-            LocalDate leaderBirth,
-            LocalDate eventDate
-    ) {
-        if (leaderBirth == null) {
-            throw new CustomException(
-                    ErrorCode.ORGANIZATION_LEADER_BIRTH_REQUIRED
-            );
-        }
-
-        LocalDate nineteenthBirthday =
-                leaderBirth.plusYears(19);
-
-        if (eventDate.isBefore(nineteenthBirthday)) {
-            throw new CustomException(
-                    ErrorCode.ORGANIZATION_LEADER_MUST_BE_ADULT
-            );
-        }
     }
 
 

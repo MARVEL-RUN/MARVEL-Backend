@@ -9,6 +9,8 @@ import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategorySouvenir;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Souvenir;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.dto.RegistrationPolicySelection;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.dto.RegistrationPolicyValidationResult;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.loader.RegistrationPolicyLoader;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategoryCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategorySouvenirCommandRepository;
@@ -22,7 +24,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * 개인 신청과 단체 신청에서 공통으로 사용하는
+ * 개인·단체 신청의 생성과 수정에서 공통으로 사용하는
  * 도메인 조회 및 검증 보조 처리를 제공한다.
  *
  * 각 신청의 최상위 검증 흐름과 Context 생성은
@@ -521,5 +523,115 @@ public abstract class AbstractRegistrationApplyValidator {
             Map<String, EventCategory> categories,
             Map<String, Map<String, EventCategorySouvenir>> mappingsByCategory
     ) {
+    }
+
+    /**
+     * 사전에 조회한 종목·매핑·정책으로 참가자 한 명을 검증한다.
+     *
+     * 호출자는 이 메서드 전에 기념품 요청의 필수 여부와 중복,
+     * 종목·기념품의 소속 및 활성 상태를 검증해야 한다.
+     *
+     * 참가자 생년월일·보호자 → 종목 출생일 조건 → 기념품 정책 순서를 유지한다.
+     * 대회 검증과 참가자 중복검사는 각 최상위 Validator가 담당한다.
+     */
+    protected RegistrationPolicyValidationResult validateParticipantSelection(
+            Event event,
+            RegistrationPolicySelection input,
+            SelectionData selections,
+            RegistrationPolicyContext policies,
+            LocalDate applicationDate
+    ) {
+        LocalDate birth =
+                registrationPolicyValidator.validateParticipant(
+                        event,
+                        policies.eventPolicy(),
+                        input.participant(),
+                        applicationDate
+                );
+
+        EventCategory eventCategory =
+                selections.categories().get(
+                        input.eventCategoryId()
+                );
+
+        registrationPolicyValidator.validateCategoryBirth(
+                eventCategory,
+                policies.categoryPolicies().get(eventCategory.getId()),
+                birth
+        );
+
+        List<SouvenirJson> souvenirJsons =
+                validateSouvenirs(
+                        input.selectedSouvenirList(),
+                        selections.mappingsByCategory().get(
+                                eventCategory.getId()
+                        ),
+                        birth,
+                        policies
+                );
+
+        return new RegistrationPolicyValidationResult(
+                eventCategory,
+                souvenirJsons
+        );
+    }
+
+    /**
+     * 단체장은 대회 당일 기준 만 19세 이상이어야 한다.
+     *
+     * 대회 당일과 단체장의 19번째 생일을 비교하며,
+     * 19번째 생일 당일부터 단체 신청을 허용한다.
+     *
+     * eventDate를 인자로 받아
+     * 날짜 경계 테스트에서 기준일을 고정할 수 있도록 한다.
+     */
+    protected void validateOrganizationLeaderAge(
+            LocalDate leaderBirth,
+            LocalDate eventDate
+    ) {
+        if (leaderBirth == null) {
+            throw new CustomException(
+                    ErrorCode.ORGANIZATION_LEADER_BIRTH_REQUIRED
+            );
+        }
+
+        LocalDate nineteenthBirthday =
+                leaderBirth.plusYears(19);
+
+        if (eventDate.isBefore(nineteenthBirthday)) {
+            throw new CustomException(
+                    ErrorCode.ORGANIZATION_LEADER_MUST_BE_ADULT
+            );
+        }
+    }
+
+    /**
+     * 저장된 단체장의 문자열 생년월일을 검증하고 연령 조건을 확인한다.
+     *
+     * Organization.leaderBirth는 String이므로 날짜 검증 후 변환한다.
+     * 누락은 단체장 생년월일 필수 오류로,
+     * 형식 오류·존재하지 않는 날짜·미래 날짜는 기존 생년월일 오류로 처리한다.
+     */
+    protected void validateStoredOrganizationLeaderAge(
+            String leaderBirth,
+            LocalDate eventDate,
+            LocalDate applicationDate
+    ) {
+        if (leaderBirth == null || leaderBirth.isBlank()) {
+            throw new CustomException(
+                    ErrorCode.ORGANIZATION_LEADER_BIRTH_REQUIRED
+            );
+        }
+
+        LocalDate parsedBirth =
+                registrationPolicyValidator.parseBirth(
+                        leaderBirth,
+                        applicationDate
+                );
+
+        validateOrganizationLeaderAge(
+                parsedBirth,
+                eventDate
+        );
     }
 }

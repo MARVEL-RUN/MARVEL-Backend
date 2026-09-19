@@ -3,6 +3,7 @@ package kr.co.teambrain.marvelrun.user.event.command.application.service;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.CapacityHoldService;
+import kr.co.teambrain.marvelrun.user.capacity.command.application.service.CapacityRequirementResolver;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.RegistrationCapacityService;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationReleaseService;
 import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
@@ -62,6 +63,7 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 )
 @Import({
         CapacityHoldService.class,
+        CapacityRequirementResolver.class,
         RegistrationCapacityService.class,
         ReservationReleaseService.class,
 

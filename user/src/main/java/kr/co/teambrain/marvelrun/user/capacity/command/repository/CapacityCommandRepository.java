@@ -173,4 +173,55 @@ public interface CapacityCommandRepository
             @Param("eventId") String eventId,
             @Param("totalType") CapacityType totalType
     );
+
+    /**
+     * 확정 예약의 수정에 필요한 증가분을 확보한다.
+     *
+     * 신규 확보가 허용되고 전체 점유량에 여유가 있을 때만 처리한다.
+     * 기존 CONSUMED 예약의 수정용이며 결제 승인 처리를 대신하지 않는다.
+     *
+     * @return 확보 성공 시 1, 조건 불충족 또는 대상 부재 시 0
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("""
+        update Capacity c
+           set c.confirmedCount = c.confirmedCount + :quantity,
+               c.updatedAt = :now
+         where c.id = :capacityId
+           and c.event.id = :eventId
+           and c.active = true
+           and :quantity > 0
+           and c.heldCount + c.confirmedCount + :quantity <= c.limitCount
+        """)
+    int acquireConfirmed(
+            @Param("eventId") String eventId,
+            @Param("capacityId") String capacityId,
+            @Param("quantity") int quantity,
+            @Param("now") LocalDateTime now
+    );
+
+    /**
+     * 확정 예약의 수정으로 불필요해진 수량을 반환한다.
+     *
+     * active 여부와 무관하게 기존 점유량을 반환한다.
+     * 예약 수정 가능 여부와 금융 상태 검증은 호출 흐름에서 수행한다.
+     *
+     * @return 반환 성공 시 1, 확정 수량 부족 또는 대상 부재 시 0
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("""
+        update Capacity c
+           set c.confirmedCount = c.confirmedCount - :quantity,
+               c.updatedAt = :now
+         where c.id = :capacityId
+           and c.event.id = :eventId
+           and :quantity > 0
+           and c.confirmedCount >= :quantity
+        """)
+    int releaseConfirmed(
+            @Param("eventId") String eventId,
+            @Param("capacityId") String capacityId,
+            @Param("quantity") int quantity,
+            @Param("now") LocalDateTime now
+    );
 }

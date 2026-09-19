@@ -22,6 +22,7 @@ public interface RegistrationCommandRepository extends JpaRepository<Registratio
           and r.name = :name
           and r.phNum = :phNum
           and r.birth = :birth
+          and r.softDeleted = false
         """)
     boolean existsByEventIdAndUniqueInfo(
             @Param("eventId") String eventId,
@@ -48,7 +49,7 @@ public interface RegistrationCommandRepository extends JpaRepository<Registratio
         where r.id = :registrationId
           and e.id = :eventId
           and r.organization is null
-          and r.is_del = false
+          and r.softDeleted = false
         """)
     Optional<Registration> findActivePersonalModificationTarget(
             @Param("eventId") String eventId,
@@ -70,7 +71,7 @@ public interface RegistrationCommandRepository extends JpaRepository<Registratio
         join fetch r.organization o
         where e.id = :eventId
           and o.id = :organizationId
-          and r.is_del = false
+          and r.softDeleted = false
         order by r.id
         """)
     List<Registration> findAllActiveByEventAndOrganization(
@@ -93,7 +94,7 @@ public interface RegistrationCommandRepository extends JpaRepository<Registratio
           and r.name = :name
           and r.phNum = :phNum
           and r.birth = :birth
-          and r.is_del = false
+          and r.softDeleted = false
         """)
     boolean existsOtherActiveByEventIdAndUniqueInfo(
             @Param("eventId") String eventId,

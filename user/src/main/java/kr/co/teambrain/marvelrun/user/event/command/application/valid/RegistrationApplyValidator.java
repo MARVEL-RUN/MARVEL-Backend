@@ -19,6 +19,9 @@ import kr.co.teambrain.marvelrun.user.event.command.repository.EventCommandRepos
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
 import org.springframework.stereotype.Component;
 
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.dto.RegistrationPolicySelection;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.dto.RegistrationPolicyValidationResult;
+
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -30,6 +33,9 @@ import java.util.*;
 @Component
 public class RegistrationApplyValidator extends AbstractRegistrationApplyValidator {
 
+    /**
+     * 개인 신청 검증에 필요한 기존 조회·정책 의존성을 연결한다.
+     */
     public RegistrationApplyValidator(
             RegistrationCommandRepository registrationCommandRepository,
             EventCommandRepository eventCommandRepository,
@@ -95,45 +101,27 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
                         selections
                 );
 
-        LocalDate birth =
-                registrationPolicyValidator.validateParticipant(
+        RegistrationPolicyValidationResult validated =
+                validateParticipantSelection(
                         event,
-                        policies.eventPolicy(),
-                        new RegistrationPolicyInput(
-                                request.birth(),
-                                request.guardianName(),
-                                request.guardianConsent()
+                        new RegistrationPolicySelection(
+                                request.eventCategoryId(),
+                                request.selectedSouvenirList(),
+                                new RegistrationPolicyInput(
+                                        request.birth(),
+                                        request.guardianName(),
+                                        request.guardianConsent()
+                                )
                         ),
+                        selections,
+                        policies,
                         now.toLocalDate()
-                );
-
-
-
-        EventCategory eventCategory =
-                selections.categories().get(
-                        request.eventCategoryId()
-                );
-
-        registrationPolicyValidator.validateCategoryBirth(
-                eventCategory,
-                policies.categoryPolicies().get(eventCategory.getId()),
-                birth
-        );
-
-        List<SouvenirJson> souvenirJsons =
-                validateSouvenirs(
-                        request.selectedSouvenirList(),
-                        selections.mappingsByCategory().get(
-                                eventCategory.getId()
-                        ),
-                        birth,
-                        policies
                 );
 
         return new RegistrationCreateContext(
                 event,
-                eventCategory,
-                souvenirJsons
+                validated.eventCategory(),
+                validated.souvenirJsons()
         );
     }
 

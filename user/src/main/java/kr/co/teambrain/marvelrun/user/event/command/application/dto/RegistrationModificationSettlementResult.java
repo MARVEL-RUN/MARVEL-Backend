@@ -1,0 +1,53 @@
+package kr.co.teambrain.marvelrun.user.event.command.application.dto;
+
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
+
+import java.math.BigDecimal;
+import java.util.List;
+
+/**
+ * 신청 수정 후 금융 상태와 새 최초 결제 주문을 전달한다.
+ *
+ * 추가 결제·환불 필요금액은 참가자별 balance로 제공한다.
+ * 실제 승인·환불이 완료되었다는 의미는 아니다.
+ */
+public record RegistrationModificationSettlementResult(
+        List<Member> members,
+        List<Order> orders
+) {
+
+    /**
+     * 처리 결과 목록을 외부 변경으로부터 보호한다.
+     */
+    public RegistrationModificationSettlementResult {
+        members = List.copyOf(members);
+        orders = List.copyOf(orders);
+    }
+
+    /**
+     * 수정된 참가자 한 명의 계약금액·순결제금액·미정산 차액이다.
+     *
+     * balance > 0: 결제 필요
+     * balance < 0: 환불 필요
+     * balance == 0: 금액 정산 완료
+     */
+    public record Member(
+            String registrationId,
+            RegistrationStatus status,
+            BigDecimal contractAmount,
+            BigDecimal paidAmount,
+            BigDecimal balance
+    ) {
+    }
+
+    /**
+     * 수정 후 최초 미결제 참가자를 위해 새로 생성한 주문이다.
+     */
+    public record Order(
+            String paymentId,
+            String orderId,
+            String orderName,
+            BigDecimal amount
+    ) {
+    }
+}
