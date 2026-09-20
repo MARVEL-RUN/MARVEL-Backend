@@ -3,6 +3,7 @@ package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationReleaseService;
 
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.RegistrationCapacityService;
@@ -253,6 +254,12 @@ public class RegistrationCommandService {
         // 1. 대상을 Registration에서 찾는 게 아니라, 지정된 실패 Payment부터 확인합니다.
         Payment failedPayment = paymentCommandRepository.findById(failedPaymentId)
                 .orElseThrow(() -> new CustomException(ErrorCode.PAYMENT_NOT_CONFIRMABLE, " 재결제 대상 주문을 찾을 수 없습니다."));
+
+        if (failedPayment.getPurpose()
+                != PaymentPurpose.REGISTRATION_TRY) {
+            throw new CustomException(ErrorCode.PAYMENT_NOT_CONFIRMABLE,
+                    " 최초 참가비 주문만 이 재결제 경로에서 처리할 수 있습니다.");
+        }
 
         // 2. 명확히 차단해야 할 상태(CONFIRMING, UNKNOWN, COMPLETED)만 걸러내도록 수정
         PaymentProcessStatus status = failedPayment.getProcessStatus();

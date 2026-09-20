@@ -1,6 +1,7 @@
 package kr.co.teambrain.marvelrun.common.entity;
 
 import jakarta.persistence.*;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -58,4 +59,12 @@ public abstract class PaymentAllocationBase<
             scale = 2
     )
     protected BigDecimal allocatedAmount;
+
+    /**
+     * 이 귀속의 최초/추가 결제 목적을 주문 생성 시점에 고정한다.
+     * 기존 행의 NULL은 혼합 주문이 아닌 경우에만 부모 주문의 목적을 따른다.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "allocation_purpose", length = 30, columnDefinition = "varchar(30)", updatable = false)
+    protected PaymentPurpose allocationPurpose;
 }

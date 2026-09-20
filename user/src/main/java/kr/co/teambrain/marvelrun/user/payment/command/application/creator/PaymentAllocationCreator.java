@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -68,10 +69,19 @@ public class PaymentAllocationCreator {
                                 PaymentAllocation.create(
                                         payment,
                                         target.registration(),
-                                        target.amount()
+                                        target.amount(),
+                                        target.allocationPurpose() == null ? payment.getPurpose() : target.allocationPurpose()
                                 )
                         )
                         .toList();
+
+        if (payment.getPurpose() == PaymentPurpose.MIXED_PAYMENT
+                && (!payment.isOrgPayment()
+                    || allocations.stream().noneMatch(a -> a.effectivePurpose() == PaymentPurpose.REGISTRATION_TRY)
+                    || allocations.stream().noneMatch(a -> a.effectivePurpose() == PaymentPurpose.ADDITIONAL_PAYMENT)
+                    || allocations.stream().anyMatch(a -> a.getAllocatedAmount().signum() <= 0))) {
+            throw integrityError(" 혼합 주문은 최초 및 추가 납부의 양수 귀속을 모두 포함해야 합니다.");
+        }
 
         validateTotalAmount(
                 payment,

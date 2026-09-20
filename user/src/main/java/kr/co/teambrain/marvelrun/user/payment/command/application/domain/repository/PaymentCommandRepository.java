@@ -94,15 +94,7 @@ public interface PaymentCommandRepository
             @Param("purpose") PaymentPurpose purpose
     );
 
-    /**
-     * 반환 대상 신청과 연결된 개인 주문 및 단체 주문을 잠금 조회한다.
-     *
-     * 단체 구성원 일부만 반환하더라도 해당 구성원을 포함한 기존 단체 주문은
-     * 그대로 승인할 수 없으므로 조회 대상에 포함한다.
-     *
-     * 주문은 Payment ID 순서로 조회하며,
-     * 실제 예약 수량의 반환 대상은 전달받은 신청 목록으로 유지한다.
-     */
+    /** 반환·재확보 대상의 실제 귀속 목적을 기준으로 관련 주문을 ID 순서로 잠근다. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Transactional(propagation = Propagation.MANDATORY)
     @Query("""
@@ -110,16 +102,24 @@ public interface PaymentCommandRepository
         from Payment p
         left join p.registration personalRegistration
         left join p.organization paymentOrganization
-        where p.purpose = :purpose
-          and (
-              personalRegistration.id in :registrationIds
-              or paymentOrganization.id in (
-                  select r.organization.id
-                  from Registration r
-                  where r.id in :registrationIds
-                    and r.organization is not null
-              )
-          )
+        where (
+            p.purpose = :purpose and personalRegistration.id in :registrationIds
+        )
+        or exists (
+            select pa.id from PaymentAllocation pa
+            where pa.payment = p
+              and pa.registration.id in :registrationIds
+              and (pa.allocationPurpose = :purpose
+                   or (pa.allocationPurpose is null and p.purpose = :purpose))
+        )
+        or (
+            p.purpose = :purpose
+            and not exists (select legacy.id from PaymentAllocation legacy where legacy.payment = p)
+            and paymentOrganization.id in (
+                select r.organization.id from Registration r
+                where r.id in :registrationIds and r.organization is not null
+            )
+        )
         order by p.id
         """)
     List<Payment> findAllRelatedToRegistrationsForUpdate(

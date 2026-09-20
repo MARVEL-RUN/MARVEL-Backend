@@ -92,9 +92,9 @@ class RegistrationModificationAdditionalSettlementTest {
         verifyNoInteractions(creator, allocationCreator, items, capacities);
     }
 
-    /** 최초·추가 납부를 구분하고 환불과 제거 금액을 차감하지 않는다. */
+    /** 최초·추가 납부를 한 주문으로 합치되 환불과 제거 금액은 차감하지 않는다. */
     @Test
-    void groupSeparatesInitialAdditionalAndRefundAmounts() {
+    void groupCombinesPositiveAmountsWithoutOffsettingRefunds() {
         Organization organization = mock(Organization.class);
         when(organization.getId()).thenReturn("org");
         Registration refund = participant("a", organization, "30000", "40000", false);
@@ -106,17 +106,21 @@ class RegistrationModificationAdditionalSettlementTest {
                 reservation(additional, ReservationStatus.CONSUMED),
                 reservation(initial, ReservationStatus.HELD),
                 reservation(removed, ReservationStatus.RELEASED)));
-        Payment first = payment("initial", "30000", PaymentPurpose.REGISTRATION_TRY);
-        Payment extra = payment("additional", "20000", PaymentPurpose.ADDITIONAL_PAYMENT);
-        when(creator.createInitialPayment(eq(organization), eq(new BigDecimal("30000")), anyString())).thenReturn(first);
-        when(creator.createAdditionalPayment(eq(organization), eq(new BigDecimal("20000")), anyString())).thenReturn(extra);
+        Payment combined = payment("combined", "50000", PaymentPurpose.MIXED_PAYMENT);
+        when(creator.createMixedPayment(eq(organization), eq(new BigDecimal("50000")), anyString()))
+                .thenReturn(combined);
 
         RegistrationModificationSettlementResult result = service.settle("event", "org", List.of("a", "b", "c", "d"), NOW);
 
         assertThat(result.orders()).extracting(RegistrationModificationSettlementResult.Order::paymentId)
-                .containsExactly("initial", "additional");
-        verify(allocationCreator).create(first, List.of(new PaymentAllocationTarget(initial, new BigDecimal("30000"))));
-        verify(allocationCreator).create(extra, List.of(new PaymentAllocationTarget(additional, new BigDecimal("20000"))));
+                .containsExactly("combined");
+        assertThat(result.orders().get(0).amount()).isEqualByComparingTo("50000");
+        verify(allocationCreator).create(combined, List.of(
+                new PaymentAllocationTarget(additional, new BigDecimal("20000"), PaymentPurpose.ADDITIONAL_PAYMENT),
+                new PaymentAllocationTarget(initial, new BigDecimal("30000"), PaymentPurpose.REGISTRATION_TRY)));
+        verify(creator, never()).createInitialPayment(any(Organization.class), any(BigDecimal.class), anyString());
+        verify(creator, never()).createAdditionalPayment(any(Organization.class), any(BigDecimal.class), anyString());
+        verify(refundPreparation).prepare(eq("event"), eq("org"), anyList());
         assertThat(refund.getStatus()).isEqualTo(RegistrationStatus.PARTIAL_REFUND_REQUIRED);
         assertThat(removed.getStatus()).isEqualTo(RegistrationStatus.CANCELLATION_PENDING);
         assertThat(refund.getPaidAmount()).isEqualByComparingTo("40000");

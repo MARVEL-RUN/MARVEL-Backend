@@ -1,6 +1,7 @@
 package kr.co.teambrain.marvelrun.user.payment.command.application.domain;
 
 import jakarta.persistence.Entity;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
@@ -63,27 +64,37 @@ public class PaymentAllocation
      * @return 생성된 PaymentAllocation
      */
     public static PaymentAllocation create(
-            Payment payment,
-            Registration registration,
-            BigDecimal allocatedAmount
-    ) {
+            Payment payment, Registration registration, BigDecimal allocatedAmount) {
+        return create(payment, registration, allocatedAmount, payment == null ? null : payment.getPurpose());
+    }
 
-        if (
-                payment == null
-                        || registration == null
-                        || allocatedAmount == null
-                        || allocatedAmount.signum() < 0
-        ) {
-            throw new CustomException(
-                    ErrorCode.PAYMENT_ALLOCATION_INTEGRITY_ERROR,
-                    " PaymentAllocation 생성 정보가 올바르지 않습니다."
-            );
+    /** 혼합 주문에서도 참가자별 목적을 명시하여 변경하지 않는 귀속을 생성한다. */
+    public static PaymentAllocation create(
+            Payment payment, Registration registration, BigDecimal allocatedAmount,
+            PaymentPurpose allocationPurpose) {
+        if (payment == null || registration == null || allocatedAmount == null
+                || allocatedAmount.signum() < 0
+                || (allocationPurpose != PaymentPurpose.REGISTRATION_TRY
+                    && allocationPurpose != PaymentPurpose.ADDITIONAL_PAYMENT)
+                || (payment.getPurpose() != PaymentPurpose.MIXED_PAYMENT
+                    && payment.getPurpose() != allocationPurpose)) {
+            throw new CustomException(ErrorCode.PAYMENT_ALLOCATION_INTEGRITY_ERROR);
         }
+        return PaymentAllocation.builder().payment(payment).registration(registration)
+                .allocatedAmount(allocatedAmount).allocationPurpose(allocationPurpose).build();
+    }
 
-        return PaymentAllocation.builder()
-                .payment(payment)
-                .registration(registration)
-                .allocatedAmount(allocatedAmount)
-                .build();
+    /** 기존 단일 목적 귀속은 부모 목적을 사용하고, 목적 없는 혼합 귀속은 거절한다. */
+    public PaymentPurpose effectivePurpose() {
+        PaymentPurpose result = allocationPurpose;
+        if (result == null && payment != null) {
+            result = payment.getPurpose();
+        }
+        if ((result != PaymentPurpose.REGISTRATION_TRY && result != PaymentPurpose.ADDITIONAL_PAYMENT)
+                || payment == null
+                || (payment.getPurpose() != PaymentPurpose.MIXED_PAYMENT && payment.getPurpose() != result)) {
+            throw new CustomException(ErrorCode.PAYMENT_ALLOCATION_INTEGRITY_ERROR);
+        }
+        return result;
     }
 }

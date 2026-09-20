@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
 import java.time.LocalDateTime;
 import java.util.*;
 import kr.co.teambrain.marvelrun.user.payment.command.application.ModificationRefundPreparationService;
@@ -146,8 +147,7 @@ public class RegistrationModificationSettlementService {
         }
 
         List<RegistrationModificationSettlementResult.Order> orders =
-                new ArrayList<>(createInitialOrder(organizationId, initialPaymentTargets));
-        orders.addAll(createAdditionalOrder(organizationId, consumedTargets));
+                createUnifiedOrder(organizationId, initialPaymentTargets, consumedTargets);
         List<RegistrationModificationSettlementResult.Refund> refunds =
                 refundPreparationService.prepare(eventId, organizationId, registrations);
 
@@ -223,10 +223,42 @@ public class RegistrationModificationSettlementService {
         return result;
     }
 
+    /** 최초 참가비와 추가금이 함께 있으면 한 주문으로 합치고 환불 귀속은 별도로 유지한다. */
+    private List<RegistrationModificationSettlementResult.Order> createUnifiedOrder(
+            String organizationId, List<Registration> initialTargets, List<Registration> consumedTargets) {
+        List<PaymentAllocationTarget> additionalTargets = additionalTargetResolver.resolve(consumedTargets);
+        if (initialTargets.isEmpty()) {
+            return createAdditionalOrder(organizationId, consumedTargets);
+        }
+        if (additionalTargets.isEmpty()) {
+            return createInitialOrder(organizationId, initialTargets);
+        }
+        if (organizationId == null) {
+            throw invalidTarget();
+        }
+        List<PaymentAllocationTarget> targets = new ArrayList<>();
+        for (Registration registration : initialTargets) {
+            targets.add(new PaymentAllocationTarget(registration, registration.getContractAmount(),
+                    PaymentPurpose.REGISTRATION_TRY));
+        }
+        for (PaymentAllocationTarget target : additionalTargets) {
+            targets.add(new PaymentAllocationTarget(target.registration(), target.amount(),
+                    PaymentPurpose.ADDITIONAL_PAYMENT));
+        }
+        targets.sort(Comparator.comparing(target -> target.registration().getId()));
+        BigDecimal amount = targets.stream().map(PaymentAllocationTarget::amount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        Payment payment = paymentCreator.createMixedPayment(initialTargets.get(0).getOrganization(),
+                amount, UUID.randomUUID().toString());
+        allocationCreator.create(payment, targets);
+        return List.of(new RegistrationModificationSettlementResult.Order(
+                payment.getId(), payment.getOrderId(), payment.getOrderName(), payment.getAmount()));
+    }
+
     /**
      * 최초 미결제 대상만 포함하는 새 주문과 Allocation을 생성한다.
      *
-     * 추가 결제 대상과 환불 대상의 금액을 합치거나 상쇄하지 않는다.
+     * 이 메서드는 최초 결제만 있는 경우에 사용하며 환불액을 차감하지 않는다.
      * 최초 미결제 대상이 없으면 0원 주문을 만들지 않는다.
      */
     private List<RegistrationModificationSettlementResult.Order> createInitialOrder(
@@ -281,7 +313,7 @@ public class RegistrationModificationSettlementService {
     }
 
     /**
-     * 확정 예약의 양수 부족액만 별도 추가 주문과 귀속으로 저장한다.
+     * 추가 결제만 있는 요청의 양수 부족액을 주문과 귀속으로 저장한다.
      * 환불액·제거 구성원·최초 미결제 대상과 상계하지 않는다.
      * 호출 전 전체 수정 경로에서 기존 READY 주문을 무효화해야 한다.
      */

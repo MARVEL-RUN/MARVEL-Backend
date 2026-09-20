@@ -279,6 +279,13 @@ public class OrgRegistrationCommandService {
         Payment failedPayment = paymentCommandRepository.findById(failedPaymentId)
                 .orElseThrow(() -> new CustomException(ErrorCode.PAYMENT_NOT_CONFIRMABLE, " 재결제 대상 주문을 찾을 수 없습니다."));
 
+        // 최초 재결제 진입점에서 추가·혼합 주문 일부만 떼어 새 결제로 만들지 않는다.
+        if (failedPayment.getPurpose()
+                != kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose.REGISTRATION_TRY) {
+            throw new CustomException(ErrorCode.PAYMENT_NOT_CONFIRMABLE,
+                    " 최초 참가비 주문만 이 재결제 경로에서 처리할 수 있습니다.");
+        }
+
         // 1. 명확히 차단해야 할 상태(CONFIRMING, UNKNOWN, COMPLETED)만 걸러내도록 수정
         PaymentProcessStatus status = failedPayment.getProcessStatus();
         if (status == PaymentProcessStatus.CONFIRMING || status == PaymentProcessStatus.UNKNOWN || status == PaymentProcessStatus.COMPLETED) {

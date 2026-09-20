@@ -330,11 +330,10 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
         )).isZero();
     }
 
-    // [TO-BE] 추가 결제(ADDITIONAL_PAYMENT) 시 정원 불변 및 납부 금액 누적 검증 (명세서 4번)
+    /** 실제 미납액만 추가 납부하고 기존 확정 정원·예약 및 중복 반영 방지를 검증한다. */
     @Test
     void additionalPaymentIncreasesPaidAmountWithoutChangingCapacity() {
-        // 1. 최초 결제 완료 (30,000원이라 가정, 테스트 픽스처는 40,000원)
-        var result = personal(categoryA, "S", "1990-01-01");
+        kr.co.teambrain.marvelrun.user.event.command.application.dto.response.RegistrationCreateResponse result = personal(categoryA, "S", "1990-01-01");
         mockApprovalSuccess();
         payments.confirm(confirmRequest(result.paymentId()));
 
@@ -342,9 +341,10 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
                 .isEqualByComparingTo("40000");
         counters(categoryACapacity, 0, 1); // 정원 1명 확정 확인
 
-        // 2. 추가 결제 주문(ADDITIONAL_PAYMENT) 생성 (예: 10,000원 추가)
         String additionalPaymentId = UUID.randomUUID().toString();
         tx.executeWithoutResult(status -> {
+            jdbc.update("update registration set contract_amount = 50000, status = 'ADDITIONAL_PAYMENT_REQUIRED', version = version + 1 where id = ?",
+                    result.registrationId());
             jdbc.update(
                     """
                     insert into payment (
@@ -359,12 +359,10 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
             );
         });
 
-        // 3. 추가 결제 승인
         payments.confirm(confirmRequest(additionalPaymentId));
-        var context = savedContext(additionalPaymentId);
+        kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentConfirmContext context = savedContext(additionalPaymentId);
         paymentTransactions.completeConfirm(context, approved(context.paymentKey(), context.orderId(), context.amount()), NOW.plusSeconds(3));
 
-        // 4. 검증: paidAmount는 50,000원으로 증가, 정원은 여전히 1명 (불변)
         assertThat(jdbc.queryForObject("select paid_amount from registration where id = ?", BigDecimal.class, result.registrationId()))
                 .isEqualByComparingTo("50000");
         counters(categoryACapacity, 0, 1);

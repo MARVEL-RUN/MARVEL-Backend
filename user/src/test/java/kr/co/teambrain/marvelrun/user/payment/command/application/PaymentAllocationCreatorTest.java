@@ -12,6 +12,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -270,6 +271,7 @@ class PaymentAllocationCreatorTest {
 
         Payment payment =
                 mock(Payment.class);
+        when(payment.getPurpose()).thenReturn(PaymentPurpose.REGISTRATION_TRY);
 
         when(payment.getId())
                 .thenReturn("payment-1");
@@ -363,6 +365,7 @@ class PaymentAllocationCreatorTest {
 
         Payment payment =
                 mock(Payment.class);
+        when(payment.getPurpose()).thenReturn(PaymentPurpose.REGISTRATION_TRY);
 
         when(
                 payment.getId()

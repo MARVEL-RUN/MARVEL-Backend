@@ -10,14 +10,11 @@ import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.*;
-import kr.co.teambrain.marvelrun.user.payment.command.application.creator.ModificationRefundPlanner;
-import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentAllocationCreator;
-import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentCancelAllocationCreator;
+import kr.co.teambrain.marvelrun.user.payment.command.application.creator.*;
 import kr.co.teambrain.marvelrun.user.payment.command.application.generator.PaymentOrderIdGenerator;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.loader.RegistrationPolicyLoader;
 import kr.co.teambrain.marvelrun.user.payment.command.application.*;
-import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentCreator;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.*;
 import kr.co.teambrain.marvelrun.user.payment.command.application.valid.EventPaymentPolicyValidator;
 import kr.co.teambrain.marvelrun.user.payment.command.infrastructure.toss.TossConfirmFailureClassifier;
@@ -101,7 +98,9 @@ import static org.mockito.Mockito.*;
         ModificationRefundPreparationService.class,
         ModificationRefundPlanner.class,
         PaymentCancelAllocationCreator.class,
-        TossConfirmFailureClassifier.class
+        TossConfirmFailureClassifier.class,
+        PaymentConfirmationAllocationSupport.class,
+        AdditionalPaymentTargetResolver.class
 })
 abstract class CapacityMvpTestSupport {
 

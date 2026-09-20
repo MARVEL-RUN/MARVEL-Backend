@@ -1,20 +1,14 @@
 package kr.co.teambrain.marvelrun.user.payment.command.application.dto;
 
+import java.math.BigDecimal;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 
-import java.math.BigDecimal;
-
-/**
- * 하나의 Payment에서 특정 Registration에 귀속시킬 금액을 전달한다.
- *
- * 04 최초 단체결제에서는 Registration.contractAmount를 전달하고,
- * 07 추가결제에서는 실제 추가결제 delta 금액을 전달한다.
- *
- * @param registration 금액 귀속 대상 신청
- * @param amount 해당 Payment에서 귀속할 금액
- */
+/** 참가자별 납부 금액과 최초/추가 결제 목적을 전달한다. */
 public record PaymentAllocationTarget(
-        Registration registration,
-        BigDecimal amount
-) {
+        Registration registration, BigDecimal amount, PaymentPurpose allocationPurpose) {
+    /** 기존 단일 목적 주문의 호출 계약을 유지하며 목적은 생성기에서 부모 주문으로 결정한다. */
+    public PaymentAllocationTarget(Registration registration, BigDecimal amount) {
+        this(registration, amount, null);
+    }
 }

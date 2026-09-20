@@ -1,7 +1,6 @@
 package kr.co.teambrain.marvelrun.user.payment.command.application;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_log.PaymentProcessSource;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_log.PaymentProcessType;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationPaymentService;
@@ -29,8 +28,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
 import java.time.LocalDateTime;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
@@ -47,6 +46,7 @@ import java.util.Objects;
 public class PaymentConfirmTransactionService {
 
     private final ServerTimeProvider serverTimeProvider;
+    private final PaymentConfirmationAllocationSupport allocationSupport;
 
     private final ReservationPaymentService reservationPaymentService;
 
@@ -61,8 +61,6 @@ public class PaymentConfirmTransactionService {
     private final RegistrationCommandRepository
             registrationCommandRepository;
 
-
-    // Allocation 조회 레포지토리 추가 (2-C)
     private final PaymentAllocationCommandRepository
             paymentAllocationCommandRepository;
 
@@ -83,23 +81,12 @@ public class PaymentConfirmTransactionService {
             LocalDateTime now
     ) {
 
-        Payment payment =
-                paymentCommandRepository
-                        .findByOrderIdForUpdate(
-                                request.orderId()
-                        )
-                        .orElseThrow(
-                                () -> new CustomException(
-                                        ErrorCode.PAYMENT_NOT_FOUND
-                                )
-                        );
-
+        Payment payment = allocationSupport.lockForStart(request.orderId());
 
         BigDecimal requestedAmount =
                 BigDecimal.valueOf(
                         request.amount()
                 );
-
 
         if (
                 payment.getAmount()
@@ -113,7 +100,6 @@ public class PaymentConfirmTransactionService {
             );
         }
 
-
         if (
                 payment.getProcessStatus()
                         != PaymentProcessStatus.READY
@@ -123,7 +109,6 @@ public class PaymentConfirmTransactionService {
                     ErrorCode.PAYMENT_NOT_CONFIRMABLE
             );
         }
-
 
         validatePaymentTargetBeforeConfirm(
                 payment
@@ -145,18 +130,15 @@ public class PaymentConfirmTransactionService {
                 now
         );
 
-
         String registrationId =
                 resolveRegistrationId(
                         payment
                 );
 
-
         String organizationId =
                 resolveOrganizationId(
                         payment
                 );
-
 
         /*
          * 외부 승인 요청 전에 대상 예약을 PROCESSING으로 전환한다.
@@ -168,12 +150,6 @@ public class PaymentConfirmTransactionService {
          * 이후 Payment 상태 변경이나 로그 저장 실패 시 함께 롤백된다.
          */
 
-
-        // 2-C 전체 명단 조회 방식 주석 처리
-        //  List<Registration> registrations =
-        //         resolvePaymentRegistrations(payment);
-
-        // [TO-BE] PaymentAllocation을 조회하여 대상을 명확히 한정 (2-B, 2-C)
         List<PaymentAllocation> allocations = paymentAllocationCommandRepository
                 .findAllByPayment_IdOrderByRegistration_IdAsc(payment.getId());
 
@@ -184,19 +160,11 @@ public class PaymentConfirmTransactionService {
          * Payment 상태 변경 및 요청 로그 저장도 같은 트랜잭션에 포함된다.
          */
 
-        // 무조건 예약 상태 전환 수행
-//        reservationPaymentService.startPayment(
-//                registrations.stream()
-//                        .map(Registration::getId)
-//                        .toList(),
-//                payment.getId(),
-//                now
-//        );
-
-        // 최초 결제(REGISTRATION_TRY)인 경우에만 예약을 PROCESSING으로 전환 (2-D)
-        if (payment.getPurpose() == PaymentPurpose.REGISTRATION_TRY) {
+        List<String> initialIds = allocationSupport.validateAndGetInitialIds(
+                payment, allocations, ReservationStatus.HELD);
+        if (!initialIds.isEmpty()) {
             reservationPaymentService.startPayment(
-                    allocations.stream().map(a -> a.getRegistration().getId()).toList(),
+                    initialIds,
                     payment.getId(),
                     now
             );
@@ -205,7 +173,6 @@ public class PaymentConfirmTransactionService {
         payment.startConfirm(
                 request.paymentKey()
         );
-
 
         PaymentProcessLog processLog =
                 PaymentProcessLog.builder()
@@ -244,11 +211,9 @@ public class PaymentConfirmTransactionService {
 
                         .build();
 
-
         paymentProcessLogCommandRepository.save(
                 processLog
         );
-
 
         return new PaymentConfirmContext(
                 payment.getId(),
@@ -262,7 +227,6 @@ public class PaymentConfirmTransactionService {
                 correlationId
         );
     }
-
 
     /**
      * Tx2.
@@ -284,22 +248,12 @@ public class PaymentConfirmTransactionService {
     ) {
 
         /*
-         * 동일 Payment의 성공, 실패, UNKNOWN 반영이
-         * 동시에 진행되지 않도록 해당 결제 행을 잠근다.
+         * 대회·단체·관련 Payment 순서로 잠가 수정 및 환불과 결과 반영을 직렬화한다.
          *
          * 외부 Toss 호출은 이미 종료된 상태이며,
          * 이 잠금은 현재 로컬 트랜잭션 안에서만 유지된다.
          */
-        Payment payment =
-                paymentCommandRepository
-                        .findByIdForUpdate(
-                                context.paymentId()
-                        )
-                        .orElseThrow(
-                                () -> new CustomException(
-                                        ErrorCode.PAYMENT_NOT_FOUND
-                                )
-                        );
+        Payment payment = allocationSupport.lockForResult(context.paymentId());
 
         /*
          * Tx1 이후 결제 대상이 변경되었거나
@@ -326,13 +280,6 @@ public class PaymentConfirmTransactionService {
                 tossResponse
         );
 
-        // 전체 명단 조회 방식 주석 처리
-//        List<Registration> registrations =
-//                resolvePaymentRegistrations(
-//                        payment
-//                );
-
-        // PaymentAllocation을 조회하여 반영 대상을 정확히 가져온다 (2-B, 2-C)
         List<PaymentAllocation> allocations = paymentAllocationCommandRepository
                 .findAllByPayment_IdOrderByRegistration_IdAsc(payment.getId());
         List<Registration> registrations = allocations.stream().map(PaymentAllocation::getRegistration).toList();
@@ -382,22 +329,12 @@ public class PaymentConfirmTransactionService {
         }
 
         /*
-         * 단체 결제는 현재 구성원의 계약금액 합계와
-         * 승인한 결제금액이 일치해야 한다.
+         * 승인한 금액과 해당 주문에 고정된 Allocation 합계가 일치해야 한다.
          *
          * 불일치하면 확정 수량이나 납부금액을 변경하지 않고
          * 트랜잭션을 실패시킨다.
          */
 
-
-//        if (payment.isOrgPayment()) {
-//            validateOrganizationPaymentAmount(
-//                    payment,
-//                    registrations
-//            );
-//        }
-
-        // 단체/개인 상관없이 Allocation 총합과 결제 금액 일치 여부로 검증 (2-B)
         validateAllocationSumMatchesPaymentAmount(payment, allocations);
 
         /*
@@ -409,21 +346,12 @@ public class PaymentConfirmTransactionService {
          * 이 트랜잭션의 변경을 모두 롤백한다.
          */
 
-        // 무조건 예약 확정 수행 주석처리
-//        reservationPaymentService.confirmPayment(
-//                resolvePaymentEvent(payment).getId(),
-//                registrations.stream()
-//                        .map(Registration::getId)
-//                        .toList(),
-//                payment.getId(),
-//                now
-//        );
-
-        // 최초 결제(REGISTRATION_TRY)인 경우에만 예약을 확정. 추가 결제는 건너뜀 (2-D)
-        if (payment.getPurpose() == PaymentPurpose.REGISTRATION_TRY) {
+        List<String> initialIds = allocationSupport.validateAndGetInitialIds(
+                payment, allocations, ReservationStatus.PROCESSING);
+        if (!initialIds.isEmpty()) {
             reservationPaymentService.confirmPayment(
                     resolvePaymentEvent(payment).getId(),
-                    registrations.stream().map(Registration::getId).toList(),
+                    initialIds,
                     payment.getId(),
                     now
             );
@@ -442,40 +370,12 @@ public class PaymentConfirmTransactionService {
          * 실제 Payment 금액을 반영한다.
          */
 
-        // 개인/단체를 나누고 contractAmount를 통째로 더하는 로직 주석 처리
-//        if (payment.isRegistrationPayment()) {
-//
-//            Registration registration =
-//                    registrations.get(0);
-//
-//            registration.applySuccessfulPayment(
-//                    payment.getAmount()
-//            );
-//
-//            saveConfirmSucceededLog(
-//                    context,
-//                    payment
-//            );
-//
-//            return PaymentConfirmResponse.fromRegistration(
-//                    registration,
-//                    payment
-//            );
-//        }
-
         /*
          * 단체 결제는 전체 Payment 금액을 각 신청에 반복 반영하지 않는다.
          *
-         * 각 구성원 자신의 계약금액만 paidAmount에 반영한다.
+         * 각 귀속에 고정된 allocatedAmount만 해당 참가자의 paidAmount에 더한다.
          */
 
-//        for (Registration registration : registrations) {
-//            registration.applySuccessfulPayment(
-//                    registration.getContractAmount()
-//            );
-//        }
-
-        // [TO-BE] Allocation에 적힌 금액(allocatedAmount)만큼만 정확하게 납부 금액에 더함 (2-B)
         for (PaymentAllocation allocation : allocations) {
             Registration registration = allocation.getRegistration();
             registration.applySuccessfulPayment(allocation.getAllocatedAmount());
@@ -486,7 +386,6 @@ public class PaymentConfirmTransactionService {
                 payment
         );
 
-        // 응답 반환 로직 (공통)
         if (payment.isRegistrationPayment()) {
             return PaymentConfirmResponse.fromRegistration(registrations.get(0), payment);
         }
@@ -497,7 +396,6 @@ public class PaymentConfirmTransactionService {
                 payment
         );
     }
-
 
     /**
      * 외부 승인 실패가 명확하게 확인된 결제를 FAILED로 처리한다.
@@ -513,16 +411,7 @@ public class PaymentConfirmTransactionService {
             TossPaymentApiException exception
     ) {
 
-        Payment payment =
-                paymentCommandRepository
-                        .findByIdForUpdate(
-                                context.paymentId()
-                        )
-                        .orElseThrow(
-                                () -> new CustomException(
-                                        ErrorCode.PAYMENT_NOT_FOUND
-                                )
-                        );
+        Payment payment = allocationSupport.lockForResult(context.paymentId());
 
         /*
          * 이미 같은 결제의 실패 반영을 완료했다면
@@ -563,7 +452,6 @@ public class PaymentConfirmTransactionService {
                 payment
         );
 
-
         /*
          * 실패 반영 시각을 한 번 구해 대상 예약들의 이력에 공통으로 사용한다.
          * 결제 실패 시점은 승인 요청 시작 시각과 구분한다.
@@ -578,21 +466,13 @@ public class PaymentConfirmTransactionService {
          * heldCount와 confirmedCount는 변경하지 않는다.
          */
 
-        // allocation 기반 변경을 위한 주석처리
-//        reservationPaymentService.restoreHeldAfterFailure(
-//                resolvePaymentRegistrations(payment).stream()
-//                        .map(Registration::getId)
-//                        .toList(),
-//                payment.getId(),
-//                failedAt
-//        );
-
-        // Allocation 기반 조회 후, 최초 결제인 경우에만 예약을 HELD로 복원 (2-C, 2-D)
-        if (payment.getPurpose() == PaymentPurpose.REGISTRATION_TRY) {
-            List<PaymentAllocation> allocations = paymentAllocationCommandRepository
-                    .findAllByPayment_IdOrderByRegistration_IdAsc(payment.getId());
+        List<PaymentAllocation> allocations = paymentAllocationCommandRepository
+                .findAllByPayment_IdOrderByRegistration_IdAsc(payment.getId());
+        List<String> initialIds = allocationSupport.validateAndGetInitialIds(
+                payment, allocations, ReservationStatus.PROCESSING);
+        if (!initialIds.isEmpty()) {
             reservationPaymentService.restoreHeldAfterFailure(
-                    allocations.stream().map(a -> a.getRegistration().getId()).toList(),
+                    initialIds,
                     payment.getId(),
                     failedAt
             );
@@ -645,7 +525,6 @@ public class PaymentConfirmTransactionService {
                 log
         );
     }
-
 
     /**
      * 외부 승인 결과 또는 로컬 확정 여부가 불명확한 결제를 UNKNOWN으로 표시한다.
@@ -731,7 +610,6 @@ public class PaymentConfirmTransactionService {
         );
     }
 
-
     /**
      * Toss 호출 전에 Payment target XOR을 검증한다.
      *
@@ -745,10 +623,8 @@ public class PaymentConfirmTransactionService {
         boolean hasRegistration =
                 payment.isRegistrationPayment();
 
-
         boolean hasOrganization =
                 payment.isOrgPayment();
-
 
         if (
                 hasRegistration
@@ -760,7 +636,6 @@ public class PaymentConfirmTransactionService {
             );
         }
     }
-
 
     /**
      * Toss HTTP 성공 이후 Payment target의 정합성을 검증한다.
@@ -775,10 +650,8 @@ public class PaymentConfirmTransactionService {
         boolean hasRegistration =
                 payment.isRegistrationPayment();
 
-
         boolean hasOrganization =
                 payment.isOrgPayment();
-
 
         if (
                 hasRegistration
@@ -788,7 +661,6 @@ public class PaymentConfirmTransactionService {
             throw new InvalidTossSuccessResponseException();
         }
     }
-
 
     /**
      * Tx1에서 확정한 target과
@@ -808,7 +680,6 @@ public class PaymentConfirmTransactionService {
                             payment
                     );
 
-
             if (
                     !Objects.equals(
                             context.registrationId(),
@@ -820,16 +691,13 @@ public class PaymentConfirmTransactionService {
                 throw new InvalidTossSuccessResponseException();
             }
 
-
             return;
         }
-
 
         String organizationId =
                 resolveOrganizationId(
                         payment
                 );
-
 
         if (
                 !Objects.equals(
@@ -843,44 +711,12 @@ public class PaymentConfirmTransactionService {
         }
     }
 
-
     /**
      * 단체 최초 결제금액과 현재 구성원의 계약금액 합계를 비교한다.
      *
      * 외부 승인 이후 호출하므로 불일치는
      * 로컬 확정을 중단하고 UNKNOWN 처리로 이어져야 한다.
      */
-//    private void validateOrganizationPaymentAmount(
-//            Payment payment,
-//            List<Registration> registrations
-//    ) {
-//
-//        /*
-//         * 구성원이 없는 단체 결제는 정상 확정할 수 없다.
-//         */
-//        if (registrations.isEmpty()) {
-//            throw new InvalidTossSuccessResponseException();
-//        }
-//
-//        /*
-//         * 결제금액의 기준은 각 신청의 서버 계산 계약금액 합계다.
-//         */
-//        BigDecimal totalContractAmount =
-//                registrations.stream()
-//                        .map(Registration::getContractAmount)
-//                        .reduce(
-//                                BigDecimal.ZERO,
-//                                BigDecimal::add
-//                        );
-//
-//        if (
-//                totalContractAmount.compareTo(
-//                        payment.getAmount()
-//                ) != 0
-//        ) {
-//            throw new InvalidTossSuccessResponseException();
-//        }
-//    }
 
     /**
      * 개인 Payment의 Registration target ID.
@@ -899,11 +735,9 @@ public class PaymentConfirmTransactionService {
             return null;
         }
 
-
         return payment.getRegistration()
                 .getId();
     }
-
 
     /**
      * 단체 Payment의 Organization target ID.
@@ -919,11 +753,9 @@ public class PaymentConfirmTransactionService {
             return null;
         }
 
-
         return payment.getOrganization()
                 .getId();
     }
-
 
     /**
      * 승인 성공 로그 저장.
@@ -974,12 +806,10 @@ public class PaymentConfirmTransactionService {
 
                         .build();
 
-
         paymentProcessLogCommandRepository.save(
                 processLog
         );
     }
-
 
     /**
      * Toss confirm 성공 응답이
@@ -1000,7 +830,6 @@ public class PaymentConfirmTransactionService {
             throw new InvalidTossSuccessResponseException();
         }
 
-
         if (
                 !context.orderId()
                         .equals(
@@ -1011,7 +840,6 @@ public class PaymentConfirmTransactionService {
             throw new InvalidTossSuccessResponseException();
         }
 
-
         if (
                 context.amount()
                         != response.totalAmount()
@@ -1019,7 +847,6 @@ public class PaymentConfirmTransactionService {
 
             throw new InvalidTossSuccessResponseException();
         }
-
 
         if (
                 !"DONE".equals(
@@ -1047,36 +874,13 @@ public class PaymentConfirmTransactionService {
         return payment.getOrganization().getEvent();
     }
 
-
     /**
      * 개인 또는 단체 결제의 대상 신청을 반환한다.
      *
      * 호출 전에 Payment 대상의 개인·단체 XOR 검증을 완료해야 한다.
      * 단체 신청은 ID 순서로 정렬하여 후속 처리 순서를 일정하게 유지한다.
      */
-//    private List<Registration> resolvePaymentRegistrations(Payment payment) {
-//        if (payment.isRegistrationPayment()) {
-//            return List.of(payment.getRegistration());
-//        }
-//
-//        List<Registration> registrations =
-//                registrationCommandRepository.findAllByOrganization_Id(
-//                        payment.getOrganization().getId()
-//                );
-//
-//        if (registrations.isEmpty()) {
-//            throw new CustomException(
-//                    ErrorCode.PAYMENT_NOT_CONFIRMABLE,
-//                    " 단체 결제에 연결된 신청이 없습니다."
-//            );
-//        }
-//
-//        return registrations.stream()
-//                .sorted(Comparator.comparing(Registration::getId))
-//                .toList();
-//    }
 
-    // Allocation 검증 로직 추가 (2-B)
     /**
      * Payment Allocation 대상 해석 및 정합성 검증.
      * Allocation 합계와 대상(삭제여부, 대회, 권한 등)을 승인 전에 철저히 확인한다.
@@ -1109,7 +913,6 @@ public class PaymentConfirmTransactionService {
         }
     }
 
-    // 기존 validateOrganizationPaymentAmount를 대체하는 Allocation 기반 검증 로직 (2-B)
     /**
      * Allocation의 할당 금액 총합이 Payment 결제 요청 금액과 동일한지 검증한다.
      */
@@ -1119,7 +922,6 @@ public class PaymentConfirmTransactionService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         if (totalAllocated.compareTo(payment.getAmount()) != 0) {
-            // 외부 승인 이후인 경우 UNKNOWN 대상이 되도록 처리
             if (payment.getProcessStatus() == PaymentProcessStatus.CONFIRMING || payment.getProcessStatus() == PaymentProcessStatus.UNKNOWN) {
                 throw new InvalidTossSuccessResponseException();
             } else {
