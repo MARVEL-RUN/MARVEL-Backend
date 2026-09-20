@@ -151,7 +151,7 @@ public class PaymentConfirmTransactionService {
          */
 
         List<PaymentAllocation> allocations = paymentAllocationCommandRepository
-                .findAllByPayment_IdOrderByRegistration_IdAsc(payment.getId());
+                .findAllForPaymentUpdate(payment.getId());
 
         validateAllocationsBeforeConfirm(payment, allocations, event);
 
@@ -281,7 +281,7 @@ public class PaymentConfirmTransactionService {
         );
 
         List<PaymentAllocation> allocations = paymentAllocationCommandRepository
-                .findAllByPayment_IdOrderByRegistration_IdAsc(payment.getId());
+                .findAllForPaymentUpdate(payment.getId());
         List<Registration> registrations = allocations.stream().map(PaymentAllocation::getRegistration).toList();
 
         /*
@@ -467,7 +467,7 @@ public class PaymentConfirmTransactionService {
          */
 
         List<PaymentAllocation> allocations = paymentAllocationCommandRepository
-                .findAllByPayment_IdOrderByRegistration_IdAsc(payment.getId());
+                .findAllForPaymentUpdate(payment.getId());
         List<String> initialIds = allocationSupport.validateAndGetInitialIds(
                 payment, allocations, ReservationStatus.PROCESSING);
         if (!initialIds.isEmpty()) {

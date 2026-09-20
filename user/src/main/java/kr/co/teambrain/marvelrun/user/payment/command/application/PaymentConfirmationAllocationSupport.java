@@ -57,67 +57,48 @@ public class PaymentConfirmationAllocationSupport {
         return requiredPayment(lockScope(observed), paymentId);
     }
 
+    /** 새 주문 준비 전에 동일 범위의 결제·환불 진행 상태를 확인한다. */
+    public List<Payment> lockForPreparation(String paymentId) {
+        Payment observed = paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new CustomException(ErrorCode.PAYMENT_NOT_FOUND));
+        List<Payment> locked = lockScope(observed);
+        requiredPayment(locked, paymentId);
+        for (Payment current : locked) {
+            if (current.getProcessStatus() == PaymentProcessStatus.CONFIRMING
+                    || current.getProcessStatus() == PaymentProcessStatus.UNKNOWN) {
+                throw new CustomException(ErrorCode.PAYMENT_NOT_CONFIRMABLE);
+            }
+        }
+        refundConflictGuard.validate(locked);
+        return locked;
+    }
+
     /**
      * 대회 → 단체 NOWAIT → 관련 Payment ID 순서로 잠근다.
-     *
-     * 사전 조회한 Payment는 잠금 범위를 확인하는 용도로만 사용한다.
-     * 아직 변경하지 않은 해당 엔티티만 분리하여, 잠금 조회 시
-     * 오래된 버전과 충돌하지 않고 최신 주문 상태를 읽도록 한다.
+     * 변경하지 않은 사전 조회 Payment만 분리하여 잠금 조회의 오래된 버전 충돌을 피한다.
      */
     private List<Payment> lockScope(Payment payment) {
         if (payment.isRegistrationPayment() == payment.isOrgPayment()) {
             throw new CustomException(ErrorCode.PAYMENT_NOT_CONFIRMABLE);
         }
-
         boolean organizationPayment = payment.isOrgPayment();
-
-        String organizationId = organizationPayment
-                ? payment.getOrganization().getId()
-                : null;
-
-        String registrationId = organizationPayment
-                ? null
-                : payment.getRegistration().getId();
-
+        String organizationId = organizationPayment ? payment.getOrganization().getId() : null;
+        String registrationId = organizationPayment ? null : payment.getRegistration().getId();
         Event event = organizationPayment
-                ? payment.getOrganization().getEvent()
-                : payment.getRegistration().getEvent();
-
+                ? payment.getOrganization().getEvent() : payment.getRegistration().getEvent();
         String eventId = event.getId();
-
-        /*
-         * 이 시점의 Payment는 범위 확인을 위해 조회했으며 변경하지 않았다.
-         * 해당 Payment만 분리하고, 다른 엔티티의 영속 상태는 유지한다.
-         */
         entityManager.detach(payment);
-
         entityManager.refresh(event, LockModeType.PESSIMISTIC_WRITE);
-
         List<Payment> locked;
-
         if (organizationPayment) {
-            OrganizationLockSupport.lockWithoutWaiting(
-                    entityManager,
-                    organizationId
-            );
-
-            locked = paymentRepository
-                    .findAllForOrganizationModificationForUpdate(
-                            eventId,
-                            organizationId
-                    );
+            OrganizationLockSupport.lockWithoutWaiting(entityManager, organizationId);
+            locked = paymentRepository.findAllForOrganizationModificationForUpdate(eventId, organizationId);
         } else {
-            locked = paymentRepository
-                    .findAllForPersonalModificationForUpdate(
-                            eventId,
-                            registrationId
-                    );
+            locked = paymentRepository.findAllForPersonalModificationForUpdate(eventId, registrationId);
         }
-
         for (Payment current : locked) {
             entityManager.refresh(current, LockModeType.PESSIMISTIC_WRITE);
         }
-
         return locked;
     }
 
@@ -134,6 +115,17 @@ public class PaymentConfirmationAllocationSupport {
      */
     public List<String> validateAndGetInitialIds(
             Payment payment, List<PaymentAllocation> allocations, ReservationStatus initialStatus) {
+        return validateAndGetInitialIds(payment, allocations, initialStatus, false);
+    }
+
+    /** 재결제 준비에서만 최초 예약의 RELEASED 상태를 허용하며 금융 검증은 승인과 공유한다. */
+    public List<String> validateForPreparation(Payment payment, List<PaymentAllocation> allocations) {
+        return validateAndGetInitialIds(payment, allocations, ReservationStatus.HELD, true);
+    }
+
+    /** 잠긴 신청·예약과 불변 귀속을 검증하고 최초 납부 대상만 반환한다. */
+    private List<String> validateAndGetInitialIds(Payment payment, List<PaymentAllocation> allocations,
+            ReservationStatus initialStatus, boolean allowReleased) {
         if (allocations == null || allocations.isEmpty()) {
             throw invalid();
         }
@@ -189,7 +181,8 @@ public class PaymentConfirmationAllocationSupport {
             String id = allocation.getRegistration().getId();
             boolean initial = allocation.effectivePurpose() == PaymentPurpose.REGISTRATION_TRY;
             ReservationStatus expected = initial ? initialStatus : ReservationStatus.CONSUMED;
-            if (byRegistration.get(id).getStatus() != expected) {
+            ReservationStatus actual = byRegistration.get(id).getStatus();
+            if (actual != expected && !(initial && allowReleased && actual == ReservationStatus.RELEASED)) {
                 throw new CustomException(ErrorCode.RESERVATION_STATE_CONFLICT);
             }
             if (initial) {

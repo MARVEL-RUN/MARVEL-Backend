@@ -294,6 +294,81 @@ class RegistrationRefundExecutionDatabaseTest extends CapacityMvpTestSupport {
         verify(cancelClient, times(2)).cancel(any());
     }
 
+    /** DB 기존 명단에서 제거를 판정하고 환불 한 번·통합 결제 한 번으로 최종 금액을 반영한다. */
+    @Test
+    void groupModificationRefundsSeparatelyAndChargesOneCombinedOrder() {
+        MixedModificationFixture fixture = mixedModificationFixture(true);
+        RegistrationModificationSettlementResult result = fixture.result();
+        assertThat(result.orders()).hasSize(1);
+        assertThat(result.orders().get(0).amount()).isEqualByComparingTo("60000");
+        assertThat(result.refunds()).hasSize(1);
+        assertThat(result.refunds().get(0).amount()).isEqualByComparingTo("40000");
+        assertThat(result.refunds().get(0).status()).isEqualTo(PaymentCancelStatus.DONE);
+        String paymentId = result.orders().get(0).paymentId();
+        assertThat(s("select purpose from payment where id = ?", paymentId)).isEqualTo("MIXED_PAYMENT");
+        payments.confirm(confirmRequest(paymentId));
+        assertThat(amount("select paid_amount from registration where id = ?", fixture.retainedId())).isEqualByComparingTo("60000");
+        assertThat(amount("select paid_amount from registration where id = ?", fixture.addedId())).isEqualByComparingTo("40000");
+        assertThat(amount("select paid_amount from registration where id = ?", fixture.removedId())).isEqualByComparingTo("0");
+        assertThat(s("select status from registration where id = ?", fixture.removedId())).isEqualTo("CANCELED");
+        assertThat(amount("select amount from payment where id = ?", fixture.originalPaymentId())).isEqualByComparingTo("80000");
+        counters(total, 0, 2);
+        verify(toss, times(1)).confirm(any(), anyString());
+        verify(cancelClient, times(1)).cancel(any());
+    }
+
+    /** 미승인 혼합 주문 뒤 다시 전체 수정하면 이전 주문을 무효화하고 새 결과만 승인 가능하게 한다. */
+    @Test
+    void fullModificationInvalidatesPreviousMixedOrder() {
+        MixedModificationFixture fixture = mixedModificationFixture(true);
+        String oldId = fixture.result().orders().get(0).paymentId();
+        RegistrationModificationSettlementResult changed = commands.modifyOrganization(eventId, fixture.organizationId(),
+                new OrgRegistrationModificationRequest(mixedOrganizationAccess(fixture.organizationId()), List.of(
+                        mixedStoredParticipant(fixture.retainedId(), categoryA, "S"),
+                        mixedStoredParticipant(fixture.addedId(), categoryA, "S"))));
+        assertThat(s("select process_status from payment where id = ?", oldId)).isEqualTo("INVALIDATED");
+        assertThat(changed.orders()).hasSize(1);
+        assertThat(changed.orders().get(0).amount()).isEqualByComparingTo("40000");
+        expectError(ErrorCode.PAYMENT_NOT_CONFIRMABLE, () -> payments.confirm(confirmRequest(oldId)));
+        verifyNoInteractions(toss);
+    }
+
+    /** 환불 결과가 불명확하면 같은 수정에서 준비한 혼합 결제도 외부 승인 전에 차단한다. */
+    @Test
+    void unknownRefundBlocksCombinedPaymentAndNextModification() {
+        MixedModificationFixture fixture = mixedModificationFixture(false);
+        assertThat(fixture.result().refunds().get(0).status()).isEqualTo(PaymentCancelStatus.UNKNOWN);
+        expectError(ErrorCode.PAYMENT_CANCEL_CONFLICT,
+                () -> payments.confirm(confirmRequest(fixture.result().orders().get(0).paymentId())));
+        expectError(ErrorCode.PAYMENT_CANCEL_CONFLICT,
+                () -> commands.modifyOrganization(eventId, fixture.organizationId(),
+                        new OrgRegistrationModificationRequest(mixedOrganizationAccess(fixture.organizationId()), List.of(
+                                mixedStoredParticipant(fixture.retainedId(), categoryA, "S"),
+                                mixedStoredParticipant(fixture.addedId(), categoryA, "S")))));
+        verifyNoInteractions(toss);
+        assertThat(amount("select paid_amount from registration where id = ?", fixture.removedId())).isEqualByComparingTo("40000");
+    }
+
+    /** 요청 명단에 다른 단체의 ID나 중복 ID를 넣어도 DB 소속을 기준으로 거절한다. */
+    @Test
+    void finalListCannotClaimForeignOrDuplicateRegistration() {
+        OrgRegistrationCreateResponse first = group(categoryA);
+        OrgRegistrationCreateResponse other = group(categoryA);
+        String foreign = other.registrationIds().get(0);
+        int paymentsBefore = n("select count(*) from payment where organization_id = ?", first.organizationId());
+        expectError(ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET,
+                () -> commands.modifyOrganization(eventId, first.organizationId(),
+                        new OrgRegistrationModificationRequest(mixedOrganizationAccess(first.organizationId()),
+                                List.of(mixedStoredParticipant(foreign, categoryA, "S")))));
+        String own = first.registrationIds().get(0);
+        expectError(ErrorCode.DUPLICATE_REGISTRATION_MODIFICATION_TARGET,
+                () -> commands.modifyOrganization(eventId, first.organizationId(),
+                        new OrgRegistrationModificationRequest(mixedOrganizationAccess(first.organizationId()),
+                                List.of(mixedStoredParticipant(own, categoryA, "S"), mixedStoredParticipant(own, categoryA, "S")))));
+        assertThat(n("select count(*) from payment where organization_id = ?", first.organizationId())).isEqualTo(paymentsBefore);
+        verifyNoInteractions(toss, cancelClient);
+    }
+
     /** 실제 신청·승인을 거쳐 확정된 개인 신청을 만들고 수정 대상 가격을 낮춘다. */
     private RegistrationCreateResponse paidPersonal() {
         RegistrationCreateResponse original = personal(categoryA, "S", "1990-01-01");
@@ -345,4 +420,46 @@ class RegistrationRefundExecutionDatabaseTest extends CapacityMvpTestSupport {
 
     /** DB 금액은 부동소수점 변환 없이 조회한다. */
     private BigDecimal amount(String sql, Object... values) { return jdbc.queryForObject(sql, BigDecimal.class, values); }
+
+    /** 기존 두 명 중 한 명을 제거하고 한 명의 추가금 및 신규 한 명의 참가비를 동시에 준비한다. */
+    private MixedModificationFixture mixedModificationFixture(boolean refundSucceeds) {
+        OrgRegistrationCreateResponse original = group(categoryA, categoryA);
+        mockApprovalSuccess();
+        payments.confirm(confirmRequest(original.paymentId()));
+        clearInvocations(toss);
+        jdbc.update("update event_category set amount = 60000 where id = ?", categoryB);
+        if (refundSucceeds) {
+            mockCancelSuccess();
+        } else {
+            when(cancelClient.cancel(any())).thenReturn(TossCancelOutcome.unknown(null, "테스트 응답 유실"));
+        }
+        String retained = original.registrationIds().get(0);
+        String removed = original.registrationIds().get(1);
+        OrgRegistrationModificationRequest request = new OrgRegistrationModificationRequest(
+                mixedOrganizationAccess(original.organizationId()), List.of(
+                mixedStoredParticipant(retained, categoryB, "M"),
+                new OrgRegistrationModificationParticipantRequest(null, categoryA,
+                        List.of(new SouvenirJson(souvenirId, "S")), "신규" + UUID.randomUUID().toString().substring(0, 8),
+                        "010-1111-2222", "1990-01-01", GenderClass.M)));
+        RegistrationModificationSettlementResult result = commands.modifyOrganization(eventId, original.organizationId(), request);
+        String added = result.members().stream().map(RegistrationModificationSettlementResult.Member::registrationId)
+                .filter(id -> !original.registrationIds().contains(id)).findFirst().orElseThrow();
+        return new MixedModificationFixture(original.organizationId(), original.paymentId(), retained, removed, added, result);
+    }
+
+    /** 현재 DB 로그인 정보로 단체 접근 요청을 구성한다. */
+    private OrganizationAccessRequest mixedOrganizationAccess(String organizationId) {
+        return new OrganizationAccessRequest(s("select login_id from organization where id = ?", organizationId), "Test1234!");
+    }
+
+    /** 기존 참가자 정보는 DB에서 가져오며 요청에는 수정 후 종목과 기념품을 담는다. */
+    private OrgRegistrationModificationParticipantRequest mixedStoredParticipant(String id, String category, String size) {
+        return new OrgRegistrationModificationParticipantRequest(id, category, List.of(new SouvenirJson(souvenirId, size)),
+                s("select name from registration where id = ?", id), s("select ph_num from registration where id = ?", id),
+                s("select birth from registration where id = ?", id), GenderClass.M);
+    }
+
+    /** 혼합 수정 시나리오의 식별자와 최초 수정 결과를 보관한다. */
+    private record MixedModificationFixture(String organizationId, String originalPaymentId,
+                                            String retainedId, String removedId, String addedId, RegistrationModificationSettlementResult result) { }
 }

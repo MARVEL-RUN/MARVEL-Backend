@@ -30,10 +30,14 @@ public interface PaymentAllocationCommandRepository
             String paymentId
     );
 
-    /** 부모 Payment 잠금 뒤 원 귀속을 현재 읽기로 조회한다. 삭제된 신청의 귀속도 포함한다. */
+    /** 부모 Payment를 잠근 뒤 귀속을 현재 읽기로 조회하여 재결제 직후 생성된 행도 확인한다. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Transactional(propagation = Propagation.MANDATORY)
     @Query("select a from PaymentAllocation a where a.payment.id = :paymentId order by a.id")
-    List<PaymentAllocation> findAllForRefund(
-            @Param("paymentId") String paymentId);
+    List<PaymentAllocation> findAllForPaymentUpdate(@Param("paymentId") String paymentId);
+
+    /** 기존 환불 호출 계약을 보존하고 공통 현재 읽기로 위임한다. */
+    default List<PaymentAllocation> findAllForRefund(String paymentId) {
+        return findAllForPaymentUpdate(paymentId);
+    }
 }
