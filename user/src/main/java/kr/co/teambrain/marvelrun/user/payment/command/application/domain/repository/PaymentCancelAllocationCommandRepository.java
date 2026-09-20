@@ -4,8 +4,11 @@ import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-
 import java.util.List;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.data.jpa.repository.Lock;
+import jakarta.persistence.LockModeType;
 
 /** 변경하지 않는 취소 귀속 행을 저장하고 취소별·원귀속별로 조회한다. */
 public interface PaymentCancelAllocationCommandRepository
@@ -37,4 +40,10 @@ public interface PaymentCancelAllocationCommandRepository
             """)
     List<PaymentCancelAllocation> findAllByOriginalAllocationId(
             @Param("allocationId") String allocationId);
+
+    /** 부모 Payment·PaymentCancel 잠금 뒤 변경 불가능한 과거 취소 귀속을 현재 읽기로 조회한다. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Transactional(propagation = Propagation.MANDATORY)
+    @Query("select a from PaymentCancelAllocation a where a.paymentCancel.payment.id = :paymentId order by a.id")
+    List<PaymentCancelAllocation> findAllForRefund(@Param("paymentId") String paymentId);
 }

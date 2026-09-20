@@ -6,11 +6,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-
 import java.util.List;
+import kr.co.teambrain.marvelrun.user.payment.command.application.PaymentRefundConflictGuard;
 
 /**
- * 신청 수정과 기존 결제 승인 간 충돌을 차단한다.
+ * 신청 전체 수정과 기존 결제 승인·미확정 환불 간 충돌을 차단한다.
  *
  * 대회 잠금 다음에 관련 Payment를 잠그고,
  * 본인확인이 완료되면 상태 검증과 READY 주문 무효화를 수행한다.
@@ -24,6 +24,7 @@ import java.util.List;
 public class RegistrationModificationPaymentGuard {
 
     private final PaymentCommandRepository paymentRepository;
+    private final PaymentRefundConflictGuard refundGuard;
 
     /**
      * 개인 신청 관련 Payment를 잠근다.
@@ -75,6 +76,7 @@ public class RegistrationModificationPaymentGuard {
         for (Payment payment : lockedPayments) {
             payment.validateRegistrationModificationAllowed();
         }
+        refundGuard.validate(lockedPayments);
     }
 
     /** 충돌 검사가 끝난 전체 수정의 READY 주문만 무효화한다. */

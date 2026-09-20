@@ -26,8 +26,11 @@ public class OrgRegistrationModificationGuard {
     private final RegistrationCommandRepository repository;
     private final OrgRegistrationModificationAccessValidator accessValidator;
 
-    /** Event를 보유한 전체 수정은 단체 잠금을 기다리지 않아 개인정보 저장과의 대기 순환을 차단한다. */
-    public void protectWithoutWaiting(OrgRegistrationModificationAccessContext access) {
+    /**
+     * 다른 잠금 조회 전에 단체 행만 대기 없이 확보한다.
+     * 구성원 조회·잠금·refresh는 하지 않으며 확보한 잠금은 같은 트랜잭션 끝까지 유지한다.
+     */
+    public void lockOrganizationWithoutWaiting(OrgRegistrationModificationAccessContext access) {
         try {
             entityManager.createNativeQuery("select id from organization where id = :id for update nowait")
                     .setParameter("id", access.organization().getId())
@@ -41,11 +44,15 @@ public class OrgRegistrationModificationGuard {
             }
             throw exception;
         }
-        // 이미 확보한 같은 단체 행을 refresh하여 인증정보도 현재 값으로 확인한다.
+    }
+
+    /** 단체를 즉시 잠근 뒤 기존 인증·구성원 버전 보호를 이어가는 호출 계약을 유지한다. */
+    public void protectWithoutWaiting(OrgRegistrationModificationAccessContext access) {
+        lockOrganizationWithoutWaiting(access);
         protect(access);
     }
 
-    /** 전체 경로는 Event 다음에, 개인정보 경로는 Event 없이 단체와 구성원만 잠근다. */
+    /** 전체 경로는 단체 선행 잠금·Payment 잠금 후 호출하고, 개인정보 경로는 Event 없이 호출한다. */
     public void protect(OrgRegistrationModificationAccessContext access) {
         Map<String, Long> observed = new HashMap<>();
         for (Registration registration : access.currentRegistrations()) {

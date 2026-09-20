@@ -23,6 +23,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.AopTestUtils;
 
 import java.math.BigDecimal;
@@ -83,6 +84,11 @@ class RegistrationModificationDatabaseTest
 
     @Autowired
     private CapacityModificationService staleVersionCapacityModificationService;
+
+    @MockitoSpyBean
+    private kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentCancelAllocationCreator
+            cancelAllocationCreator;
+
 
     /**
      * 개인 미결제 신청의 종목·사이즈·금액을 변경하고
@@ -419,11 +425,31 @@ class RegistrationModificationDatabaseTest
         assertThat(paymentState(original.paymentId()))
                 .isEqualTo("COMPLETED");
 
+
+
+
         counters(total, 1, 1);
         counters(categoryACapacity, 1, 0);
         counters(categoryBCapacity, 0, 1);
         counters(shirtS, 1, 0);
         counters(shirtM, 0, 1);
+
+
+        assertThat(result.refunds()).hasSize(1);
+        String cancelId = result.refunds().get(0).paymentCancelId();
+        assertThat(result.refunds().get(0).amount()).isEqualByComparingTo("50000");
+        assertThat(money(
+                """
+                select ca.allocated_amount from payment_cancel_allocation ca
+                join payment_allocation a on a.id = ca.payment_allocation_id
+                where ca.payment_cancel_id = ? and a.registration_id = ?
+                """, cancelId, retainedId)).isEqualByComparingTo("10000");
+        assertThat(money(
+                """
+                select ca.allocated_amount from payment_cancel_allocation ca
+                join payment_allocation a on a.id = ca.payment_allocation_id
+                where ca.payment_cancel_id = ? and a.registration_id = ?
+                """, cancelId, removedId)).isEqualByComparingTo("40000");
     }
 
     /**
@@ -752,6 +778,78 @@ class RegistrationModificationDatabaseTest
                     .as("정리 작업 전에 경합 테스트의 스레드가 종료되어야 합니다.")
                     .isTrue();
         }
+    }
+
+    /** 가격 인하 수정 한 번으로 환불 원장까지 저장하되 실제 돈은 차감하지 않는다. */
+    @Test
+    void priceReductionPreparesRefundWithoutCallingToss() {
+        RegistrationCreateResponse original = personal(categoryA, "S", "1990-01-01");
+        mockApprovalSuccess();
+        payments.confirm(confirmRequest(original.paymentId()));
+        clearInvocations(toss);
+        changeCategoryPrice(categoryB, "30000");
+
+        RegistrationModificationSettlementResult result = modifications.modifyPersonal(
+                eventId, original.registrationId(), personalRequest(original.registrationId(), categoryB, "M"));
+
+        assertThat(result.refunds()).hasSize(1);
+        String cancelId = result.refunds().get(0).paymentCancelId();
+        assertThat(result.refunds().get(0).amount()).isEqualByComparingTo("10000");
+        assertThat(s("select status from payment_cancel where id = ?", cancelId)).isEqualTo("PROCESSING");
+        assertThat(s("select cancel_type from payment_cancel where id = ?", cancelId)).isEqualTo("PARTIAL");
+        assertThat(money("select paid_amount from registration where id = ?", original.registrationId()))
+                .isEqualByComparingTo("40000");
+        assertThat(money("select sum(allocated_amount) from payment_cancel_allocation where payment_cancel_id = ?", cancelId))
+                .isEqualByComparingTo("10000");
+        assertThat(n("select count(*) from payment_process_log where payment_cancel_id = ? and process_type = 'CANCEL_PREPARED'", cancelId))
+                .isEqualTo(1);
+        assertThat(s("select status from reservation where registration_id = ?", original.registrationId())).isEqualTo("CONSUMED");
+        verifyNoInteractions(toss);
+    }
+
+    /** 환불 진행·결과불명 동안 재수정은 새 금융 기록과 자원 변경을 남기지 않는다. */
+    @ParameterizedTest
+    @ValueSource(strings = {"PROCESSING", "UNKNOWN"})
+    void unsettledRefundBlocksNextFullModification(String status) {
+        RegistrationCreateResponse original = personal(categoryA, "S", "1990-01-01");
+        mockApprovalSuccess();
+        payments.confirm(confirmRequest(original.paymentId()));
+        changeCategoryPrice(categoryB, "30000");
+        RegistrationModificationSettlementResult first = modifications.modifyPersonal(
+                eventId, original.registrationId(), personalRequest(original.registrationId(), categoryB, "M"));
+        String cancelId = first.refunds().get(0).paymentCancelId();
+        jdbc.update("update payment_cancel set status = ? where id = ?", status, cancelId);
+        Map<String, List<Map<String, Object>>> before = snapshot();
+
+        expectError(ErrorCode.PAYMENT_CANCEL_CONFLICT,
+                () -> modifications.modifyPersonal(eventId, original.registrationId(),
+                        personalRequest(original.registrationId(), categoryA, "S")));
+
+        assertThat(snapshot()).isEqualTo(before);
+    }
+
+    /** 환불 귀속까지 저장한 뒤 실패하면 수정·정원·환불 원장을 함께 롤백한다. */
+    @Test
+    void refundAllocationFailureRollsBackWholeModification() {
+        RegistrationCreateResponse original = personal(categoryA, "S", "1990-01-01");
+        mockApprovalSuccess();
+        payments.confirm(confirmRequest(original.paymentId()));
+        changeCategoryPrice(categoryB, "30000");
+        Map<String, List<Map<String, Object>>> before = snapshot();
+        kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentCancelAllocationCreator spy =
+                AopTestUtils.getUltimateTargetObject(cancelAllocationCreator);
+        doAnswer(invocation -> {
+            invocation.callRealMethod();
+            em.flush();
+            throw new CustomException(ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR);
+        }).when(spy).create(
+                any(kr.co.teambrain.marvelrun.user.event.command.application.domain.PaymentCancel.class), anyList());
+
+        expectError(ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR,
+                () -> modifications.modifyPersonal(eventId, original.registrationId(),
+                        personalRequest(original.registrationId(), categoryB, "M")));
+
+        assertThat(snapshot()).isEqualTo(before);
     }
 
     /**
@@ -1267,6 +1365,35 @@ class RegistrationModificationDatabaseTest
                 """,
                 eventId
         ));
+
+        result.put("cancellations", jdbc.queryForList(
+                """
+                select c.id, c.payment_id, c.cancel_amount, c.cancel_type, c.purpose,
+                       c.status, c.idempotency_key, c.requested_at, c.version
+                from payment_cancel c join payment p on p.id = c.payment_id
+                where p.registration_id in (select id from registration where event_id = ?)
+                   or p.organization_id in (select id from organization where event_id = ?)
+                order by c.id
+                """, eventId, eventId));
+        result.put("cancelAllocations", jdbc.queryForList(
+                """
+                select ca.id, ca.payment_cancel_id, ca.payment_allocation_id, ca.allocated_amount
+                from payment_cancel_allocation ca
+                join payment_cancel c on c.id = ca.payment_cancel_id
+                join payment p on p.id = c.payment_id
+                where p.registration_id in (select id from registration where event_id = ?)
+                   or p.organization_id in (select id from organization where event_id = ?)
+                order by ca.id
+                """, eventId, eventId));
+        result.put("refundLogs", jdbc.queryForList(
+                """
+                select l.id, l.payment_id, l.payment_cancel_id, l.correlation_id, l.process_type
+                from payment_process_log l join payment p on p.id = l.payment_id
+                where l.payment_cancel_id is not null and (
+                    p.registration_id in (select id from registration where event_id = ?)
+                    or p.organization_id in (select id from organization where event_id = ?))
+                order by l.id
+                """, eventId, eventId));
 
         return result;
     }

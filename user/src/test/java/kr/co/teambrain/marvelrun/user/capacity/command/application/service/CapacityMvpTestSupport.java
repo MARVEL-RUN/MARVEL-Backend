@@ -10,7 +10,9 @@ import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.*;
+import kr.co.teambrain.marvelrun.user.payment.command.application.creator.ModificationRefundPlanner;
 import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentAllocationCreator;
+import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentCancelAllocationCreator;
 import kr.co.teambrain.marvelrun.user.payment.command.application.generator.PaymentOrderIdGenerator;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.loader.RegistrationPolicyLoader;
@@ -95,6 +97,10 @@ import static org.mockito.Mockito.*;
 
         PaymentConfirmService.class,
         PaymentConfirmTransactionService.class,
+        PaymentRefundConflictGuard.class,
+        ModificationRefundPreparationService.class,
+        ModificationRefundPlanner.class,
+        PaymentCancelAllocationCreator.class,
         TossConfirmFailureClassifier.class
 })
 abstract class CapacityMvpTestSupport {
@@ -705,6 +711,26 @@ abstract class CapacityMvpTestSupport {
                     "delete from payment_process_log where payment_id in "
                             + "(select id from payment where "
                             + paymentTargets + ")",
+                    eventId, eventId
+            );
+
+            jdbc.update(
+                    """
+                    delete ca from payment_cancel_allocation ca
+                    join payment_cancel c on c.id = ca.payment_cancel_id
+                    join payment p on p.id = c.payment_id
+                    where p.registration_id in (select id from registration where event_id = ?)
+                       or p.organization_id in (select id from organization where event_id = ?)
+                    """,
+                    eventId, eventId
+            );
+            jdbc.update(
+                    """
+                    delete c from payment_cancel c
+                    join payment p on p.id = c.payment_id
+                    where p.registration_id in (select id from registration where event_id = ?)
+                       or p.organization_id in (select id from organization where event_id = ?)
+                    """,
                     eventId, eventId
             );
 

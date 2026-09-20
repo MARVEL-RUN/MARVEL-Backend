@@ -11,6 +11,7 @@ package kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_cancel;
 public enum PaymentCancelStatus {
 
     // 취소 row가 생성되고 Toss 취소 API 처리를 진행 중인 상태
+    // 환불 금액을 예약한 뒤 외부 요청 준비·진행 또는 결과 반영을 기다리는 상태
     PROCESSING,
 
     // Toss 취소 성공을 확인하고 MarvelRun DB 반영까지 완료한 상태

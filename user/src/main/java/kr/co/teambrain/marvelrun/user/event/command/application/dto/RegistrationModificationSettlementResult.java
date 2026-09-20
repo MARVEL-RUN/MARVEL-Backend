@@ -1,9 +1,9 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.dto;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
-
 import java.math.BigDecimal;
 import java.util.List;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_cancel.PaymentCancelStatus;
 
 /**
  * 신청 수정 후 금융 상태와 새 최초·추가 결제 주문을 전달한다.
@@ -13,7 +13,8 @@ import java.util.List;
  */
 public record RegistrationModificationSettlementResult(
         List<Member> members,
-        List<Order> orders
+        List<Order> orders,
+        List<Refund> refunds
 ) {
 
     /**
@@ -22,7 +23,18 @@ public record RegistrationModificationSettlementResult(
     public RegistrationModificationSettlementResult {
         members = List.copyOf(members);
         orders = List.copyOf(orders);
+        refunds = List.copyOf(refunds);
     }
+
+    /** 환불 준비가 없는 기존 응답과 개인정보 전용 경로의 생성 계약을 유지한다. */
+    public RegistrationModificationSettlementResult(List<Member> members, List<Order> orders) {
+        this(members, orders, List.of());
+    }
+
+    /** 서버가 준비한 환불 시도이다. PROCESSING은 환불 성공이나 외부 요청 완료를 뜻하지 않는다. */
+    public record Refund(String paymentCancelId, String paymentId, BigDecimal amount,
+                         PaymentCancelStatus status,
+                         String correlationId) { }
 
     /**
      * 수정된 참가자 한 명의 계약금액·순결제금액·미정산 차액이다.

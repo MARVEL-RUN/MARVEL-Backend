@@ -47,5 +47,8 @@ public enum PaymentProcessType {
     RECONCILIATION_MATCHED,
 
     // 불일치를 발견하고 MarvelRun 데이터를 보정함
-    RECONCILIATION_CORRECTED
+    RECONCILIATION_CORRECTED,
+
+    /** 환불 시도와 귀속을 저장했으며 아직 외부 취소 요청은 시작하지 않았다. */
+    CANCEL_PREPARED,
 }

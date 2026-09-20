@@ -23,13 +23,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
+import kr.co.teambrain.marvelrun.user.payment.command.application.ModificationRefundPreparationService;
 
 /**
- * 수정된 신청의 금융 상태를 결정하고 최초·추가 결제 주문을 구성한다.
+ * 수정된 신청의 금융 상태를 결정하고 최초·추가 결제 주문과 필요한 환불 시도를 구성한다.
  *
  * 신청·예약·정원 수정 직후 같은 트랜잭션에서 호출한다.
  * 호출 전에 대회·관련 Payment 잠금 및 READY 무효화가 완료되어야 한다.
@@ -49,6 +49,7 @@ public class RegistrationModificationSettlementService {
     private final PaymentCreator paymentCreator;
     private final PaymentAllocationCreator allocationCreator;
     private final AdditionalPaymentTargetResolver additionalTargetResolver;
+    private final ModificationRefundPreparationService refundPreparationService;
 
     /**
      * 수정에 포함된 기존·신규·제거 참가자 전체의 금융 상태를 결정한다.
@@ -147,6 +148,8 @@ public class RegistrationModificationSettlementService {
         List<RegistrationModificationSettlementResult.Order> orders =
                 new ArrayList<>(createInitialOrder(organizationId, initialPaymentTargets));
         orders.addAll(createAdditionalOrder(organizationId, consumedTargets));
+        List<RegistrationModificationSettlementResult.Refund> refunds =
+                refundPreparationService.prepare(eventId, organizationId, registrations);
 
         /*
          * 상태 변경·주문·Allocation 저장 오류를 같은 Tx에서 확인한다.
@@ -156,7 +159,8 @@ public class RegistrationModificationSettlementService {
 
         return new RegistrationModificationSettlementResult(
                 members,
-                orders
+                orders,
+                refunds
         );
     }
 

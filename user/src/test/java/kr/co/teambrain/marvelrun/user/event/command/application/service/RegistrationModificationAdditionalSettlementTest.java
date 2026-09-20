@@ -31,6 +31,8 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import kr.co.teambrain.marvelrun.user.payment.command.application.ModificationRefundPreparationService;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_cancel.PaymentCancelStatus;
 
 /** 기존 수정 정산 호출 한 번에서 추가 주문과 귀속이 함께 준비되는지 검증한다. */
 class RegistrationModificationAdditionalSettlementTest {
@@ -40,10 +42,12 @@ class RegistrationModificationAdditionalSettlementTest {
     private final CapacityCommandRepository capacities = mock(CapacityCommandRepository.class);
     private final PaymentCreator creator = mock(PaymentCreator.class);
     private final PaymentAllocationCreator allocationCreator = mock(PaymentAllocationCreator.class);
+    private final ModificationRefundPreparationService refundPreparation =
+            mock(ModificationRefundPreparationService.class);
     private final Event event = mock(Event.class);
     private final RegistrationModificationSettlementService service = new RegistrationModificationSettlementService(
             registrations, reservations, items, capacities, creator, allocationCreator,
-            new AdditionalPaymentTargetResolver());
+            new AdditionalPaymentTargetResolver(), refundPreparation);
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 9, 22, 10, 0);
 
     /** 현재 수정 범위의 대회 식별자를 구성한다. */
@@ -136,6 +140,22 @@ class RegistrationModificationAdditionalSettlementTest {
         verify(registrations, never()).flush();
     }
 
+    /** 같은 수정 정산 응답에 서버가 준비한 환불 식별자를 포함한다. */
+    @Test
+    void includesPreparedRefundInExistingResponse() {
+        Registration registration = participant("r", null, "30000", "40000", false);
+        scope(List.of(registration), List.of(reservation(registration, ReservationStatus.CONSUMED)));
+        RegistrationModificationSettlementResult.Refund refund = new RegistrationModificationSettlementResult.Refund(
+                "cancel", "original", new BigDecimal("10000"),
+                PaymentCancelStatus.PROCESSING,
+                "trace");
+        when(refundPreparation.prepare("event", null, List.of(registration))).thenReturn(List.of(refund));
+        RegistrationModificationSettlementResult result = service.settle("event", null, List.of("r"), NOW);
+        assertThat(result.refunds()).containsExactly(refund);
+        assertThat(result.orders()).isEmpty();
+        assertThat(registration.getPaidAmount()).isEqualByComparingTo("40000");
+    }
+
     /** 완성한 엔티티 목록으로 조회 대역을 설정하여 중첩 stubbing을 피한다. */
     private void scope(List<Registration> targets, List<Reservation> held) {
         for (Registration registration : targets) {
@@ -162,4 +182,3 @@ class RegistrationModificationAdditionalSettlementTest {
                 .amount(new BigDecimal(amount)).purpose(purpose).processStatus(PaymentProcessStatus.READY).build();
     }
 }
-

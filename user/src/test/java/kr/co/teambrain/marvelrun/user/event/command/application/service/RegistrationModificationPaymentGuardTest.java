@@ -3,15 +3,14 @@ package kr.co.teambrain.marvelrun.user.event.command.application.service;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
+import kr.co.teambrain.marvelrun.user.payment.command.application.PaymentRefundConflictGuard;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.PaymentCommandRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-
 import java.math.BigDecimal;
 import java.util.List;
-
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -25,8 +24,11 @@ class RegistrationModificationPaymentGuardTest {
     private final PaymentCommandRepository repository =
             mock(PaymentCommandRepository.class);
 
+    private final PaymentRefundConflictGuard refundGuard =
+            mock(PaymentRefundConflictGuard.class);
+
     private final RegistrationModificationPaymentGuard guard =
-            new RegistrationModificationPaymentGuard(repository);
+            new RegistrationModificationPaymentGuard(repository, refundGuard);
 
     /** 분리된 충돌 검증만 호출하면 READY 상태 변경이나 flush가 없어야 한다. */
     @Test
@@ -148,6 +150,19 @@ class RegistrationModificationPaymentGuardTest {
         guard.prepareLockedPayments(List.of());
 
         verifyNoInteractions(repository);
+    }
+
+    /** 진행 중 환불을 확인하면 앞에 있는 READY 주문도 무효화하지 않는다. */
+    @Test
+    void refundConflictPreventsReadyInvalidation() {
+        Payment ready = payment("p1", PaymentProcessStatus.READY);
+        List<Payment> payments = List.of(ready);
+        doThrow(new CustomException(ErrorCode.PAYMENT_CANCEL_CONFLICT)).when(refundGuard).validate(payments);
+        assertThatThrownBy(() -> guard.prepareLockedPayments(payments))
+                .isInstanceOfSatisfying(CustomException.class,
+                        error -> assertThat(error.getErrorCode()).isEqualTo(ErrorCode.PAYMENT_CANCEL_CONFLICT));
+        assertThat(ready.getProcessStatus()).isEqualTo(PaymentProcessStatus.READY);
+        verify(repository, never()).flush();
     }
 
     /**

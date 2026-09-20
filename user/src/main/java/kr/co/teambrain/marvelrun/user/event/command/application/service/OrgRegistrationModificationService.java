@@ -26,11 +26,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
 
 /**
  * 단체 최종 구성원 목록을 기준으로 추가·수정·제거를 반영한다.
@@ -39,7 +39,7 @@ import java.util.stream.Collectors;
  * 모든 신청·예약·카운터 변경은 외부 수정 Use Case의 같은 Tx에 속한다.
  *
  * 금융 상태·주문 정산은 상위 CommandService가 이어서 수행한다.
- * 이 서비스에는 Payment 충돌 검증이 연결되어 있지 않다.
+ * 대회 다음 단체를 NOWAIT로 확보하고 Payment·구성원 보호 후 금융 충돌 검사·READY 무효화를 수행한다.
  */
 @Service
 @RequiredArgsConstructor
@@ -61,6 +61,7 @@ public class OrgRegistrationModificationService {
     private final CapacityModificationService modificationService;
     private final ReservationRemovalService removalService;
     private final OrgRegistrationModificationGuard modificationGuard;
+    private final RegistrationModificationPaymentGuard paymentGuard;
 
     /**
      * 수정 요청의 최종 구성원 전체를 검증하여 단체에 반영한다.
@@ -89,7 +90,16 @@ public class OrgRegistrationModificationService {
 
         OrgRegistrationModificationAccessContext access = observed == null
                 ? accessValidator.validate(eventId, organizationId, request, now) : observed;
-        modificationGuard.protectWithoutWaiting(access);
+
+        // 개인정보 수정이 단체를 보호 중이면 다른 잠금 조회로 진입하기 전에 즉시 거절한다.
+        modificationGuard.lockOrganizationWithoutWaiting(access);
+
+        List<Payment> lockedPayments =
+                paymentGuard.lockOrganization(eventId, organizationId);
+
+        // 구성원 버전 보호는 Payment 잠금 뒤에 수행한다.
+        modificationGuard.protect(access);
+        paymentGuard.prepareLockedPayments(lockedPayments);
 
         OrgRegistrationModificationCandidateContext candidate = candidateValidator.validate(access);
 
