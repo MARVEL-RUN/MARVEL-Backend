@@ -20,6 +20,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/** 단체 수정 요청의 인증과 현재 구성원 귀속을 확인한다. */
 @Component
 @RequiredArgsConstructor
 public class OrgRegistrationModificationAccessValidator {
@@ -95,7 +96,7 @@ public class OrgRegistrationModificationAccessValidator {
      * 수정 요청에 다시 포함된 단체 로그인 정보와
      * 현재 Organization 인증정보를 비교한다.
      */
-    private void validateAccess(
+    public void validateAccess(
             Organization organization,
             OrganizationAccessRequest access
     ) {

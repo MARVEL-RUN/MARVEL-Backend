@@ -20,7 +20,7 @@ import java.util.Set;
  * 접근 검증을 마친 기존 신청과 요청의 업무값만 비교한다.
  * 저장된 종목 식별자와 기념품 JSON을 사용하며 정책·가격·예약을 조회하지 않는다.
  * 인증·입력 제약·uniqueInfo 중복·수정 가능 여부·동시성 보호는 호출부 책임이다.
- * 개인정보 판정은 저장 허가가 아니며, 실제 수정 서비스에는 아직 연결하지 않는다.
+ * 개인정보 판정 후에도 각 수정 서비스의 접근·중복 검증과 동시성 보호를 통과해야 저장한다.
  */
 @Component
 public class RegistrationModificationClassifier {

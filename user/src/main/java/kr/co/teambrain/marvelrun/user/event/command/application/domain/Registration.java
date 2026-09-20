@@ -359,6 +359,17 @@ public class Registration extends RegistrationBase<
         this.contractAmount = newContractAmount;
     }
 
+    /** 기존 단체 신청의 개인정보만 정정하며 정책·금융·귀속 필드는 요청값으로 덮어쓰지 않는다. */
+    public void applyOrganizationPersonalInformation(OrgRegistrationModificationParticipantRequest request) {
+        if (organization == null || softDeleted || id == null || request == null
+                || !Objects.equals(id, request.registrationId())) {
+            throw new CustomException(ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET);
+        }
+        this.name = request.name();
+        this.phNum = request.phNum();
+        this.gender = request.gender();
+    }
+
     /**
      * 자원 반환을 마친 단체 구성원을 활성 참가 목록에서 제거한다.
      *

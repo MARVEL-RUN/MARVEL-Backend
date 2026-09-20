@@ -22,6 +22,9 @@ import kr.co.teambrain.marvelrun.user.event.command.application.valid.Registrati
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationPersonalInformationValidator;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationPolicyValidator;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationUniqueInfoValidator;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationInformationPolicyValidator;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.OrgRegistrationModificationAccessValidator;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.OrgRegistrationPersonalInformationValidator;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
@@ -48,10 +51,12 @@ class RegistrationPersonalInformationServiceTest {
     private final RegistrationModificationSettlementService settlement = mock(RegistrationModificationSettlementService.class);
     private final ServerTimeProvider time = mock(ServerTimeProvider.class);
     private final RegistrationPersonalInformationValidator validator = new RegistrationPersonalInformationValidator(
-            INPUTS.getValidator(), new RegistrationPolicyValidator(), new RegistrationUniqueInfoValidator(repository));
+            INPUTS.getValidator(), new RegistrationInformationPolicyValidator(new RegistrationPolicyValidator()), new RegistrationUniqueInfoValidator(repository));
     private final RegistrationModificationCommandService commands = new RegistrationModificationCommandService(
             full, organization, settlement, time, new RegistrationModificationAccessValidator(repository), validator,
-            new RegistrationModificationClassifier(), new RegistrationPersonalInformationService(validator, repository, entityManager));
+            new RegistrationModificationClassifier(), new RegistrationPersonalInformationService(validator, repository, entityManager),
+            mock(OrgRegistrationModificationAccessValidator.class), mock(OrgRegistrationPersonalInformationValidator.class),
+            mock(OrgRegistrationPersonalInformationService.class));
 
     /** 테스트에서 생성한 Bean Validation 자원만 닫는다. */
     @AfterAll

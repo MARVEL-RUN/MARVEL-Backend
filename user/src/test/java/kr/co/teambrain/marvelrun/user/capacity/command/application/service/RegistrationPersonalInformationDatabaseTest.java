@@ -46,6 +46,8 @@ import static org.mockito.Mockito.*;
 
 /** 실제 MySQL에서 개인정보 정정의 조회 생략·보존·롤백과 두 종류의 동시 변경을 검증한다. */
 @Import({RegistrationModificationAccessValidator.class, OrgRegistrationModificationAccessValidator.class,
+        RegistrationInformationPolicyValidator.class, OrgRegistrationPersonalInformationValidator.class,
+        OrgRegistrationPersonalInformationService.class, OrgRegistrationModificationGuard.class,
         RegistrationModificationCandidateValidator.class, OrgRegistrationModificationCandidateValidator.class,
         RegistrationUniqueInfoValidator.class, RegistrationPersonalInformationValidator.class,
         RegistrationModificationClassifier.class, RegistrationPersonalInformationService.class,

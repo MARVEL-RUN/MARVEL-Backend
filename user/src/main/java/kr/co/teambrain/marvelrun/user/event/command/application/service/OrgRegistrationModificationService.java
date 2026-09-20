@@ -11,6 +11,7 @@ import kr.co.teambrain.marvelrun.user.capacity.command.repository.ReservationCom
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.OrgRegistrationModificationCandidateContext;
+import kr.co.teambrain.marvelrun.user.event.command.application.context.OrgRegistrationModificationAccessContext;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.OrgRegistrationModificationResult;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.OrgRegistrationParticipantPricing;
@@ -37,8 +38,8 @@ import java.util.stream.Collectors;
  * 전체 후보 정책검증과 가격 계산을 마친 뒤 실제 변경을 시작한다.
  * 모든 신청·예약·카운터 변경은 외부 수정 Use Case의 같은 Tx에 속한다.
  *
- * Payment 충돌 차단과 금융 상태·주문 처리를 연결하기 전에는
- * 외부 수정 API의 완료 처리로 사용하지 않는다.
+ * 금융 상태·주문 정산은 상위 CommandService가 이어서 수행한다.
+ * 이 서비스에는 Payment 충돌 검증이 연결되어 있지 않다.
  */
 @Service
 @RequiredArgsConstructor
@@ -59,6 +60,7 @@ public class OrgRegistrationModificationService {
     private final ReservationCapacityDiffService diffService;
     private final CapacityModificationService modificationService;
     private final ReservationRemovalService removalService;
+    private final OrgRegistrationModificationGuard modificationGuard;
 
     /**
      * 수정 요청의 최종 구성원 전체를 검증하여 단체에 반영한다.
@@ -72,13 +74,24 @@ public class OrgRegistrationModificationService {
             OrgRegistrationModificationRequest request,
             LocalDateTime now
     ) {
+        return modify(eventId, organizationId, request, now, null);
+    }
+
+    /** Event 다음 단체 잠금을 대기 없이 확보하며, 경합이나 오래된 구성원 snapshot이면 전체 수정을 거절한다. */
+    public OrgRegistrationModificationResult modify(
+            String eventId,
+            String organizationId,
+            OrgRegistrationModificationRequest request,
+            LocalDateTime now,
+            OrgRegistrationModificationAccessContext observed
+    ) {
         registrationCapacityService.lockEvent(eventId);
 
-        var access = accessValidator.validate(
-                eventId, organizationId, request, now
-        );
+        OrgRegistrationModificationAccessContext access = observed == null
+                ? accessValidator.validate(eventId, organizationId, request, now) : observed;
+        modificationGuard.protectWithoutWaiting(access);
 
-        var candidate = candidateValidator.validate(access);
+        OrgRegistrationModificationCandidateContext candidate = candidateValidator.validate(access);
 
         List<OrgRegistrationParticipantPricing> priced =
                 pricingService.repriceOrganization(candidate);
@@ -114,7 +127,7 @@ public class OrgRegistrationModificationService {
         createAndHoldNew(candidate, added, results, now);
 
         /*
-         * 기존 참가자의 필요량을 일괄 계산하고 Step 11로 이동한다.
+         * 기존 참가자의 필요량을 일괄 계산하고 정원 점유를 이동한다.
          * 실제 Registration 변경은 Capacity 이동 성공 이후 수행한다.
          */
         moveExisting(eventId, candidate, existing, now);
@@ -130,7 +143,7 @@ public class OrgRegistrationModificationService {
         );
 
         for (OrgRegistrationParticipantPricing item : existing) {
-            var participant = item.candidate();
+            OrgRegistrationModificationCandidateContext.ParticipantCandidate participant = item.candidate();
             Registration registration = participant.currentRegistration();
 
             registration.applyOrganizationModification(

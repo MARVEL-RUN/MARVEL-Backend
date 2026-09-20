@@ -39,6 +39,8 @@ import static org.mockito.Mockito.*;
  * 각 수정 요청은 실제 CommandService의 트랜잭션으로 실행한다.
  */
 @Import({
+        RegistrationInformationPolicyValidator.class, OrgRegistrationPersonalInformationValidator.class,
+        OrgRegistrationPersonalInformationService.class, OrgRegistrationModificationGuard.class,
         CapacityRequirementResolver.class,
         ReservationCapacityDiffService.class,
         CapacityModificationService.class,
