@@ -54,15 +54,15 @@ import static org.mockito.Mockito.*;
         RegistrationModificationClassifier.class, RegistrationPersonalInformationService.class,
         RegistrationModificationPaymentGuard.class, RegistrationModificationPricingService.class,
         RegistrationPersonalModificationService.class, OrgRegistrationModificationService.class,
-        RegistrationModificationSettlementService.class, RegistrationModificationCommandService.class,
+        RegistrationModificationSettlementService.class,
         ReservationCapacityDiffService.class, CapacityModificationService.class, ReservationRemovalService.class,
         org.springframework.boot.autoconfigure.validation.ValidationAutoConfiguration.class,
-        AdditionalPaymentTargetResolver.class,})
+        AdditionalPaymentTargetResolver.class,RegistrationModificationTransactionService.class})
 @TestPropertySource(properties = "spring.jpa.properties.hibernate.session_factory.statement_inspector="
         + "kr.co.teambrain.marvelrun.user.capacity.command.application.service.RegistrationPersonalInformationDatabaseTest$SqlCapture")
 class RegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupport {
     @Autowired
-    private RegistrationModificationCommandService commands;
+    private RegistrationModificationTransactionService commands;
     @MockitoSpyBean
     private RegistrationModificationClassifier classifier;
     @MockitoSpyBean

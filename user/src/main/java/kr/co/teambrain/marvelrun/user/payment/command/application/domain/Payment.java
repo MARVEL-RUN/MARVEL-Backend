@@ -247,6 +247,18 @@ public class Payment
         return true;
     }
 
+    /** 승인 원장 금액을 보존하면서 확인된 Toss 취소 상태만 갱신한다. */
+    public void recordVerifiedRefundStatus(
+            kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.TossPaymentStatus next) {
+        if (processStatus != kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus.COMPLETED
+                || (next != kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.TossPaymentStatus.CANCELED
+                && next != kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.TossPaymentStatus.PARTIAL_CANCELED)) {
+            throw new kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException(
+                    kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR);
+        }
+        this.tossStatus = next;
+    }
+
     
     /* 정상적으로 종료된 것인지 불명확한경우 */
     public void markConfirmUnknown() {

@@ -51,5 +51,59 @@ public class PaymentCancel
                 .cancelReason("신청 수정에 따른 초과 납부액 환불")
                 .idempotencyKey(idempotencyKey).build();
     }
+
+    /** 준비된 시도 하나만 외부 전송 대상으로 획득한다. 이미 시작한 시도는 재전송하지 않는다. */
+    public boolean startRefund(java.time.LocalDateTime now) {
+        if (status != PaymentCancelStatus.PROCESSING || requestedAt != null) { return false; }
+        if (now == null) { throw new CustomException(ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR); }
+        requestedAt = now;
+        return true;
+    }
+
+    /** 같은 거래 결과는 한 번만 적용하고 서로 다른 거래로 완료 상태를 덮어쓰지 않는다. */
+    public boolean completeRefund(String key, BigDecimal amount, BigDecimal remaining,
+                                  java.time.LocalDateTime occurredAt) {
+        if (key == null || key.isBlank() || key.length() > 64 || amount == null
+                || amount.signum() <= 0 || cancelAmount == null || amount.compareTo(cancelAmount) != 0
+                || remaining == null || remaining.signum() < 0 || occurredAt == null) {
+            throw new CustomException(ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR);
+        }
+        if (status == PaymentCancelStatus.DONE) {
+            if (!key.equals(transactionKey) || refundableAmountAfterCancel == null
+                    || remaining.compareTo(refundableAmountAfterCancel) != 0) {
+                throw new CustomException(ErrorCode.PAYMENT_CANCEL_CONFLICT);
+            }
+            return false;
+        }
+        if (requestedAt == null || (status != PaymentCancelStatus.PROCESSING
+                && status != PaymentCancelStatus.UNKNOWN)) {
+            throw new CustomException(ErrorCode.PAYMENT_CANCEL_CONFLICT);
+        }
+        status = PaymentCancelStatus.DONE;
+        transactionKey = key;
+        refundableAmountAfterCancel = remaining;
+        canceledAt = occurredAt;
+        errorCode = null;
+        errorMessage = null;
+        return true;
+    }
+
+    /** 확정 완료를 보존하고 실패·결과불명만 기록한다. 결과불명을 뒤늦은 실패로 해제하지 않는다. */
+    public boolean recordRefundProblem(PaymentCancelStatus next, String code, String message) {
+        if (next != PaymentCancelStatus.FAILED && next != PaymentCancelStatus.UNKNOWN) {
+            throw new CustomException(ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR);
+        }
+        if (status == PaymentCancelStatus.DONE || status == PaymentCancelStatus.FAILED
+                || (status == PaymentCancelStatus.UNKNOWN && next == PaymentCancelStatus.FAILED)) { return false; }
+        if (requestedAt == null || (status != PaymentCancelStatus.PROCESSING
+                && status != PaymentCancelStatus.UNKNOWN)) {
+            throw new CustomException(ErrorCode.PAYMENT_CANCEL_CONFLICT);
+        }
+        if (status == next && java.util.Objects.equals(errorCode, code)) { return false; }
+        status = next;
+        errorCode = code == null ? null : code.substring(0, Math.min(100, code.length()));
+        errorMessage = message == null ? null : message.substring(0, Math.min(500, message.length()));
+        return true;
+    }
 }
 

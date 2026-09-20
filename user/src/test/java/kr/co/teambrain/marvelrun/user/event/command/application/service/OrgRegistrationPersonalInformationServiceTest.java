@@ -48,7 +48,7 @@ class OrgRegistrationPersonalInformationServiceTest {
     private final OrgRegistrationPersonalInformationValidator validator = new OrgRegistrationPersonalInformationValidator(
             INPUTS.getValidator(), new RegistrationInformationPolicyValidator(new RegistrationPolicyValidator()),
             new RegistrationUniqueInfoValidator(repository));
-    private final RegistrationModificationCommandService commands = new RegistrationModificationCommandService(
+    private final RegistrationModificationTransactionService commands = new RegistrationModificationTransactionService(
             personal, full, settlement, time, mock(RegistrationModificationAccessValidator.class),
             mock(RegistrationPersonalInformationValidator.class), new RegistrationModificationClassifier(),
             mock(RegistrationPersonalInformationService.class), access, validator,

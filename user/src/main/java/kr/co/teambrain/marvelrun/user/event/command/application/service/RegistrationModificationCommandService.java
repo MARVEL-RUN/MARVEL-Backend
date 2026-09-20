@@ -1,122 +1,51 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
-import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
-import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationModificationAccessContext;
-import kr.co.teambrain.marvelrun.user.event.command.application.context.OrgRegistrationModificationAccessContext;
-import kr.co.teambrain.marvelrun.user.event.command.application.valid.OrgRegistrationModificationAccessValidator;
-import kr.co.teambrain.marvelrun.user.event.command.application.valid.OrgRegistrationPersonalInformationValidator;
-import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationModificationAccessValidator;
-import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationPersonalInformationValidator;
-import kr.co.teambrain.marvelrun.user.event.command.application.dto.OrgRegistrationModificationResult;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult;
-import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationPersonalModificationResult;
-import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrgRegistrationModificationRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationModificationRequest;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrgRegistrationModificationRequest;
+import kr.co.teambrain.marvelrun.user.payment.command.application.refund.ModificationRefundExecutor;
+import kr.co.teambrain.marvelrun.user.payment.command.application.refund.ModificationRefundResultReader;
+import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
+import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-import java.time.LocalDateTime;
-import java.util.List;
-
-/**
- * 신청 수정 전체의 트랜잭션 경계를 제공한다.
- *
- * 개인·단체 요청은 대상 접근 확인 후 자원 영향에 따라 분기한다.
- * 개인정보 정정은 결제·예약·정원을 조회하지 않고, 전체 수정만 기존 정산을 수행한다.
- *
- * 외부 Toss 승인·환불 API는 호출하지 않는다.
- */
+/** 기존 수정 API에서 DB 수정 커밋·외부 환불·결과 저장을 순서대로 연결한다. */
 @Service
 @RequiredArgsConstructor
 public class RegistrationModificationCommandService {
+    private final RegistrationModificationTransactionService transactions;
+    private final ModificationRefundExecutor refunds;
+    private final ModificationRefundResultReader results;
 
-    private final RegistrationPersonalModificationService personalService;
-    private final OrgRegistrationModificationService organizationService;
-    private final RegistrationModificationSettlementService settlementService;
-    private final ServerTimeProvider serverTimeProvider;
-    private final RegistrationModificationAccessValidator accessValidator;
-    private final RegistrationPersonalInformationValidator informationValidator;
-    private final RegistrationModificationClassifier classifier;
-    private final RegistrationPersonalInformationService informationService;
-    private final OrgRegistrationModificationAccessValidator organizationAccessValidator;
-    private final OrgRegistrationPersonalInformationValidator organizationInformationValidator;
-    private final OrgRegistrationPersonalInformationService organizationInformationService;
-
-    /**
-     * 개인 신청을 잠금용 부가 조회 전에 분류하고 전체 수정에만 금융 상태 처리를 연결한다.
-     */
-    @Transactional
-    public RegistrationModificationSettlementResult modifyPersonal(
-            String eventId,
-            String registrationId,
-            RegistrationModificationRequest request
-    ) {
-        LocalDateTime now = serverTimeProvider.currentDateTime();
-
-        informationValidator.validateInput(request);
-        RegistrationModificationAccessContext access = accessValidator.validate(eventId, registrationId, request, now);
-        RegistrationModificationClassifier.Change change = classifier.classifyPersonal(access.registration(), request);
-        if (change != RegistrationModificationClassifier.Change.FULL) {
-            return informationService.modify(access, change);
-        }
-
-        RegistrationPersonalModificationResult result =
-                personalService.modify(
-                        eventId,
-                        registrationId,
-                        request,
-                        now,
-                        access.registration().getVersion()
-                );
-
-        return settlementService.settle(
-                eventId,
-                null,
-                List.of(result.registrationId()),
-                now
-        );
+    /** 개인 수정 데이터 저장이 커밋된 후 준비된 환불만 실행한다. */
+    public RegistrationModificationSettlementResult modifyPersonal(String eventId, String registrationId,
+                                                                   RegistrationModificationRequest request) {
+        requireNoTransaction();
+        return finish(eventId, null, transactions.modifyPersonal(eventId, registrationId, request));
     }
 
-    /**
-     * 단체 전체 목록을 자원 조회·잠금 전에 분류하며 추가·제거·정책 영향이 있는 요청만 전체 수정한다.
-     */
-    @Transactional
-    public RegistrationModificationSettlementResult modifyOrganization(
-            String eventId,
-            String organizationId,
-            OrgRegistrationModificationRequest request
-    ) {
-        LocalDateTime now = serverTimeProvider.currentDateTime();
+    /** 단체 수정에서 만든 원결제별 환불을 같은 HTTP 요청 안에서 실행한다. */
+    public RegistrationModificationSettlementResult modifyOrganization(String eventId, String organizationId,
+                                                                       OrgRegistrationModificationRequest request) {
+        requireNoTransaction();
+        return finish(eventId, organizationId,
+                transactions.modifyOrganization(eventId, organizationId, request));
+    }
 
-        organizationInformationValidator.validateInput(request);
-        OrgRegistrationModificationAccessContext access = organizationAccessValidator.validate(
-                eventId, organizationId, request, now);
-        RegistrationModificationClassifier.Change change = classifier.classifyOrganization(
-                access.currentRegistrations(), request);
-        if (change != RegistrationModificationClassifier.Change.FULL) {
-            return organizationInformationService.modify(access, change);
+    /** 환불 없는 개인정보·미결제·추가 결제 경로에는 부가 금융 조회를 만들지 않는다. */
+    private RegistrationModificationSettlementResult finish(String eventId, String organizationId,
+                                                            RegistrationModificationSettlementResult prepared) {
+        if (prepared.refunds().isEmpty()) { return prepared; }
+        refunds.execute(eventId, organizationId, prepared.refunds());
+        return results.read(prepared);
+    }
+
+    /** 외부 트랜잭션이 DB 수정과 Toss 호출 전체를 감싸지 못하게 한다. */
+    private static void requireNoTransaction() {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new CustomException(ErrorCode.PAYMENT_CANCEL_CONFLICT);
         }
-
-        OrgRegistrationModificationResult result =
-                organizationService.modify(
-                        eventId,
-                        organizationId,
-                        request,
-                        now,
-                        access
-                );
-
-        List<String> registrationIds =
-                result.members().stream()
-                        .map(OrgRegistrationModificationResult.Member::registrationId)
-                        .toList();
-
-        return settlementService.settle(
-                eventId,
-                organizationId,
-                registrationIds,
-                now
-        );
     }
 }

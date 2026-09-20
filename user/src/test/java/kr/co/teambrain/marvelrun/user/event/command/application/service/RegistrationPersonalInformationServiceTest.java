@@ -52,7 +52,7 @@ class RegistrationPersonalInformationServiceTest {
     private final ServerTimeProvider time = mock(ServerTimeProvider.class);
     private final RegistrationPersonalInformationValidator validator = new RegistrationPersonalInformationValidator(
             INPUTS.getValidator(), new RegistrationInformationPolicyValidator(new RegistrationPolicyValidator()), new RegistrationUniqueInfoValidator(repository));
-    private final RegistrationModificationCommandService commands = new RegistrationModificationCommandService(
+    private final RegistrationModificationTransactionService commands = new RegistrationModificationTransactionService(
             full, organization, settlement, time, new RegistrationModificationAccessValidator(repository), validator,
             new RegistrationModificationClassifier(), new RegistrationPersonalInformationService(validator, repository, entityManager),
             mock(OrgRegistrationModificationAccessValidator.class), mock(OrgRegistrationPersonalInformationValidator.class),

@@ -26,24 +26,11 @@ public class OrgRegistrationModificationGuard {
     private final RegistrationCommandRepository repository;
     private final OrgRegistrationModificationAccessValidator accessValidator;
 
-    /**
-     * 다른 잠금 조회 전에 단체 행만 대기 없이 확보한다.
-     * 구성원 조회·잠금·refresh는 하지 않으며 확보한 잠금은 같은 트랜잭션 끝까지 유지한다.
-     */
+
+    /** 단체 행만 선행 확보하는 공통 NOWAIT 규칙을 적용한다. */
     public void lockOrganizationWithoutWaiting(OrgRegistrationModificationAccessContext access) {
-        try {
-            entityManager.createNativeQuery("select id from organization where id = :id for update nowait")
-                    .setParameter("id", access.organization().getId())
-                    .getSingleResult();
-        } catch (RuntimeException exception) {
-            // MySQL ER_LOCK_NOWAIT만 업무 충돌로 변환한다. 데드락·접속·SQL 오류를 숨기지 않는다.
-            for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
-                if (cause instanceof SQLException sqlException && sqlException.getErrorCode() == 3572) {
-                    throw new CustomException(ErrorCode.CONCURRENT_MODIFICATION);
-                }
-            }
-            throw exception;
-        }
+        kr.co.teambrain.marvelrun.user.event.command.application.support.OrganizationLockSupport
+                .lockWithoutWaiting(entityManager, access.organization().getId());
     }
 
     /** 단체를 즉시 잠근 뒤 기존 인증·구성원 버전 보호를 이어가는 호출 계약을 유지한다. */

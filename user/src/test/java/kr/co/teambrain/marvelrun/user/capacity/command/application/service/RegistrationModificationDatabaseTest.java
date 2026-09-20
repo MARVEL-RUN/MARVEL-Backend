@@ -60,21 +60,21 @@ import static org.mockito.Mockito.*;
         RegistrationPersonalModificationService.class,
         OrgRegistrationModificationService.class,
         RegistrationModificationSettlementService.class,
-        RegistrationModificationCommandService.class,
         RegistrationModificationClassifier.class,
         RegistrationPersonalInformationService.class,
         RegistrationPersonalInformationValidator.class,
         RegistrationUniqueInfoValidator.class,
+        RegistrationModificationTransactionService.class,
         org.springframework.boot.autoconfigure.validation.ValidationAutoConfiguration.class
 })
 class RegistrationModificationDatabaseTest
         extends CapacityMvpTestSupport {
 
     @Autowired
-    private RegistrationModificationCommandService modifications;
+    private RegistrationModificationTransactionService  modifications;
 
     @Autowired
-    private RegistrationModificationCommandService modificationRaceCommands;
+    private RegistrationModificationTransactionService  modificationRaceCommands;
 
     @Autowired
     private RegistrationCapacityService staleVersionRegistrationCapacityService;
