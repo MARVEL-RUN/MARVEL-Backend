@@ -54,7 +54,12 @@ import static org.mockito.Mockito.*;
         RegistrationPersonalModificationService.class,
         OrgRegistrationModificationService.class,
         RegistrationModificationSettlementService.class,
-        RegistrationModificationCommandService.class
+        RegistrationModificationCommandService.class,
+        RegistrationModificationClassifier.class,
+        RegistrationPersonalInformationService.class,
+        RegistrationPersonalInformationValidator.class,
+        RegistrationUniqueInfoValidator.class,
+        org.springframework.boot.autoconfigure.validation.ValidationAutoConfiguration.class
 })
 class RegistrationModificationDatabaseTest
         extends CapacityMvpTestSupport {

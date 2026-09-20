@@ -28,6 +28,15 @@ class RegistrationModificationPaymentGuardTest {
     private final RegistrationModificationPaymentGuard guard =
             new RegistrationModificationPaymentGuard(repository);
 
+    /** 분리된 충돌 검증만 호출하면 READY 상태 변경이나 flush가 없어야 한다. */
+    @Test
+    void validationAloneDoesNotInvalidateReady() {
+        Payment ready = payment("p1", PaymentProcessStatus.READY);
+        guard.validateLockedPayments(List.of(ready));
+        assertThat(ready.getProcessStatus()).isEqualTo(PaymentProcessStatus.READY);
+        verifyNoInteractions(repository);
+    }
+
     /**
      * READY 주문만 무효화하고 기존 주문 금액은 유지한다.
      */

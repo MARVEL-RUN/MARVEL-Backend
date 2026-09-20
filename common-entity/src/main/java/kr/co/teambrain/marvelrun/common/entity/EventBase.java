@@ -4,10 +4,14 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventVisibleStatus;
+import lombok.NoArgsConstructor;
+import lombok.experimental.SuperBuilder;
 
 import java.time.LocalDateTime;
 
 @Getter
+@SuperBuilder
+@NoArgsConstructor
 @MappedSuperclass
 public abstract class EventBase {
 

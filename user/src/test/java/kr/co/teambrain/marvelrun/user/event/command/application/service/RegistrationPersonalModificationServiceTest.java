@@ -75,6 +75,8 @@ class RegistrationPersonalModificationServiceTest {
     private final RegistrationModificationPaymentGuard paymentGuard =
             mock(RegistrationModificationPaymentGuard.class);
 
+    private final jakarta.persistence.EntityManager entityManager = mock(jakarta.persistence.EntityManager.class);
+
     private final RegistrationPersonalModificationService service =
             new RegistrationPersonalModificationService(
                     registrationCapacityService,
@@ -86,7 +88,8 @@ class RegistrationPersonalModificationServiceTest {
                     diffService,
                     capacityModificationService,
                     registrationRepository,
-                    paymentGuard
+                    paymentGuard,
+                    entityManager
             );
 
     private final LocalDateTime now =
@@ -198,6 +201,22 @@ class RegistrationPersonalModificationServiceTest {
 
         when(diffService.compareAll(anyList(), anyMap()))
                 .thenReturn(diffs);
+    }
+
+    /** 전체 수정 잠금 이후 재조회한 version이 다르면 주문 무효화와 정책 검증 전에 종료한다. */
+    @Test
+    void staleComparedVersionStopsBeforeInvalidation() {
+        when(registrationRepository.findById("registration")).thenReturn(Optional.of(registration));
+        assertThatThrownBy(() -> service.modify("event", "registration", request, now, 2L))
+                .isInstanceOfSatisfying(CustomException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.CONCURRENT_MODIFICATION));
+        InOrder order = inOrder(registrationCapacityService, paymentGuard, entityManager);
+        order.verify(registrationCapacityService).lockEvent("event");
+        order.verify(paymentGuard).lockPersonal("event", "registration");
+        order.verify(entityManager).refresh(registration, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+        verify(paymentGuard, never()).prepareLockedPayments(anyList());
+        verifyNoInteractions(candidateValidator, pricingService, capacityModificationService);
+        verify(registrationRepository, never()).flush();
     }
 
     /**

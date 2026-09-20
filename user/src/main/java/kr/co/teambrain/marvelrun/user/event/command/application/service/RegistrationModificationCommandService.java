@@ -1,6 +1,9 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
 import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
+import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationModificationAccessContext;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationModificationAccessValidator;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationPersonalInformationValidator;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.OrgRegistrationModificationResult;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationPersonalModificationResult;
@@ -16,8 +19,8 @@ import java.util.List;
 /**
  * 신청 수정 전체의 트랜잭션 경계를 제공한다.
  *
- * 본인확인·Payment 충돌 차단·정책·가격·Capacity·신청 상태·
- * 새 최초 주문 생성을 하나의 트랜잭션으로 처리한다.
+ * 개인 요청은 대상 접근 확인 후 자원 영향에 따라 분기한다.
+ * 개인정보 정정은 결제·예약·정원을 조회하지 않고, 전체 수정만 기존 정산을 수행한다.
  *
  * 외부 Toss 승인·환불 API는 호출하지 않는다.
  */
@@ -29,9 +32,13 @@ public class RegistrationModificationCommandService {
     private final OrgRegistrationModificationService organizationService;
     private final RegistrationModificationSettlementService settlementService;
     private final ServerTimeProvider serverTimeProvider;
+    private final RegistrationModificationAccessValidator accessValidator;
+    private final RegistrationPersonalInformationValidator informationValidator;
+    private final RegistrationModificationClassifier classifier;
+    private final RegistrationPersonalInformationService informationService;
 
     /**
-     * 개인 신청 수정과 후속 금융 상태 처리를 함께 완료한다.
+     * 개인 신청을 잠금용 부가 조회 전에 분류하고 전체 수정에만 금융 상태 처리를 연결한다.
      */
     @Transactional
     public RegistrationModificationSettlementResult modifyPersonal(
@@ -41,12 +48,20 @@ public class RegistrationModificationCommandService {
     ) {
         LocalDateTime now = serverTimeProvider.currentDateTime();
 
+        informationValidator.validateInput(request);
+        RegistrationModificationAccessContext access = accessValidator.validate(eventId, registrationId, request, now);
+        RegistrationModificationClassifier.Change change = classifier.classifyPersonal(access.registration(), request);
+        if (change != RegistrationModificationClassifier.Change.FULL) {
+            return informationService.modify(access, change);
+        }
+
         RegistrationPersonalModificationResult result =
                 personalService.modify(
                         eventId,
                         registrationId,
                         request,
-                        now
+                        now,
+                        access.registration().getVersion()
                 );
 
         return settlementService.settle(

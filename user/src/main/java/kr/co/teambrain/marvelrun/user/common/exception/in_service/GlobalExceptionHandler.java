@@ -20,9 +20,19 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+/** 업무·입력·저장 충돌을 기존 HTTP 오류 계약으로 변환한다. */
 @RestControllerAdvice
 @Slf4j
 public class GlobalExceptionHandler {
+
+    /** 동시 uniqueInfo 갱신의 최종 DB 충돌을 기존 중복 신청 오류로 변환한다. */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> handleRegistrationUniqueConflict(DataIntegrityViolationException exception) {
+        if (RegistrationUniqueConstraint.matches(exception)) {
+            return ErrorResponse.error(new CustomException(ErrorCode.REGISTRATION_ALREADY_EXISTS));
+        }
+        return handleException(exception);
+    }
 
     @ExceptionHandler(CustomException.class)
     public ResponseEntity<ErrorResponse> handleCustomException(CustomException e) {

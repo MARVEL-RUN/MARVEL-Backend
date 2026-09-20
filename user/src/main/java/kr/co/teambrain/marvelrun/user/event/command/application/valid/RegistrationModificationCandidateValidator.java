@@ -1,7 +1,5 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.valid;
 
-import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
-import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationModificationAccessContext;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationModificationCandidateContext;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationPolicyContext;
@@ -24,7 +22,7 @@ import java.util.Set;
  * 개인 수정 요청의 변경 후 후보 상태를 검증한다.
  *
  * Access Validator가 재인증한 Context를 입력받으며,
- * 자기 자신 제외 중복검사와 기존 01 정책검증을 수행한다.
+ * 자기 자신 제외 중복검사와 전체 수정에 필요한 참가 정책검증을 수행한다.
  *
  * 검증 중 현재 Registration Entity를 변경하지 않는다.
  */
@@ -32,8 +30,7 @@ import java.util.Set;
 public class RegistrationModificationCandidateValidator
         extends AbstractRegistrationApplyValidator {
 
-    private final RegistrationCommandRepository
-            registrationCommandRepository;
+    private final RegistrationUniqueInfoValidator uniqueInfoValidator;
 
     /**
      * 공통 조회·정책 검증과 수정 전용 중복검사 의존성을 연결한다.
@@ -44,7 +41,8 @@ public class RegistrationModificationCandidateValidator
             EventCategoryCommandRepository eventCategoryCommandRepository,
             EventCategorySouvenirCommandRepository eventCategorySouvenirCommandRepository,
             RegistrationPolicyLoader registrationPolicyLoader,
-            RegistrationPolicyValidator registrationPolicyValidator
+            RegistrationPolicyValidator registrationPolicyValidator,
+            RegistrationUniqueInfoValidator uniqueInfoValidator
     ) {
         super(
                 registrationCommandRepository,
@@ -55,13 +53,12 @@ public class RegistrationModificationCandidateValidator
                 registrationPolicyValidator
         );
 
-        this.registrationCommandRepository =
-                registrationCommandRepository;
+        this.uniqueInfoValidator = uniqueInfoValidator;
     }
 
     /**
      * 개인 수정 요청으로 변경 후 후보 상태를 구성하고
-     * 신규 중복신청 검사를 제외한 01 정책 전체를 다시 수행한다.
+     * 신규 중복신청 검사를 제외한 참가 정책 전체를 다시 수행한다.
      *
      * 검증 완료 전에는 현재 Registration Entity를 변경하지 않는다.
      */
@@ -79,11 +76,8 @@ public class RegistrationModificationCandidateValidator
                 accessContext.now()
         );
 
-        validateUniqueInfo(
-                accessContext,
-                currentRegistration,
-                request
-        );
+        uniqueInfoValidator.validateOtherActive(accessContext.event().getId(), currentRegistration.getId(),
+                request.name(), request.phNum(), request.birth());
 
         Set<String> souvenirIds =
                 collectRequestedSouvenirIds(
@@ -125,33 +119,7 @@ public class RegistrationModificationCandidateValidator
     }
 
     /**
-     * 수정 후 참가자 식별정보가
-     * 다른 활성 Registration과 충돌하는지 확인한다.
-     *
-     * 현재 수정 중인 Registration 자체는 비교 대상에서 제외한다.
-     */
-    private void validateUniqueInfo(
-            RegistrationModificationAccessContext accessContext,
-            Registration currentRegistration,
-            RegistrationModificationRequest request
-    ) {
-        if (registrationCommandRepository
-                .existsOtherActiveByEventIdAndUniqueInfo(
-                        accessContext.event().getId(),
-                        currentRegistration.getId(),
-                        request.name(),
-                        request.phNum(),
-                        request.birth()
-                )) {
-
-            throw new CustomException(
-                    ErrorCode.REGISTRATION_ALREADY_EXISTS
-            );
-        }
-    }
-
-    /**
-     * 個人 수정 후보값에서 참가 정책검증에 필요한 값만 추출한다.
+     * 개인 수정 후보값에서 참가 정책검증에 필요한 값만 추출한다.
      *
      * 소유권 확인용 access와 비밀번호는 정책 입력에 포함하지 않는다.
      */

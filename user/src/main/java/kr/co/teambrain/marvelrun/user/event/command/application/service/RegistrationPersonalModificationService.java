@@ -1,5 +1,8 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+
 import kr.co.teambrain.marvelrun.user.capacity.command.application.domain.Reservation;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.dto.CapacityRequirementDiff;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.dto.CapacityRequirementInput;
@@ -29,6 +32,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 개인 신청 수정의 정책·가격·Capacity·신청정보 반영을 연결한다.
@@ -57,6 +61,7 @@ public class RegistrationPersonalModificationService {
     private final RegistrationCommandRepository registrationRepository;
 
     private final RegistrationModificationPaymentGuard paymentGuard;
+    private final EntityManager entityManager;
 
     /**
      * 개인 신청의 변경 후보를 검증하고 실제 신청에 반영한다.
@@ -73,17 +78,41 @@ public class RegistrationPersonalModificationService {
             RegistrationModificationRequest request,
             LocalDateTime now
     ) {
+        return modify(eventId, registrationId, request, now, null);
+    }
+
+    /**
+     * 사전 비교 version을 검증한 뒤 전체 수정을 수행한다.
+     * Event → Payment 이후에만 Registration을 최신 잠금 조회하므로 잠금 순서를 뒤집지 않는다.
+     * version이 달라졌으면 오래된 요청을 재적용하지 않고 전체 트랜잭션을 종료한다.
+     */
+    public RegistrationPersonalModificationResult modify(
+            String eventId,
+            String registrationId,
+            RegistrationModificationRequest request,
+            LocalDateTime now,
+            Long comparedVersion
+    ) {
         registrationCapacityService.lockEvent(eventId);
 
         /*
          * 승인 결과 반영과 경합할 수 있으므로
-         * 현재 Registration을 읽기 전에 관련 Payment를 잠근다.
+         * 전체 수정용 Registration 최신 조회보다 먼저 관련 Payment를 잠근다.
          */
         List<Payment> lockedPayments =
                 paymentGuard.lockPersonal(
                         eventId,
                         registrationId
                 );
+
+        if (comparedVersion != null) {
+            Registration current = registrationRepository.findById(registrationId)
+                    .orElseThrow(() -> new CustomException(ErrorCode.REGISTRATION_NOT_FOUND));
+            entityManager.refresh(current, LockModeType.PESSIMISTIC_WRITE);
+            if (!Objects.equals(comparedVersion, current.getVersion())) {
+                throw new CustomException(ErrorCode.CONCURRENT_MODIFICATION);
+            }
+        }
 
         RegistrationModificationAccessContext access =
                 accessValidator.validate(

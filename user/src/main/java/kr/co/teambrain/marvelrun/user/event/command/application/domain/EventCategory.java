@@ -5,12 +5,14 @@ import jakarta.persistence.Table;
 import kr.co.teambrain.marvelrun.common.entity.EventCategoryBase;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.experimental.SuperBuilder;
 
 import static lombok.AccessLevel.PROTECTED;
 
 @Getter
 @Entity
 @Table(name = "event_category")
+@SuperBuilder
 @NoArgsConstructor(access = PROTECTED)
 public class EventCategory
         extends EventCategoryBase<Event> {

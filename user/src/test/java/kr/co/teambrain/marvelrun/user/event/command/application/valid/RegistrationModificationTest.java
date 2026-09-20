@@ -156,7 +156,7 @@ class RegistrationModificationTest {
 
         personalModify = new RegistrationModificationCandidateValidator(
                 registrations, events, categories, mappings,
-                loader, policyValidator
+                loader, policyValidator, new RegistrationUniqueInfoValidator(registrations)
         );
 
         groupModify = new OrgRegistrationModificationCandidateValidator(

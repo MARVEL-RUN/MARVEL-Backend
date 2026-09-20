@@ -66,10 +66,19 @@ public class RegistrationModificationPaymentGuard {
      * READY 무효화 역시 같은 트랜잭션에서 롤백된다.
      */
     public void prepareLockedPayments(List<Payment> lockedPayments) {
+        validateLockedPayments(lockedPayments);
+        invalidateLockedReadyPayments(lockedPayments);
+    }
+
+    /** 잠긴 결제 목록의 수정 충돌만 검사한다. 개인정보 정정 경로에서는 호출하지 않는다. */
+    public void validateLockedPayments(List<Payment> lockedPayments) {
         for (Payment payment : lockedPayments) {
             payment.validateRegistrationModificationAllowed();
         }
+    }
 
+    /** 충돌 검사가 끝난 전체 수정의 READY 주문만 무효화한다. */
+    public void invalidateLockedReadyPayments(List<Payment> lockedPayments) {
         for (Payment payment : lockedPayments) {
             payment.invalidateForRegistrationModification();
         }

@@ -25,6 +25,8 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Objects;
 
+/** 신청의 참가 정보와 금융 요약을 관리하며 개인정보 정정은 허용 필드에만 반영한다. */
+@org.hibernate.annotations.DynamicUpdate
 @Getter
 @Entity
 @SuperBuilder
@@ -37,6 +39,24 @@ public class Registration extends RegistrationBase<
         Organization,
         Souvenir
         > {
+
+    /**
+     * 개인정보 분류와 검증을 마친 개인 신청에 정정 필드만 반영한다.
+     * 종목·생년월일·기념품·보호자·금융 정보는 요청에서 다시 대입하지 않는다.
+     */
+    public void applyPersonalInformation(RegistrationModificationRequest request) {
+        if (organization != null || softDeleted) {
+            throw new CustomException(ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET);
+        }
+        if (request == null) {
+            throw new CustomException(ErrorCode.INVALID_REGISTRATION_MODIFICATION_ARGUMENT);
+        }
+        this.name = request.name();
+        this.phNum = request.phNum();
+        this.gender = request.gender();
+        this.address = request.address();
+        this.addressDetail = request.addressDetail();
+    }
 
     public static Registration createForPaymentMvp(
             Event event,

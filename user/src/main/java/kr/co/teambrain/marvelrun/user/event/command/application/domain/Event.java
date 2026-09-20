@@ -6,6 +6,7 @@ import kr.co.teambrain.marvelrun.common.entity.EventBase;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventStatus;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.experimental.SuperBuilder;
 
 import static lombok.AccessLevel.PROTECTED;
 
@@ -17,6 +18,7 @@ import static lombok.AccessLevel.PROTECTED;
  */
 @Getter
 @Entity
+@SuperBuilder
 @Table(name = "event")
 @NoArgsConstructor(access = PROTECTED)
 public class Event extends EventBase {

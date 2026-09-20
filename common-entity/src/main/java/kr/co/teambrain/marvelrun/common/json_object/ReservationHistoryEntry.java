@@ -40,7 +40,9 @@ public record ReservationHistoryEntry(
         PAYMENT_CONFIRMED,
         PAYMENT_FAILED,
         RELEASE,
-        REHOLD
+        REHOLD,
+        MODIFY,
+        ZERO_AMOUNT_CONFIRMED
     }
 
     /**
