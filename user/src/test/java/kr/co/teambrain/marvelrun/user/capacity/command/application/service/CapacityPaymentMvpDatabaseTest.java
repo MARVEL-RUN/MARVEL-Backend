@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -327,5 +328,76 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
                 """,
                 result.paymentId()
         )).isZero();
+    }
+
+    // [TO-BE] 추가 결제(ADDITIONAL_PAYMENT) 시 정원 불변 및 납부 금액 누적 검증 (명세서 4번)
+    @Test
+    void additionalPaymentIncreasesPaidAmountWithoutChangingCapacity() {
+        // 1. 최초 결제 완료 (30,000원이라 가정, 테스트 픽스처는 40,000원)
+        var result = personal(categoryA, "S", "1990-01-01");
+        mockApprovalSuccess();
+        payments.confirm(confirmRequest(result.paymentId()));
+
+        assertThat(jdbc.queryForObject("select paid_amount from registration where id = ?", BigDecimal.class, result.registrationId()))
+                .isEqualByComparingTo("40000");
+        counters(categoryACapacity, 0, 1); // 정원 1명 확정 확인
+
+        // 2. 추가 결제 주문(ADDITIONAL_PAYMENT) 생성 (예: 10,000원 추가)
+        String additionalPaymentId = UUID.randomUUID().toString();
+        tx.executeWithoutResult(status -> {
+            jdbc.update(
+                    """
+                    insert into payment (
+                        id, registration_id, amount, process_status, purpose, order_id, order_name, payment_key, confirm_idempotency_key, created_at, updated_at, version
+                    ) values (?, ?, 10000, 'READY', 'ADDITIONAL_PAYMENT', ?, '추가결제테스트', 'test-key', 'idempotency-key', ?, ?, 0)
+                    """,
+                    additionalPaymentId, result.registrationId(), "ORDER_ADD_" + UUID.randomUUID().toString().substring(0,8), NOW, NOW
+            );
+            jdbc.update(
+                    "insert into payment_allocation (id, payment_id, registration_id, allocated_amount) values (?, ?, ?, 10000)",
+                    UUID.randomUUID().toString(), additionalPaymentId, result.registrationId()
+            );
+        });
+
+        // 3. 추가 결제 승인
+        payments.confirm(confirmRequest(additionalPaymentId));
+        var context = savedContext(additionalPaymentId);
+        paymentTransactions.completeConfirm(context, approved(context.paymentKey(), context.orderId(), context.amount()), NOW.plusSeconds(3));
+
+        // 4. 검증: paidAmount는 50,000원으로 증가, 정원은 여전히 1명 (불변)
+        assertThat(jdbc.queryForObject("select paid_amount from registration where id = ?", BigDecimal.class, result.registrationId()))
+                .isEqualByComparingTo("50000");
+        counters(categoryACapacity, 0, 1);
+        reservation(result.registrationId(), "CONSUMED", 1, 3); // 상태는 그대로 CONSUMED
+    }
+
+    // [TO-BE] 단체 A 완료 후, 새 B만 주문 승인 시 A 금액·정원 불변 검증 (명세서 4번)
+    @Test
+    void partialGroupNewOrderApprovalPreservesCompletedMembers() {
+        var group = group(categoryA, categoryB);
+        String memberA = group.registrationIds().get(0);
+        String memberB = group.registrationIds().get(1);
+
+        // 1. 단체 전체의 최초 결제를 실패 처리하여 B만 재주문할 수 있는 환경 생성
+        jdbc.update("update payment set process_status = 'FAILED' where id = ?", group.paymentId());
+
+        // 2. Member A만 따로 결제 완료 처리 (가정)
+        jdbc.update("update registration set status = 'CONFIRMED', paid_amount = 40000 where id = ?", memberA);
+        jdbc.update("update reservation set status = 'CONSUMED' where registration_id = ?", memberA);
+
+        // 3. Member B에 대해서만 재결제 준비 (2-F 요구사항 적용: B만 새 주문)
+        var repayment = organizations.prepareRepayment(eventId, group.organizationId(), group.paymentId());
+
+        // 4. 새 결제(B만 포함) 승인
+        mockApprovalSuccess();
+        payments.confirm(confirmRequest(repayment.paymentId()));
+        var context = savedContext(repayment.paymentId());
+        paymentTransactions.completeConfirm(context, approved(context.paymentKey(), context.orderId(), context.amount()), NOW.plusSeconds(2));
+
+        // 5. 검증: A의 금액은 불변, B의 금액만 추가됨. 전체 납부액 합산 검증.
+        assertThat(jdbc.queryForObject("select paid_amount from registration where id = ?", BigDecimal.class, memberA))
+                .isEqualByComparingTo("40000"); // A 금액 불변
+        assertThat(jdbc.queryForObject("select paid_amount from registration where id = ?", BigDecimal.class, memberB))
+                .isEqualByComparingTo("40000"); // B 금액 납부 완료
     }
 }

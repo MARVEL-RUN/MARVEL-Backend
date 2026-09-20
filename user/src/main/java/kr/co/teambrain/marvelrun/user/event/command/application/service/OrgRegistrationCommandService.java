@@ -1,6 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationReleaseService;
 
 import java.util.HashSet;
@@ -22,6 +23,9 @@ import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationComma
 import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentAllocationCreator;
 import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentCreator;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.PaymentAllocation;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.PaymentAllocationCommandRepository;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.PaymentCommandRepository;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentAllocationTarget;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -66,6 +70,10 @@ public class OrgRegistrationCommandService {
             paymentAllocationCreator;
 
     private final ServerTimeProvider serverTimeProvider;
+
+    private final PaymentCommandRepository paymentCommandRepository;
+
+    private final PaymentAllocationCommandRepository paymentAllocationCommandRepository;
 
 
     /**
@@ -174,85 +182,153 @@ public class OrgRegistrationCommandService {
      * 호출자는 해당 단체의 작업 권한을 먼저 검증해야 한다.
      * 모든 참가자의 확보 준비와 새 단체 주문 생성은 동일 트랜잭션에서 처리한다.
      */
+//    @Transactional
+//    public OrgRegistrationCreateResponse prepareRepayment(
+//            String eventId,
+//            String organizationId
+//    ) {
+//
+//        registrationCapacityService.lockEvent(eventId);
+//
+//        LocalDateTime now =
+//                serverTimeProvider.currentDateTime();
+//
+//        Organization organization =
+//                organizationCommandRepository.findById(organizationId)
+//                        .orElseThrow(
+//                                () -> new CustomException(
+//                                        ErrorCode.PAYMENT_NOT_CONFIRMABLE,
+//                                        " 재결제 대상 단체를 찾을 수 없습니다."
+//                                )
+//                        );
+//
+//        if (!eventId.equals(organization.getEvent().getId())) {
+//            throw new CustomException(
+//                    ErrorCode.PAYMENT_NOT_CONFIRMABLE,
+//                    " 재결제 대상 단체의 대회가 일치하지 않습니다."
+//            );
+//        }
+//
+//        List<Registration> registrations =
+//                registrationCommandRepository.findAllByOrganization_Id(
+//                        organizationId
+//                );
+//
+//        /*
+//         * 전체 대상이 최초 미결제 신청인지 검증하고,
+//         * 반환된 예약에 대해서만 재확보한다.
+//         *
+//         * 일부 구성원이 결제 완료·삭제 상태인 단체를
+//         * 임의로 제외하여 다른 금액의 주문으로 만들지 않는다.
+//         */
+//        registrationCapacityService.prepareForRepayment(
+//                organization.getEvent(),
+//                registrations,
+//                now
+//        );
+//
+//        /*
+//         * 개별 계약금액은 재산정하지 않는다.
+//         * 기존 메서드로 현재 결제 대상의 계약금액을 합산한다.
+//         */
+//        BigDecimal totalContractAmount =
+//                calculateTotalContractAmount(registrations);
+//
+//        Payment payment =
+//                paymentCreator.createInitialPayment(
+//                        organization,
+//                        totalContractAmount,
+//                        UUID.randomUUID().toString()
+//                );
+//
+//        paymentAllocationCreator.create(
+//                payment,
+//                registrations.stream()
+//                        .map(
+//                                registration ->
+//                                        new PaymentAllocationTarget(
+//                                                registration,
+//                                                registration.getContractAmount()
+//                                        )
+//                        )
+//                        .toList()
+//        );
+//
+//
+//
+//        return OrgRegistrationCreateResponse.from(
+//                organization,
+//                registrations,
+//                payment
+//        );
+//    }
+
+    // [TO-BE] OrgRegistrationCommandService.java 내 prepareRepayment 수정안 (2-F)
+
     @Transactional
     public OrgRegistrationCreateResponse prepareRepayment(
             String eventId,
-            String organizationId
+            String organizationId,
+            String failedPaymentId // [TO-BE] 실패한 결제 ID를 받아서 일부(B)만 재결제 가능하도록 구성
     ) {
 
         registrationCapacityService.lockEvent(eventId);
 
-        LocalDateTime now =
-                serverTimeProvider.currentDateTime();
+        LocalDateTime now = serverTimeProvider.currentDateTime();
 
-        Organization organization =
-                organizationCommandRepository.findById(organizationId)
-                        .orElseThrow(
-                                () -> new CustomException(
-                                        ErrorCode.PAYMENT_NOT_CONFIRMABLE,
-                                        " 재결제 대상 단체를 찾을 수 없습니다."
-                                )
-                        );
+        Payment failedPayment = paymentCommandRepository.findById(failedPaymentId)
+                .orElseThrow(() -> new CustomException(ErrorCode.PAYMENT_NOT_CONFIRMABLE, " 재결제 대상 주문을 찾을 수 없습니다."));
 
-        if (!eventId.equals(organization.getEvent().getId())) {
-            throw new CustomException(
-                    ErrorCode.PAYMENT_NOT_CONFIRMABLE,
-                    " 재결제 대상 단체의 대회가 일치하지 않습니다."
-            );
+        // 1. 명확히 차단해야 할 상태(CONFIRMING, UNKNOWN, COMPLETED)만 걸러내도록 수정
+        PaymentProcessStatus status = failedPayment.getProcessStatus();
+        if (status == PaymentProcessStatus.CONFIRMING || status == PaymentProcessStatus.UNKNOWN || status == PaymentProcessStatus.COMPLETED) {
+            throw new CustomException(ErrorCode.PAYMENT_NOT_CONFIRMABLE, " 처리 중이거나 완료된 주문은 재결제할 수 없습니다.");
         }
 
-        List<Registration> registrations =
-                registrationCommandRepository.findAllByOrganization_Id(
-                        organizationId
-                );
+        Organization organization = failedPayment.getOrganization();
 
-        /*
-         * 전체 대상이 최초 미결제 신청인지 검증하고,
-         * 반환된 예약에 대해서만 재확보한다.
-         *
-         * 일부 구성원이 결제 완료·삭제 상태인 단체를
-         * 임의로 제외하여 다른 금액의 주문으로 만들지 않는다.
-         */
+        if (organization == null || !organization.getId().equals(organizationId)) {
+            throw new CustomException(ErrorCode.PAYMENT_NOT_CONFIRMABLE, " 결제 주문의 대상 단체가 일치하지 않습니다.");
+        }
+
+        if (!eventId.equals(organization.getEvent().getId())) {
+            throw new CustomException(ErrorCode.PAYMENT_NOT_CONFIRMABLE, " 재결제 대상 단체의 대회가 일치하지 않습니다.");
+        }
+
+        // 2. 전체 명단 조회가 아닌, 실패한 주문(failedPayment)에 묶여 있던 Allocation 대상만 추출
+        List<PaymentAllocation> failedAllocations = paymentAllocationCommandRepository
+                .findAllByPayment_IdOrderByRegistration_IdAsc(failedPayment.getId());
+
+        // 추출된 대상 중 현재 상태가 미결제(PAYMENT_PENDING)인 사람(B)만 필터링
+        List<Registration> retryRegistrations = failedAllocations.stream()
+                .map(PaymentAllocation::getRegistration)
+                .filter(reg -> reg.getStatus() == RegistrationStatus.PAYMENT_PENDING)
+                .toList();
+
+        // 3. 추출된 일부 대상(B)에 대해서만 확보 준비
         registrationCapacityService.prepareForRepayment(
                 organization.getEvent(),
-                registrations,
+                retryRegistrations,
                 now
         );
 
-        /*
-         * 개별 계약금액은 재산정하지 않는다.
-         * 기존 메서드로 현재 결제 대상의 계약금액을 합산한다.
-         */
-        BigDecimal totalContractAmount =
-                calculateTotalContractAmount(registrations);
+        // 4. 추출된 일부 대상(B)의 계약금 합산
+        BigDecimal totalContractAmount = calculateTotalContractAmount(retryRegistrations);
 
-        Payment payment =
-                paymentCreator.createInitialPayment(
-                        organization,
-                        totalContractAmount,
-                        UUID.randomUUID().toString()
-                );
+        Payment payment = paymentCreator.createInitialPayment(
+                organization,
+                totalContractAmount,
+                UUID.randomUUID().toString()
+        );
 
         paymentAllocationCreator.create(
                 payment,
-                registrations.stream()
-                        .map(
-                                registration ->
-                                        new PaymentAllocationTarget(
-                                                registration,
-                                                registration.getContractAmount()
-                                        )
-                        )
+                retryRegistrations.stream()
+                        .map(registration -> new PaymentAllocationTarget(registration, registration.getContractAmount()))
                         .toList()
         );
 
-
-
-        return OrgRegistrationCreateResponse.from(
-                organization,
-                registrations,
-                payment
-        );
+        return OrgRegistrationCreateResponse.from(organization, retryRegistrations, payment);
     }
 
     /**
