@@ -92,30 +92,12 @@ public class OrgRegistrationModificationAccessValidator {
     }
 
 
-    /**
-     * 수정 요청에 다시 포함된 단체 로그인 정보와
-     * 현재 Organization 인증정보를 비교한다.
-     */
+    /** 공통 본인확인 계약으로 현재 단체의 로그인 정보를 검증한다. */
     public void validateAccess(
             Organization organization,
             OrganizationAccessRequest access
     ) {
-
-        if (
-                !Objects.equals(
-                        organization.getLoginId(),
-                        access.loginId()
-                )
-                        || !Objects.equals(
-                        organization.getPassword(),
-                        access.password()
-                )
-        ) {
-
-            throw new CustomException(
-                    ErrorCode.ORGANIZATION_ACCESS_DENIED
-            );
-        }
+        RegistrationAccessVerifier.verifyOrganization(organization, access);
     }
 
 

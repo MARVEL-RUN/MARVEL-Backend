@@ -13,6 +13,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.Org
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.RegistrationCreateResponse;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.*;
+import kr.co.teambrain.marvelrun.user.payment.command.application.creator.AdditionalPaymentTargetResolver;
 import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentAllocationCreator;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentConfirmRequest;
@@ -41,6 +42,8 @@ import static org.mockito.Mockito.*;
 @Import({
         RegistrationInformationPolicyValidator.class, OrgRegistrationPersonalInformationValidator.class,
         OrgRegistrationPersonalInformationService.class, OrgRegistrationModificationGuard.class,
+
+        AdditionalPaymentTargetResolver.class,
         CapacityRequirementResolver.class,
         ReservationCapacityDiffService.class,
         CapacityModificationService.class,
@@ -237,7 +240,20 @@ class RegistrationModificationDatabaseTest
                         )
                 );
 
-        assertThat(result.orders()).isEmpty();
+        if (new BigDecimal(expectedBalance).signum() > 0) {
+            assertThat(result.orders()).hasSize(1);
+            String additionalPaymentId = result.orders().get(0).paymentId();
+            assertThat(result.orders().get(0).amount()).isEqualByComparingTo(expectedBalance);
+            assertThat(paymentState(additionalPaymentId)).isEqualTo("READY");
+            assertThat(s("select purpose from payment where id = ?", additionalPaymentId))
+                    .isEqualTo("ADDITIONAL_PAYMENT");
+            assertThat(allocationSum(additionalPaymentId)).isEqualByComparingTo(expectedBalance);
+            assertThat(money("select allocated_amount from payment_allocation where payment_id = ? and registration_id = ?",
+                    additionalPaymentId, original.registrationId()))
+                    .isEqualByComparingTo(expectedBalance);
+        } else {
+            assertThat(result.orders()).isEmpty();
+        }
         assertThat(result.members()).hasSize(1);
 
         assertThat(result.members().get(0).balance())
@@ -262,6 +278,23 @@ class RegistrationModificationDatabaseTest
         counters(categoryBCapacity, 0, 1);
         counters(shirtS, 0, 0);
         counters(shirtM, 0, 1);
+    }
+
+    /** 추가 결제 귀속 저장 실패 시 신청·예약·정원과 새 주문을 함께 롤백한다. */
+    @Test
+    void additionalAllocationFailureRollsBackWholeModification() {
+        RegistrationCreateResponse original = personal(categoryA, "S", "1990-01-01");
+        mockApprovalSuccess();
+        payments.confirm(confirmRequest(original.paymentId()));
+        changeCategoryPrice(categoryB, "60000");
+        Map<String, List<Map<String, Object>>> before = snapshot();
+        failAfterAllocationWrite();
+
+        expectError(ErrorCode.PAYMENT_ALLOCATION_INTEGRITY_ERROR,
+                () -> modifications.modifyPersonal(eventId, original.registrationId(),
+                        personalRequest(original.registrationId(), categoryB, "M")));
+
+        assertThat(snapshot()).isEqualTo(before);
     }
 
     /**

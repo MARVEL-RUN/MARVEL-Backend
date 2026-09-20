@@ -13,6 +13,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inne
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.OrgRegistrationCreateResponse;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.*;
+import kr.co.teambrain.marvelrun.user.payment.command.application.creator.AdditionalPaymentTargetResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -46,6 +47,7 @@ import static org.mockito.Mockito.*;
         RegistrationPersonalModificationService.class, OrgRegistrationModificationService.class,
         RegistrationModificationSettlementService.class, RegistrationModificationCommandService.class,
         ReservationCapacityDiffService.class, CapacityModificationService.class, ReservationRemovalService.class,
+        AdditionalPaymentTargetResolver.class,
         org.springframework.boot.autoconfigure.validation.ValidationAutoConfiguration.class})
 @TestPropertySource(properties = "spring.jpa.properties.hibernate.session_factory.statement_inspector="
         + "kr.co.teambrain.marvelrun.user.capacity.command.application.service.RegistrationPersonalInformationDatabaseTest$SqlCapture")

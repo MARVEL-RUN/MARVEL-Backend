@@ -67,40 +67,11 @@ public class RegistrationModificationAccessValidator {
     }
 
 
-    /**
-     * 이번 수정 요청에 포함된 개인 본인확인 값을
-     * 현재 Registration snapshot과 비교한다.
-     *
-     * 비밀번호는 조회 과정의 성공 여부와 무관하게
-     * 수정 요청마다 다시 비교한다.
-     */
+    /** 공통 본인확인 계약으로 현재 개인 신청의 접근 정보를 검증한다. */
     private void validateAccess(
             Registration registration,
             RegistrationAccessRequest access
     ) {
-
-        if (
-                !Objects.equals(
-                        registration.getName(),
-                        access.name()
-                )
-                        || !Objects.equals(
-                        registration.getBirth(),
-                        access.birth()
-                )
-                        || !Objects.equals(
-                        registration.getPhNum(),
-                        access.phNum()
-                )
-                        || !Objects.equals(
-                        registration.getPassword(),
-                        access.password()
-                )
-        ) {
-
-            throw new CustomException(
-                    ErrorCode.REGISTRATION_ACCESS_DENIED
-            );
-        }
+        RegistrationAccessVerifier.verifyPersonal(registration, access);
     }
 }

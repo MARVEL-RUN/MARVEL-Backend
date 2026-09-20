@@ -14,6 +14,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organizat
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
+import kr.co.teambrain.marvelrun.user.payment.command.application.creator.AdditionalPaymentTargetResolver;
 import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentAllocationCreator;
 import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentCreator;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
@@ -28,12 +29,12 @@ import java.time.LocalDateTime;
 import java.util.*;
 
 /**
- * 수정된 신청의 금융 상태를 결정하고 최초 미결제 주문을 재생성한다.
+ * 수정된 신청의 금융 상태를 결정하고 최초·추가 결제 주문을 구성한다.
  *
- * Step 12 또는 Step 13 실행 직후 같은 트랜잭션에서 호출한다.
+ * 신청·예약·정원 수정 직후 같은 트랜잭션에서 호출한다.
  * 호출 전에 대회·관련 Payment 잠금 및 READY 무효화가 완료되어야 한다.
  *
- * 추가 결제·환불 실행은 07이 담당한다.
+ * 외부 결제 승인과 환불 통신은 이 트랜잭션에서 실행하지 않는다.
  */
 @Service
 @RequiredArgsConstructor
@@ -47,6 +48,7 @@ public class RegistrationModificationSettlementService {
 
     private final PaymentCreator paymentCreator;
     private final PaymentAllocationCreator allocationCreator;
+    private final AdditionalPaymentTargetResolver additionalTargetResolver;
 
     /**
      * 수정에 포함된 기존·신규·제거 참가자 전체의 금융 상태를 결정한다.
@@ -95,6 +97,7 @@ public class RegistrationModificationSettlementService {
                 loadReservations(uniqueIds);
 
         List<Registration> initialPaymentTargets = new ArrayList<>();
+        List<Registration> consumedTargets = new ArrayList<>();
 
         List<RegistrationModificationSettlementResult.Member> members =
                 new ArrayList<>();
@@ -125,6 +128,11 @@ public class RegistrationModificationSettlementService {
                 initialPaymentTargets.add(registration);
             }
 
+            if (!registration.isSoftDeleted()
+                    && reservation.getStatus() == ReservationStatus.CONSUMED) {
+                consumedTargets.add(registration);
+            }
+
             members.add(
                     new RegistrationModificationSettlementResult.Member(
                             registration.getId(),
@@ -137,10 +145,8 @@ public class RegistrationModificationSettlementService {
         }
 
         List<RegistrationModificationSettlementResult.Order> orders =
-                createInitialOrder(
-                        organizationId,
-                        initialPaymentTargets
-                );
+                new ArrayList<>(createInitialOrder(organizationId, initialPaymentTargets));
+        orders.addAll(createAdditionalOrder(organizationId, consumedTargets));
 
         /*
          * 상태 변경·주문·Allocation 저장 오류를 같은 Tx에서 확인한다.
@@ -268,6 +274,30 @@ public class RegistrationModificationSettlementService {
                         payment.getAmount()
                 )
         );
+    }
+
+    /**
+     * 확정 예약의 양수 부족액만 별도 추가 주문과 귀속으로 저장한다.
+     * 환불액·제거 구성원·최초 미결제 대상과 상계하지 않는다.
+     * 호출 전 전체 수정 경로에서 기존 READY 주문을 무효화해야 한다.
+     */
+    private List<RegistrationModificationSettlementResult.Order> createAdditionalOrder(
+            String organizationId,
+            List<Registration> consumedTargets
+    ) {
+        List<PaymentAllocationTarget> targets = additionalTargetResolver.resolve(consumedTargets);
+        if (targets.isEmpty()) {
+            return List.of();
+        }
+        BigDecimal amount = targets.stream().map(PaymentAllocationTarget::amount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        String correlationId = UUID.randomUUID().toString();
+        Payment payment = organizationId == null
+                ? paymentCreator.createAdditionalPayment(targets.get(0).registration(), amount, correlationId)
+                : paymentCreator.createAdditionalPayment(targets.get(0).registration().getOrganization(), amount, correlationId);
+        allocationCreator.create(payment, targets);
+        return List.of(new RegistrationModificationSettlementResult.Order(
+                payment.getId(), payment.getOrderId(), payment.getOrderName(), payment.getAmount()));
     }
 
     /**

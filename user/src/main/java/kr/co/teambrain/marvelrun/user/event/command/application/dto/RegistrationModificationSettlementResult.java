@@ -6,9 +6,9 @@ import java.math.BigDecimal;
 import java.util.List;
 
 /**
- * 신청 수정 후 금융 상태와 새 최초 결제 주문을 전달한다.
+ * 신청 수정 후 금융 상태와 새 최초·추가 결제 주문을 전달한다.
  *
- * 추가 결제·환불 필요금액은 참가자별 balance로 제공한다.
+ * 참가자별 balance는 금액 상태이며, 결제창 진입 정보는 orders로 제공한다.
  * 실제 승인·환불이 완료되었다는 의미는 아니다.
  */
 public record RegistrationModificationSettlementResult(
@@ -41,7 +41,8 @@ public record RegistrationModificationSettlementResult(
     }
 
     /**
-     * 수정 후 최초 미결제 참가자를 위해 새로 생성한 주문이다.
+     * 수정 후 최초 미결제 또는 추가 납부를 위해 새로 생성한 주문이다.
+     * 클라이언트는 주문 목적에 따라 승인 API를 나누지 않고 공통 결제 흐름을 사용한다.
      */
     public record Order(
             String paymentId,
