@@ -95,7 +95,7 @@ class ReservationLifecycleMvpDatabaseTest extends CapacityMvpTestSupport {
         )).isEqualTo("INVALIDATED");
 
         var repayment = organizations.prepareRepayment(
-                eventId, group.organizationId()
+                eventId, group.organizationId(), group.paymentId()
         );
 
         /*
@@ -176,7 +176,7 @@ class ReservationLifecycleMvpDatabaseTest extends CapacityMvpTestSupport {
 
         // ③ 재결제 준비
         var repayment = registrations.prepareRepayment(
-                eventId, original.registrationId()
+                eventId, original.registrationId(), original.paymentId()
         );
 
 
@@ -281,7 +281,7 @@ class ReservationLifecycleMvpDatabaseTest extends CapacityMvpTestSupport {
         expectError(
                 ErrorCode.CAPACITY_ACQUIRE_FAILED,
                 () -> registrations.prepareRepayment(
-                        eventId, original.registrationId()
+                        eventId, original.registrationId(), original.paymentId()
                 )
         );
 

@@ -2,6 +2,7 @@ package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationReleaseService;
 
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.RegistrationCapacityService;
@@ -20,6 +21,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.Reg
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategoryCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.PaymentCommandRepository;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentAllocationTarget;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -67,6 +69,8 @@ public class RegistrationCommandService {
             paymentAllocationCreator;
 
     private final ServerTimeProvider serverTimeProvider;
+
+    private final PaymentCommandRepository paymentCommandRepository;
 
 
     /**
@@ -168,70 +172,123 @@ public class RegistrationCommandService {
      * 호출자는 해당 신청의 소유권을 먼저 검증해야 한다.
      * 주문 무효화, 재확보 및 새 주문 생성은 하나의 트랜잭션으로 처리한다.
      */
+//    @Transactional
+//    public RegistrationCreateResponse prepareRepayment(
+//            String eventId,
+//            String registrationId
+//    ) {
+//
+//        /*
+//         * 같은 대회의 신청 생성 및 재결제 준비 순서를 맞춘다.
+//         * 시각은 잠금 대기 이후 구하여 기간 검증에 사용한다.
+//         */
+//        registrationCapacityService.lockEvent(eventId);
+//
+//        LocalDateTime now =
+//                serverTimeProvider.currentDateTime();
+//
+//        Registration registration =
+//                registrationCommandRepository.findById(registrationId)
+//                        .orElseThrow(
+//                                () -> new CustomException(
+//                                        ErrorCode.PAYMENT_NOT_CONFIRMABLE,
+//                                        " 재결제 대상 신청을 찾을 수 없습니다."
+//                                )
+//                        );
+//
+//        if (
+//                !eventId.equals(registration.getEvent().getId())
+//                        || registration.getOrganization() != null
+//        ) {
+//            throw new CustomException(
+//                    ErrorCode.PAYMENT_NOT_CONFIRMABLE,
+//                    " 해당 대회의 개인 신청이 아닙니다."
+//            );
+//        }
+//
+//        registrationCapacityService.prepareForRepayment(
+//                registration.getEvent(),
+//                List.of(registration),
+//                now
+//        );
+//
+//        /*
+//         * 기존 주문을 READY로 되돌리지 않고 새 주문을 생성한다.
+//         * 생성 실패 시 기존 주문 무효화와 재확보도 함께 롤백된다.
+//         */
+//        Payment payment =
+//                paymentCreator.createInitialPayment(
+//                        registration,
+//                        UUID.randomUUID().toString()
+//                );
+//
+//        paymentAllocationCreator.create(
+//                payment,
+//                List.of(
+//                        new PaymentAllocationTarget(
+//                                registration,
+//                                registration.getContractAmount()
+//                        )
+//                )
+//        );
+//
+//        return RegistrationCreateResponse.from(
+//                registration,
+//                payment
+//        );
+//    }
+    // [TO-BE] RegistrationCommandService.java 내 prepareRepayment 수정안 (2-F)
+
     @Transactional
     public RegistrationCreateResponse prepareRepayment(
             String eventId,
-            String registrationId
+            String registrationId,
+            String failedPaymentId // [TO-BE] 실패한 결제 ID를 받아야 명확한 대상을 한정할 수 있음
     ) {
 
-        /*
-         * 같은 대회의 신청 생성 및 재결제 준비 순서를 맞춘다.
-         * 시각은 잠금 대기 이후 구하여 기간 검증에 사용한다.
-         */
         registrationCapacityService.lockEvent(eventId);
 
-        LocalDateTime now =
-                serverTimeProvider.currentDateTime();
+        LocalDateTime now = serverTimeProvider.currentDateTime();
 
-        Registration registration =
-                registrationCommandRepository.findById(registrationId)
-                        .orElseThrow(
-                                () -> new CustomException(
-                                        ErrorCode.PAYMENT_NOT_CONFIRMABLE,
-                                        " 재결제 대상 신청을 찾을 수 없습니다."
-                                )
-                        );
+        // 1. 대상을 Registration에서 찾는 게 아니라, 지정된 실패 Payment부터 확인합니다.
+        Payment failedPayment = paymentCommandRepository.findById(failedPaymentId)
+                .orElseThrow(() -> new CustomException(ErrorCode.PAYMENT_NOT_CONFIRMABLE, " 재결제 대상 주문을 찾을 수 없습니다."));
 
-        if (
-                !eventId.equals(registration.getEvent().getId())
-                        || registration.getOrganization() != null
-        ) {
-            throw new CustomException(
-                    ErrorCode.PAYMENT_NOT_CONFIRMABLE,
-                    " 해당 대회의 개인 신청이 아닙니다."
-            );
+        // 2. 명확히 차단해야 할 상태(CONFIRMING, UNKNOWN, COMPLETED)만 걸러내도록 수정
+        PaymentProcessStatus status = failedPayment.getProcessStatus();
+        if (status == PaymentProcessStatus.CONFIRMING || status == PaymentProcessStatus.UNKNOWN || status == PaymentProcessStatus.COMPLETED) {
+            throw new CustomException(ErrorCode.PAYMENT_NOT_CONFIRMABLE, " 처리 중이거나 완료된 주문은 재결제할 수 없습니다.");
         }
 
+        Registration registration = failedPayment.getRegistration();
+
+        if (registration == null || !registration.getId().equals(registrationId)) {
+            throw new CustomException(ErrorCode.PAYMENT_NOT_CONFIRMABLE, " 결제 주문의 대상 신청이 일치하지 않습니다.");
+        }
+
+        if (!eventId.equals(registration.getEvent().getId()) || registration.getOrganization() != null) {
+            throw new CustomException(ErrorCode.PAYMENT_NOT_CONFIRMABLE, " 해당 대회의 개인 신청이 아닙니다.");
+        }
+
+        // 3. 실패한 주문에 할당되었던 내역을 바탕으로 다시 확보 준비
         registrationCapacityService.prepareForRepayment(
                 registration.getEvent(),
                 List.of(registration),
                 now
         );
 
-        /*
-         * 기존 주문을 READY로 되돌리지 않고 새 주문을 생성한다.
-         * 생성 실패 시 기존 주문 무효화와 재확보도 함께 롤백된다.
-         */
-        Payment payment =
-                paymentCreator.createInitialPayment(
-                        registration,
-                        UUID.randomUUID().toString()
-                );
+        // 4. 새로운 결제 주문 생성
+        Payment payment = paymentCreator.createInitialPayment(
+                registration,
+                UUID.randomUUID().toString()
+        );
 
         paymentAllocationCreator.create(
                 payment,
-                List.of(
-                        new PaymentAllocationTarget(
-                                registration,
-                                registration.getContractAmount()
-                        )
-                )
+                List.of(new PaymentAllocationTarget(registration, registration.getContractAmount()))
         );
 
-        return RegistrationCreateResponse.from(
-                registration,
-                payment
-        );
+        return RegistrationCreateResponse.from(registration, payment);
     }
 
     /**
