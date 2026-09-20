@@ -477,6 +477,30 @@ public class Registration extends RegistrationBase<
     }
 
     /**
+     * 실제 완료된 환불 금액을 신청의 순납부액에서 차감한다.
+     *
+     * 호출 서비스는 취소 상태와 원결제 귀속을 검증하고,
+     * 같은 완료 결과가 중복 반영되지 않도록 보호해야 한다.
+     *
+     * 이 메서드는 계약금액·삭제 여부·신청 상태·예약을 변경하지 않는다.
+     * 업무별 상태 결정과 자원 반환은 같은 결과 반영 트랜잭션에서 처리한다.
+     */
+    public void applySuccessfulRefund(BigDecimal amount) {
+        if (paidAmount == null
+                || paidAmount.signum() < 0
+                || amount == null
+                || amount.signum() <= 0
+                || amount.compareTo(paidAmount) > 0) {
+            throw new CustomException(
+                    ErrorCode.REGISTRATION_FINANCIAL_STATE_INVALID,
+                    " 완료 환불 금액을 순납부액에 반영할 수 없습니다."
+            );
+        }
+
+        this.paidAmount = paidAmount.subtract(amount);
+    }
+
+    /**
      * 실제 Entity 반영에 필요한 후보값과 계약금액을 확인한다.
      *
      * 상세 정책검증을 대신하지 않으며,

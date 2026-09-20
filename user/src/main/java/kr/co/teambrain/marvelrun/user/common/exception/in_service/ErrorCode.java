@@ -141,6 +141,34 @@ public enum ErrorCode {
             "진행 중이거나 결과 확인이 필요한 결제가 있어 신청을 수정할 수 없습니다."
     ),
 
+    //
+    // PAYMENT
+    //
+
+    /**
+     * 원결제 또는 취소 귀속의 금액·상태 기록이 올바르지 않다.
+     */
+    PAYMENT_CANCEL_INTEGRITY_ERROR(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "환불 금액 또는 귀속 정보가 올바르지 않습니다."
+    ),
+
+    /**
+     * 진행 중이거나 결과가 확정되지 않은 금융 거래와 충돌한다.
+     */
+    PAYMENT_CANCEL_CONFLICT(
+            HttpStatus.CONFLICT,
+            "처리 중이거나 결과 확인이 필요한 거래가 있습니다."
+    ),
+
+    /**
+     * 요청한 환불 금액이 현재 사용 가능한 환불 한도를 초과한다.
+     */
+    PAYMENT_CANCEL_AMOUNT_EXCEEDED(
+            HttpStatus.CONFLICT,
+            "환불 요청 금액이 환불 가능한 금액을 초과합니다."
+    ),
+
     // =========================================================
     // Question
     // =========================================================
