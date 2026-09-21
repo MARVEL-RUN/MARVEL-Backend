@@ -16,6 +16,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrgRegistrationCreateRequest;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.OrgInfoExistResponse;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.OrgNameExistResponse;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.OrgRegistrationCreateResponse;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.OrgRegistrationApplyValidator;
@@ -78,15 +79,20 @@ public class OrgRegistrationCommandService {
 
 
     @Transactional(readOnly = true)
-    public OrgNameExistResponse checkExistsGroupInfo(String groupName, String loginId, String eventId) {
-        return OrgNameExistResponse.fromRawValue(
-                groupName,
-                organizationCommandRepository.existsByGroupNameAndEventId(groupName, eventId),
-                loginId,
-                organizationCommandRepository.existsByLoginIdAndEventId(loginId, eventId)
+    public OrgInfoExistResponse checkExistsLoginId(String requestValue, String eventId) {
+        return OrgInfoExistResponse.fromRawValue(
+                requestValue,
+                organizationCommandRepository.existsByGroupNameAndEventId(requestValue, eventId)
         );
     }
 
+    @Transactional(readOnly = true)
+    public OrgInfoExistResponse checkExistsGroupName(String requestValue, String eventId) {
+        return OrgInfoExistResponse.fromRawValue(
+                requestValue,
+                organizationCommandRepository.existsByGroupNameAndEventId(requestValue, eventId)
+        );
+    }
     /**
      * 단체 구성원 전체의 신청과 자원을 하나의 트랜잭션으로 처리한다.
      *
