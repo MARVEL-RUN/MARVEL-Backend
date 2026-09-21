@@ -1,6 +1,6 @@
 package kr.co.teambrain.marvelrun.admin.event.query.service;
 
-import kr.co.teambrain.marvelrun.admin.event.command.domain.Event;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.EventCategoryResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.EventListResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.EventCategoryQueryRepository;

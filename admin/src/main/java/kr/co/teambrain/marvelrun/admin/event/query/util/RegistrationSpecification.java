@@ -3,12 +3,11 @@ package kr.co.teambrain.marvelrun.admin.event.query.util;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Predicate;
-import kr.co.teambrain.marvelrun.admin.event.command.domain.Event;
-import kr.co.teambrain.marvelrun.admin.event.command.domain.EventCategory;
-import kr.co.teambrain.marvelrun.admin.event.command.domain.Registration;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCategory;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationSearchCondition;
 import kr.co.teambrain.marvelrun.common.entity.OrganizationBase;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.util.StringUtils;
 

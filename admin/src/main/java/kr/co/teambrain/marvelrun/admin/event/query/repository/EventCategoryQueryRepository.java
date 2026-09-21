@@ -1,6 +1,6 @@
 package kr.co.teambrain.marvelrun.admin.event.query.repository;
 
-import kr.co.teambrain.marvelrun.admin.event.command.domain.EventCategory; // 관리자 엔티티 경로[cite: 14]
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCategory; // 관리자 엔티티 경로[cite: 14]
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;

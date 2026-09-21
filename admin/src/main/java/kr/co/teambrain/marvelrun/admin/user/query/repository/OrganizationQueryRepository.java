@@ -1,6 +1,6 @@
 package kr.co.teambrain.marvelrun.admin.user.query.repository;
 
-import kr.co.teambrain.marvelrun.admin.user.command.domain.Organization;
+import kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;

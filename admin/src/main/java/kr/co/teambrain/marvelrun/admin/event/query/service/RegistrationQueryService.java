@@ -5,8 +5,8 @@ import java.util.stream.Collectors;
 
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
-import kr.co.teambrain.marvelrun.admin.event.command.domain.Payment;
-import kr.co.teambrain.marvelrun.admin.event.command.domain.Registration;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Payment;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.SouvenirQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.LeaderInfoResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationDetailResponse;
@@ -15,7 +15,7 @@ import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationSearchConditi
 import kr.co.teambrain.marvelrun.admin.event.query.repository.PaymentQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.util.RegistrationSpecification;
-import kr.co.teambrain.marvelrun.admin.user.command.domain.Organization;
+import kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
@@ -24,11 +24,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor

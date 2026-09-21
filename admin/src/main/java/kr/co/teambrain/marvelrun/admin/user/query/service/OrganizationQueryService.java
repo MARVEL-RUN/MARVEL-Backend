@@ -2,10 +2,10 @@ package kr.co.teambrain.marvelrun.admin.user.query.service;
 
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
-import kr.co.teambrain.marvelrun.admin.event.command.domain.Registration;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.SouvenirQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
-import kr.co.teambrain.marvelrun.admin.user.command.domain.Organization;
+import kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.admin.user.query.dto.OrganizationDetailResponse;
 import kr.co.teambrain.marvelrun.admin.user.query.dto.OrganizationListResponse;
 import kr.co.teambrain.marvelrun.admin.user.query.dto.OrganizationMemberDto;

@@ -1,4 +1,4 @@
-package kr.co.teambrain.marvelrun.admin.event.command.domain;
+package kr.co.teambrain.marvelrun.admin.event.command.application.domain;
 
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;

@@ -1,6 +1,6 @@
 package kr.co.teambrain.marvelrun.admin.event.query.repository;
 
-import kr.co.teambrain.marvelrun.admin.event.command.domain.Registration;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;

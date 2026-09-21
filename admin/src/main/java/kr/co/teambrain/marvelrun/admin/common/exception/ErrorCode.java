@@ -43,7 +43,12 @@ public enum ErrorCode {
     ), 
     NOTICE_NOT_FOUND(HttpStatus.NOT_FOUND, "공지사항을 찾을 수 없습니다"), 
     EVENT_NOT_FOUND(HttpStatus.NOT_FOUND, "대회을 찾을 수 없습니다"),
-    NOTICE_CATEGORY_NOT_FOUND(HttpStatus.NOT_FOUND, "공지 카테고리를 찾을 수 없습니다");
+    NOTICE_CATEGORY_NOT_FOUND(HttpStatus.NOT_FOUND, "공지 카테고리를 찾을 수 없습니다"),
+    INVALID_REGISTRATION_MODIFICATION_TARGET(HttpStatus.BAD_REQUEST, "단체 소속 신청건은 개별적으로 비밀번호를 변경할 수 없습니다.")
+
+
+
+    ;
 
 
     private final HttpStatus httpStatus;
