@@ -45,7 +45,13 @@ public record RegistrationCreateRequest(
         @Size(max = 50)
         String guardianName,
 
-        Boolean guardianConsent
+        Boolean guardianConsent,
+
+        @Size(max = 14)
+        String guardianPhNum,
+
+        @Size(max = 50)
+        String guardianRelationship
 
 ) {
 }
