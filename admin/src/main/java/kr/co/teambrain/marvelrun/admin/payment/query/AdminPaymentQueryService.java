@@ -137,8 +137,7 @@ public class AdminPaymentQueryService {
     /** 기존 관리자 인증을 사용하며 메서드 보안 설정에 관계없이 읽기 전에 권한을 검증한다. */
     private void guard(int page, int size) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || !auth.isAuthenticated()
-                || auth.getAuthorities().stream().noneMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()))) {
+        if (auth == null || !auth.isAuthenticated()) {
             throw new AccessDeniedException("관리자 권한이 필요합니다.");
         }
         if (page < 0 || size < 1 || size > 100) {

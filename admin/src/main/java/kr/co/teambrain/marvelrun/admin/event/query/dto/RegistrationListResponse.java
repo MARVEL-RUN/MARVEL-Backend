@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
  */
 @Builder
 public record RegistrationListResponse(
+        String registrationId,    // 상세 조회 등을 위한 신청 PK
         Long listNumber,          // 번호: 페이징 정보를 기반으로 계산된 내림차순 번호
         String type,              // 유형: "개인" 또는 "단체"
         String name,              // 이름: 신청건의 실제 이름 (개인/단체 불문)
@@ -22,4 +23,5 @@ public record RegistrationListResponse(
         String status,            // 상태: 결제완료, 대기, 환불완료 등의 진행 상태
         LocalDateTime createdAt   // 신청일시: registrationDate 필드
 ) {
+
 }

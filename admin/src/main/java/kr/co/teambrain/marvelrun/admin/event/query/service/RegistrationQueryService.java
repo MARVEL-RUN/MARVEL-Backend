@@ -1,16 +1,21 @@
 package kr.co.teambrain.marvelrun.admin.event.query.service;
 
+import java.util.Map;
+import java.util.stream.Collectors;
+
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.event.command.domain.Payment;
 import kr.co.teambrain.marvelrun.admin.event.command.domain.Registration;
+import kr.co.teambrain.marvelrun.admin.event.command.repository.SouvenirQueryRepository;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.LeaderInfoResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationDetailResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationListResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationSearchCondition;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.PaymentQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.util.RegistrationSpecification;
-//import kr.co.teambrain.marvelrun.common.crypto.CryptoUtils;
+import kr.co.teambrain.marvelrun.admin.user.command.domain.Organization;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import lombok.RequiredArgsConstructor;
@@ -21,22 +26,43 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class RegistrationQueryService {
 
+
     private final RegistrationQueryRepository registrationQueryRepository;
     private final PaymentQueryRepository paymentQueryRepository;
-//    private final CryptoUtils cryptoUtils;
 
-    public Page<RegistrationListResponse> getRegistrationList(RegistrationSearchCondition condition, Pageable pageable) {
+    private final SouvenirQueryRepository souvenirQueryRepository;
 
+    public Page<RegistrationListResponse> getRegistrationList(
+            RegistrationSearchCondition condition,
+            Pageable pageable
+    ) {
         Page<Registration> registrations = registrationQueryRepository.findAll(
                 RegistrationSpecification.searchWith(condition),
                 pageable
         );
+
+        List<String> souvenirIds = registrations.getContent().stream()
+                .map(Registration::getSouvenirJson)
+                .filter(souvenirs -> souvenirs != null && !souvenirs.isEmpty())
+                .map(souvenirs -> souvenirs.get(0).souvenirId())
+                .distinct()
+                .toList();
+
+        Map<String, String> souvenirNames = souvenirIds.isEmpty()
+                ? Map.of()
+                : souvenirQueryRepository.findNamesByIds(souvenirIds).stream()
+                .collect(Collectors.toMap(
+                        SouvenirQueryRepository.SouvenirNameProjection::getId,
+                        SouvenirQueryRepository.SouvenirNameProjection::getName
+                ));
 
         long totalElements = registrations.getTotalElements();
         int pageNumber = pageable.getPageNumber();
@@ -44,13 +70,15 @@ public class RegistrationQueryService {
 
         return registrations.map(registration -> {
             long currentIndex = registrations.getContent().indexOf(registration);
-            long listNumber = totalElements - ((long) pageNumber * pageSize) - currentIndex;
+            long listNumber = totalElements
+                    - ((long) pageNumber * pageSize)
+                    - currentIndex;
 
-            return convertToDto(registration, listNumber);
+            return convertToDto(registration, listNumber, souvenirNames);
         });
     }
 
-    private RegistrationListResponse convertToDto(Registration registration, long listNumber) {
+    private RegistrationListResponse convertToDto(Registration registration, long listNumber, Map<String, String> souvenirNames) {
         boolean isOrganization = registration.getOrganization() != null;
         String type = isOrganization ? "단체" : "개인";
 
@@ -63,7 +91,10 @@ public class RegistrationQueryService {
         String souvenirName = "";
         List<SouvenirJson> souvenirs = registration.getSouvenirJson();
         if (souvenirs != null && !souvenirs.isEmpty()) {
-            souvenirName = souvenirs.get(0).souvenirId();
+            souvenirName = souvenirNames.getOrDefault(
+                    souvenirs.get(0).souvenirId(),
+                    ""
+            );
         }
 
         String marketingConsent = "N";
@@ -74,6 +105,7 @@ public class RegistrationQueryService {
         String genderStr = registration.getGender() == GenderClass.M ? "남성" : "여성";
 
         return RegistrationListResponse.builder()
+                .registrationId(registration.getId())
                 .listNumber(listNumber)
                 .type(type)
                 .name(plainName)
@@ -108,8 +140,23 @@ public class RegistrationQueryService {
 
         // 이메일 추출: 단체면 단체 대표 이메일, 개인이면 유저 이메일
         String email = null;
+        String organizationId = null;
+
+        LeaderInfoResponse leaderInfoResponse = null;
         if (isOrganization) {
-            email = registration.getOrganization().getEmail();
+            Organization targetOrganization = registration.getOrganization();
+
+            email = targetOrganization.getEmail();
+            organizationId = targetOrganization.getId();
+
+            leaderInfoResponse = new LeaderInfoResponse(
+                    targetOrganization.getGroupName(),
+                    targetOrganization.getLeaderName(),
+                    targetOrganization.getLeaderBirth(),
+                    targetOrganization.getLeaderPhNum(),
+                    targetOrganization.getAddress(),
+                    targetOrganization.getAddressDetail()
+            );
         } else if (registration.getUser() != null) {
             email = registration.getUser().getEmail();
         }
@@ -122,8 +169,18 @@ public class RegistrationQueryService {
         String souvenirSize = "-";
         List<SouvenirJson> souvenirs = registration.getSouvenirJson();
         if (souvenirs != null && !souvenirs.isEmpty()) {
-            souvenirName = souvenirs.get(0).souvenirId(); // 추후 Souvenir 이름 매핑 필요
-            souvenirSize = souvenirs.get(0).selectedSize() != null ? souvenirs.get(0).selectedSize() : "-";
+            SouvenirJson selected = souvenirs.get(0);
+
+            souvenirName = souvenirQueryRepository
+                    .findNamesByIds(List.of(selected.souvenirId()))
+                    .stream()
+                    .map(SouvenirQueryRepository.SouvenirNameProjection::getName)
+                    .findFirst()
+                    .orElse("-");
+
+            souvenirSize = selected.selectedSize() != null
+                    ? selected.selectedSize()
+                    : "-";
         }
 
         // 보호자 정보 널 체크
@@ -154,6 +211,10 @@ public class RegistrationQueryService {
                 .paymentStatus(registration.getStatus().name())
                 .address(registration.getAddress() != null ? registration.getAddress() : "-")
                 .addressDetail(registration.getAddressDetail() != null ? registration.getAddressDetail() : "-")
+                .organizationId(organizationId)
+                .leaderInfo(
+                        leaderInfoResponse
+                )
                 .build();
     }
 }
