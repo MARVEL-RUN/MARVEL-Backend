@@ -47,7 +47,15 @@ public class AdminCapacityQueryService {
         List<CapacityParticipantResponse> content = total == 0 ? List.of()
                 : repository.participants(eventId, capacityId, state, page, size);
         long totalPages = total / size + (total % size == 0 ? 0 : 1);
-        return new CapacityParticipantPageResponse(content, page, size, total, totalPages);
+        return new CapacityParticipantPageResponse(
+                capacityId,
+                state,
+                content,
+                page,
+                size,
+                total,
+                totalPages
+        );
     }
 
     /** 메서드 보안 활성화 여부와 관계없이 DB 조회 전에 관리자 권한을 검사한다. */
