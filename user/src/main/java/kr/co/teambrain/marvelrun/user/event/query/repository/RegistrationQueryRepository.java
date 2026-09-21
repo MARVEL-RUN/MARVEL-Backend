@@ -42,6 +42,7 @@ public class RegistrationQueryRepository {
     public List<RegistrationQueryData.Member> personal(String eventId, RegistrationAccessRequest access) {
         return entityManager.createQuery(MEMBER_SELECT + """
                 where e.id = :eventId and r.organization is null
+                  and r.softDeleted = false
                   and r.name = :name and r.birth = :birth and r.phNum = :phNum
                 order by r.registrationDate desc, r.id
                 """, Tuple.class)
