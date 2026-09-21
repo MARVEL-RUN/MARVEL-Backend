@@ -4,56 +4,80 @@ import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.OrgRegistrationCreateContext;
+import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationPolicyContext;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrgRegistrationCreateRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.OrgRegistrationParticipantRequest;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.dto.RegistrationPolicyInput;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.dto.RegistrationPolicySelection;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.dto.RegistrationPolicyValidationResult;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.loader.RegistrationPolicyLoader;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategoryCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategorySouvenirCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.*;
 
+
+/**
+ * 단체 최초 신청의 단체장·참가자·선택 정책을 검증하고
+ * 전체 참가자의 생성 Context를 구성한다.
+ */
 @Component
 public class OrgRegistrationApplyValidator
-        extends RegistrationApplyValidator {
+        extends AbstractRegistrationApplyValidator {
 
+    /**
+     * 단체 신청 검증에 필요한 기존 조회·정책 의존성을 연결한다.
+     */
     public OrgRegistrationApplyValidator(
             RegistrationCommandRepository registrationCommandRepository,
             EventCommandRepository eventCommandRepository,
             EventCategoryCommandRepository eventCategoryCommandRepository,
-            EventCategorySouvenirCommandRepository eventCategorySouvenirCommandRepository
+            EventCategorySouvenirCommandRepository eventCategorySouvenirCommandRepository,
+            RegistrationPolicyLoader registrationPolicyLoader,
+            RegistrationPolicyValidator registrationPolicyValidator
     ) {
-
         super(
                 registrationCommandRepository,
                 eventCommandRepository,
                 eventCategoryCommandRepository,
-                eventCategorySouvenirCommandRepository
+                eventCategorySouvenirCommandRepository,
+                registrationPolicyLoader,
+                registrationPolicyValidator
         );
     }
 
-
     public OrgRegistrationCreateContext validate(
             String eventId,
-            OrgRegistrationCreateRequest request
+            OrgRegistrationCreateRequest request,
+            LocalDateTime now
     ) {
-
         Event event =
-                getEvent(
-                        eventId
-                );
-
+                getEvent(eventId);
 
         validateEvent(
-                event
+                event,
+                now
         );
 
+        // 참가자의 미래 생년월일 검증에 계속 사용
+        LocalDate applicationDate =
+                now.toLocalDate();
+
+        LocalDate eventDate =
+                event.getStartDate().toLocalDate();
+
+        validateOrganizationLeaderAge(
+                request.profile().birth(),
+                eventDate
+        );
 
         /*
          * 같은 단체 신청 Request 내부에
@@ -66,17 +90,44 @@ public class OrgRegistrationApplyValidator
                 request.registrations()
         );
 
+        Map<String, Set<String>> requestedSouvenirIdsByCategory =
+                new LinkedHashMap<>();
+
+        for (OrgRegistrationParticipantRequest registrationRequest
+                : request.registrations()) {
+
+            Set<String> souvenirIds =
+                    collectRequestedSouvenirIds(
+                            registrationRequest.selectedSouvenirList()
+                    );
+
+            requestedSouvenirIdsByCategory
+                    .computeIfAbsent(
+                            registrationRequest.eventCategoryId(),
+                            categoryId -> new HashSet<>()
+                    )
+                    .addAll(souvenirIds);
+        }
+
+        SelectionData selections =
+                loadSelections(
+                        event,
+                        requestedSouvenirIdsByCategory
+                );
+
+        RegistrationPolicyContext policies =
+                loadPolicies(
+                        event,
+                        selections
+                );
 
         List<OrgRegistrationCreateContext.ParticipantContext> registrationContexts =
                 new ArrayList<>(
                         request.registrations().size()
                 );
 
-
-        for (
-                OrgRegistrationParticipantRequest registrationRequest
-                : request.registrations()
-        ) {
+        for (OrgRegistrationParticipantRequest registrationRequest
+                : request.registrations()) {
 
             /*
              * 이미 동일 대회에 신청된 참가자인지 검증.
@@ -88,42 +139,35 @@ public class OrgRegistrationApplyValidator
                     registrationRequest.birth()
             );
 
-
-            EventCategory eventCategory =
-                    getEventCategory(
-                            registrationRequest.eventCategoryId()
-                    );
-
-
-            validateCategory(
-                    event,
-                    eventCategory
-            );
-
-
-            List<SouvenirJson> souvenirJsons =
-                    validateSouvenirs(
+            RegistrationPolicyValidationResult validated =
+                    validateParticipantSelection(
                             event,
-                            eventCategory,
-                            registrationRequest.selectedSouvenirList()
+                            new RegistrationPolicySelection(
+                                    registrationRequest.eventCategoryId(),
+                                    registrationRequest.selectedSouvenirList(),
+                                    new RegistrationPolicyInput(
+                                            registrationRequest.birth(),
+                                            request.profile().leaderName(),
+                                            request.profile().guardianConsent()
+                                    )
+                            ),
+                            selections,
+                            policies,
+                            applicationDate
                     );
-
 
             registrationContexts.add(
                     new OrgRegistrationCreateContext.ParticipantContext(
                             registrationRequest,
-                            eventCategory,
-                            souvenirJsons
+                            validated.eventCategory(),
+                            validated.souvenirJsons()
                     )
             );
         }
 
-
         return new OrgRegistrationCreateContext(
                 event,
-                List.copyOf(
-                        registrationContexts
-                )
+                List.copyOf(registrationContexts)
         );
     }
 

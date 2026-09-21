@@ -1,50 +1,58 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.valid;
 
-import kr.co.teambrain.marvelrun.common.inheritance_enum.EventStatus;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationCreateContext;
+import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationPolicyContext;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
-import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategorySouvenir;
-import kr.co.teambrain.marvelrun.user.event.command.application.domain.Souvenir;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationCreateRequest;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.dto.RegistrationPolicyInput;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.loader.RegistrationPolicyLoader;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategoryCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategorySouvenirCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.dto.RegistrationPolicySelection;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.dto.RegistrationPolicyValidationResult;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.*;
 
 /**
  * Registration 생성 신청에 필요한 도메인 객체를 조회하고,
  * 신청 가능 여부를 검증한 뒤 RegistrationCreateContext를 생성한다.
  */
 @Component
-@RequiredArgsConstructor
-public class RegistrationApplyValidator {
+public class RegistrationApplyValidator extends AbstractRegistrationApplyValidator {
 
-    private final RegistrationCommandRepository
-            registrationCommandRepository;
-
-    private final EventCommandRepository
-            eventCommandRepository;
-
-    private final EventCategoryCommandRepository
-            eventCategoryCommandRepository;
-
-    private final EventCategorySouvenirCommandRepository
-            eventCategorySouvenirCommandRepository;
+    /**
+     * 개인 신청 검증에 필요한 기존 조회·정책 의존성을 연결한다.
+     */
+    public RegistrationApplyValidator(
+            RegistrationCommandRepository registrationCommandRepository,
+            EventCommandRepository eventCommandRepository,
+            EventCategoryCommandRepository eventCategoryCommandRepository,
+            EventCategorySouvenirCommandRepository eventCategorySouvenirCommandRepository,
+            RegistrationPolicyLoader registrationPolicyLoader,
+            RegistrationPolicyValidator registrationPolicyValidator
+    ) {
+        super(
+                registrationCommandRepository,
+                eventCommandRepository,
+                eventCategoryCommandRepository,
+                eventCategorySouvenirCommandRepository,
+                registrationPolicyLoader,
+                registrationPolicyValidator
+        );
+    }
 
 
     /**
@@ -55,19 +63,16 @@ public class RegistrationApplyValidator {
      */
     public RegistrationCreateContext validate(
             String eventId,
-            RegistrationCreateRequest request
+            RegistrationCreateRequest request,
+            LocalDateTime now
     ) {
-
         Event event =
-                getEvent(
-                        eventId
-                );
-
+                getEvent(eventId);
 
         validateEvent(
-                event
+                event,
+                now
         );
-
 
         validateAlreadyRegisteredParticipant(
                 eventId,
@@ -76,457 +81,195 @@ public class RegistrationApplyValidator {
                 request.birth()
         );
 
-
-        EventCategory eventCategory =
-                getEventCategory(
-                        request.eventCategoryId()
-                );
-
-
-        validateCategory(
-                event,
-                eventCategory
-        );
-
-
-        List<SouvenirJson> souvenirJsons =
-                validateSouvenirs(
-                        event,
-                        eventCategory,
+        Set<String> souvenirIds =
+                collectRequestedSouvenirIds(
                         request.selectedSouvenirList()
                 );
 
+        SelectionData selections =
+                loadSelections(
+                        event,
+                        Map.of(
+                                request.eventCategoryId(),
+                                souvenirIds
+                        )
+                );
+
+        RegistrationPolicyContext policies =
+                loadPolicies(
+                        event,
+                        selections
+                );
+
+        RegistrationPolicyValidationResult validated =
+                validateParticipantSelection(
+                        event,
+                        new RegistrationPolicySelection(
+                                request.eventCategoryId(),
+                                request.selectedSouvenirList(),
+                                new RegistrationPolicyInput(
+                                        request.birth(),
+                                        request.guardianName(),
+                                        request.guardianConsent()
+                                )
+                        ),
+                        selections,
+                        policies,
+                        now.toLocalDate()
+                );
 
         return new RegistrationCreateContext(
                 event,
-                eventCategory,
-                souvenirJsons
+                validated.eventCategory(),
+                validated.souvenirJsons()
         );
     }
 
-
     /**
-     * Event 조회.
+     * 저장된 미결제 신청들의 자원 재확보 가능 여부를 검증한다.
      *
-     * 단체 신청 등 다른 Registration 생성 Validator에서도
-     * MVP 동안 상속하여 재사용한다.
-     */
-    protected Event getEvent(
-            String eventId
-    ) {
-
-        return eventCommandRepository
-                .findById(
-                        eventId
-                )
-                .orElseThrow(
-                        () -> new CustomException(
-                                ErrorCode.EVENT_NOT_FOUND
-                        )
-                );
-    }
-
-
-    /**
-     * 신청 생성 시 Event 자체가 신청 가능한 상태인지 검증.
-     */
-    protected void validateEvent(
-            Event event
-    ) {
-
-        if (
-                event.getEventStatus()
-                        != EventStatus.OPEN
-        ) {
-
-            throw new CustomException(
-                    ErrorCode.EVENT_NOT_OPEN
-            );
-        }
-    }
-
-
-    /**
-     * EventCategory 조회.
+     * 현재 대회 상태와 신청 기간, 종목 및 기념품 매핑,
+     * 참가자 출생일·보호자·사이즈 정책을 다시 확인한다.
      *
-     * 존재 여부만 책임지고,
-     * Event 소속 및 활성 여부는 validateCategory()에서 검증한다.
-     */
-    protected EventCategory getEventCategory(
-            String eventCategoryId
-    ) {
-
-        return eventCategoryCommandRepository
-                .findById(
-                        eventCategoryId
-                )
-                .orElseThrow(
-                        () -> new CustomException(
-                                ErrorCode.EVENT_CATEGORY_NOT_FOUND
-                        )
-                );
-    }
-
-
-    /**
-     * 선택한 Category가
+     * 기존 신청 자체를 검증하므로 신규 신청의 중복 참가자 검사는 수행하지 않는다.
+     * 신청 내용과 계약금액은 변경하지 않는다.
      *
-     * 1. 현재 신청 Event 소속인지
-     * 2. 현재 신청 가능한 Category인지
-     *
-     * 검증한다.
+     * 호출자는 동일 트랜잭션에서 대회 잠금을 먼저 획득해야 한다.
      */
-    protected void validateCategory(
+    public void validateReacquisition(
             Event event,
-            EventCategory eventCategory
+            List<Registration> registrations,
+            LocalDateTime now
     ) {
 
-        if (
-                !event.getId()
-                        .equals(
-                                eventCategory
-                                        .getEvent()
-                                        .getId()
-                        )
-        ) {
-
+        if (registrations.isEmpty()) {
             throw new CustomException(
-                    ErrorCode.EVENT_CATEGORY_NOT_FOUND
+                    ErrorCode.INVALID_RESERVATION_ARGUMENT,
+                    " 재확보 대상 신청 목록이 비어 있습니다."
             );
         }
 
+        validateEvent(event, now);
 
-        if (
-                !Boolean.TRUE.equals(
-                        eventCategory.getIsActive()
-                )
-        ) {
+        Map<String, Set<String>> souvenirIdsByCategory =
+                new HashMap<>();
 
-            throw new CustomException(
-                    ErrorCode.EVENT_CATEGORY_NOT_ACTIVE
-            );
-        }
-    }
+        for (Registration registration : registrations) {
 
-
-    /**
-     * 요청된 전체 Souvenir 선택을 검증하고,
-     * Registration.souvenirJson에 저장 가능한 정규화된 값으로 반환한다.
-     */
-    protected List<SouvenirJson> validateSouvenirs(
-            Event event,
-            EventCategory eventCategory,
-            List<SouvenirJson> souvenirRequests
-    ) {
-
-        validateSouvenirRequestRequired(
-                souvenirRequests
-        );
-
-
-        validateDuplicateSouvenir(
-                souvenirRequests
-        );
-
-
-        Set<String> souvenirIds =
-                souvenirRequests.stream()
-                        .map(
-                                SouvenirJson::souvenirId
-                        )
-                        .collect(
-                                Collectors.toSet()
-                        );
-
-
-        List<EventCategorySouvenir> mappings =
-                eventCategorySouvenirCommandRepository
-                        .findSelectedMappings(
-                                eventCategory.getId(),
-                                souvenirIds
-                        );
-
-
-        Map<String, Souvenir> souvenirMap =
-                mappings.stream()
-                        .map(
-                                EventCategorySouvenir::getSouvenir
-                        )
-                        .collect(
-                                Collectors.toMap(
-                                        Souvenir::getId,
-                                        Function.identity()
-                                )
-                        );
-
-
-        List<SouvenirJson> result =
-                new ArrayList<>(
-                        souvenirRequests.size()
-                );
-
-
-        for (
-                SouvenirJson souvenirRequest
-                : souvenirRequests
-        ) {
-
-            Souvenir souvenir =
-                    souvenirMap.get(
-                            souvenirRequest.souvenirId()
-                    );
-
-
-            validateSouvenir(
-                    event,
-                    eventCategory,
-                    souvenir
-            );
-
-
-            String selectedSize =
-                    validateAndNormalizeSize(
-                            souvenir,
-                            souvenirRequest.selectedSize()
-                    );
-
-
-            result.add(
-                    new SouvenirJson(
-                            souvenir.getId(),
-                            selectedSize
-                    )
-            );
-        }
-
-
-        return List.copyOf(
-                result
-        );
-    }
-
-
-    /**
-     * 최소 하나의 기념품 선택이 필요하다.
-     *
-     * 실제 기념품이 없는 종목은
-     * "기념품 없음" Souvenir Mapping으로 처리한다.
-     */
-    protected void validateSouvenirRequestRequired(
-            List<SouvenirJson> souvenirRequests
-    ) {
-
-        if (
-                souvenirRequests == null
-                        || souvenirRequests.isEmpty()
-        ) {
-
-            throw new CustomException(
-                    ErrorCode.INVALID_EVENT_CATEGORY_SOUVENIR
-            );
-        }
-    }
-
-
-    /**
-     * 하나의 Registration에서 같은 Souvenir를
-     * 중복 선택할 수 없도록 검증한다.
-     */
-    protected void validateDuplicateSouvenir(
-            List<SouvenirJson> souvenirRequests
-    ) {
-
-        Set<String> souvenirIds =
-                new HashSet<>();
-
-
-        for (
-                SouvenirJson souvenirRequest
-                : souvenirRequests
-        ) {
-
+            /*
+             * 최초 결제 전의 유효한 신청만 재확보한다.
+             * 삭제된 신청을 복구하거나 결제 완료 신청을 변경하지 않는다.
+             */
             if (
-                    !souvenirIds.add(
-                            souvenirRequest.souvenirId()
+                    !event.getId().equals(
+                            registration.getEvent().getId()
                     )
+                            || registration.isSoftDeleted()
+                            || registration.getStatus()
+                            != RegistrationStatus.PAYMENT_PENDING
             ) {
-
                 throw new CustomException(
-                        ErrorCode.DUPLICATE_SOUVENIR_SELECTION
+                        ErrorCode.RESERVATION_STATE_CONFLICT,
+                        " 재확보 가능한 미결제 신청이 아닙니다."
+                                + " registrationId=" + registration.getId()
                 );
             }
-        }
-    }
 
+            Set<String> souvenirIds =
+                    collectRequestedSouvenirIds(
+                            registration.getSouvenirJson()
+                    );
 
-    /**
-     * 개별 Souvenir가 현재 신청에서 사용 가능한지 검증한다.
-     */
-    protected void validateSouvenir(
-            Event event,
-            EventCategory eventCategory,
-            Souvenir souvenir
-    ) {
-
-        if (souvenir == null) {
-
-            throw new CustomException(
-                    ErrorCode.INVALID_EVENT_CATEGORY_SOUVENIR
-            );
+            souvenirIdsByCategory.computeIfAbsent(
+                    registration.getEventCategory().getId(),
+                    ignored -> new HashSet<>()
+            ).addAll(souvenirIds);
         }
 
-
-        if (
-                !event.getId()
-                        .equals(
-                                souvenir
-                                        .getEvent()
-                                        .getId()
-                        )
-        ) {
-
-            throw new CustomException(
-                    ErrorCode.INVALID_EVENT_CATEGORY_SOUVENIR
-            );
-        }
-
-
-        if (
-                !Boolean.TRUE.equals(
-                        souvenir.getIsActive()
-                )
-        ) {
-
-            throw new CustomException(
-                    ErrorCode.SOUVENIR_NOT_ACTIVE
-            );
-        }
-    }
-
-
-    /**
-     * 선택한 사이즈가 Souvenir에서 제공하는 사이즈인지 검증하고
-     * DB 저장용 값으로 정규화한다.
-     */
-    protected String validateAndNormalizeSize(
-            Souvenir souvenir,
-            String selectedSize
-    ) {
-
-        Set<String> allowedSizes =
-                getAllowedSizes(
-                        souvenir
+        /*
+         * 기존 신청 Validator의 조회·소속·활성 검증을 재사용한다.
+         * 같은 종목과 정책은 이번 호출에서 함께 조회한다.
+         */
+        SelectionData selections =
+                loadSelections(
+                        event,
+                        souvenirIdsByCategory
                 );
 
-
-        if (
-                allowedSizes.size() == 1
-                        && allowedSizes.contains(
-                        "FREE"
-                )
-        ) {
-
-            return "FREE";
-        }
-
-
-        if (
-                selectedSize == null
-                        || selectedSize.isBlank()
-        ) {
-
-            throw new CustomException(
-                    ErrorCode.INVALID_SOUVENIR_SIZE
-            );
-        }
-
-
-        String normalizedSelectedSize =
-                selectedSize.trim();
-
-
-        if (
-                !allowedSizes.contains(
-                        normalizedSelectedSize
-                )
-        ) {
-
-            throw new CustomException(
-                    ErrorCode.INVALID_SOUVENIR_SIZE
-            );
-        }
-
-
-        return normalizedSelectedSize;
-    }
-
-
-    /**
-     * Souvenir.sizes DB 문자열을
-     * 검증용 Set으로 변환한다.
-     */
-    protected Set<String> getAllowedSizes(
-            Souvenir souvenir
-    ) {
-
-        String sizes =
-                souvenir.getSizes();
-
-
-        if (
-                sizes == null
-                        || sizes.isBlank()
-        ) {
-
-            return Set.of(
-                    "FREE"
-            );
-        }
-
-
-        return Arrays.stream(
-                        sizes.split("\\|")
-                )
-                .map(
-                        String::trim
-                )
-                .filter(
-                        size -> !size.isBlank()
-                )
-                .collect(
-                        Collectors.toSet()
+        RegistrationPolicyContext policies =
+                loadPolicies(
+                        event,
+                        selections
                 );
-    }
 
+        for (Registration registration : registrations) {
 
-    /**
-     * 동일 Event에 동일 참가자 정보로 이미 Registration이 존재하는지 검증한다.
-     *
-     * 개인 신청과 단체 신청 양쪽에서 재사용한다.
-     *
-     * MVP에서는 Application-level exists 검증까지만 수행한다.
-     * 동시 요청에 대한 완전한 중복 방지는 MVP 이후 별도 처리한다.
-     */
-    protected void validateAlreadyRegisteredParticipant(
-            String eventId,
-            String name,
-            String phNum,
-            String birth
-    ) {
+            Organization organization =
+                    registration.getOrganization();
 
-        if (
-                registrationCommandRepository
-                        .existsByEventIdAndUniqueInfo(
-                                eventId,
-                                name,
-                                phNum,
-                                birth
-                        )
-        ) {
+            /*
+             * 기존 개인·단체 신청과 동일한 보호자 입력 기준을 사용한다.
+             * organization은 개인 신청에서 존재하지 않는 선택적 관계이다.
+             */
+            RegistrationPolicyInput input =
+                    organization == null
+                            ? new RegistrationPolicyInput(
+                            registration.getBirth(),
+                            registration.getGuardianName(),
+                            registration.isGuardianConsent()
+                    )
+                            : new RegistrationPolicyInput(
+                            registration.getBirth(),
+                            organization.getLeaderName(),
+                            organization.isGuardianConsent()
+                    );
 
-            throw new CustomException(
-                    ErrorCode.REGISTRATION_ALREADY_EXISTS
+            LocalDate birth =
+                    registrationPolicyValidator.validateParticipant(
+                            event,
+                            policies.eventPolicy(),
+                            input,
+                            now.toLocalDate()
+                    );
+
+            EventCategory category =
+                    selections.categories().get(
+                            registration.getEventCategory().getId()
+                    );
+
+            registrationPolicyValidator.validateCategoryBirth(
+                    category,
+                    policies.categoryPolicies().get(category.getId()),
+                    birth
             );
+
+            /*
+             * 최초 신청 때 저장한 선택값이 현재 정책에서도 유효한지 확인한다.
+             * 이 경로에서는 종목이나 사이즈를 다른 값으로 변경하지 않는다.
+             */
+            List<SouvenirJson> validatedSouvenirs =
+                    validateSouvenirs(
+                            registration.getSouvenirJson(),
+                            selections.mappingsByCategory().get(
+                                    category.getId()
+                            ),
+                            birth,
+                            policies
+                    );
+
+            /*
+             * 확보 계산에는 저장된 값을 그대로 사용하므로,
+             * 검증 과정의 정규화 결과와 저장값이 다르면 진행하지 않는다.
+             */
+            if (!validatedSouvenirs.equals(
+                    registration.getSouvenirJson()
+            )) {
+                throw new CustomException(
+                        ErrorCode.INVALID_SOUVENIR_SIZE,
+                        " 저장된 기념품 선택값이 현재 검증 결과와 일치하지 않습니다."
+                                + " registrationId=" + registration.getId()
+                );
+            }
         }
     }
 }

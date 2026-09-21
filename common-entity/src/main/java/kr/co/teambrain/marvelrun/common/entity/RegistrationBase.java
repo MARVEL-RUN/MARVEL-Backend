@@ -70,9 +70,6 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
     protected AddressBase addressBase;
 
     // 소유 신청인 경우에만 사용.
-    @Column(name = "guardian_base", nullable = true, length = 15)
-    @Enumerated(EnumType.STRING)
-    protected GuardianBase guardianBase; // nullable, 소유신청 한정 사용
 
     /**
      * uniqueInfo 및 개인정보
@@ -99,6 +96,19 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
 
     @Column(name = "address_detail")
     protected String addressDetail;
+
+    // 보호자 정보의 참조 기준. 단체 신청은 ORG_LEADER를 사용하며
+    // 소유신청 구성에 따라 수정 가능
+    @Column(name = "guardian_base", nullable = true, length = 15)
+    @Enumerated(EnumType.STRING)
+    protected GuardianBase guardianBase; // nullable, 소유신청 한정 사용
+
+    @Builder.Default
+    @Column(name = "guardian_consent", nullable = false)
+    protected boolean guardianConsent = false;
+
+    @Column(name = "guardian_name", length = 50)
+    protected String guardianName;
 
     @Column(name = "guardian_ph_num", length = 14)
     protected String guardianPhNum; // 보호자 연락처 (Nullable)
@@ -164,14 +174,6 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
     )
     protected Long version;
 
-    /*
-     * PAYMENT_PENDING 상태를 무기한 유지하지 않기 위한 만료시각.(대회 신청은 했으나 결제가 즉시 이루어지지 않거나 오류로 인해 취소된 경우)
-     *
-     * 구체적인 TTL 정책은 추후 신청 생성 로직에서 결정한다.
-     */
-    @Column(name = "expires_at")
-    protected LocalDateTime expiresAt;
-
 
     /**
      * 관리자 및 개발 작업 필드
@@ -190,7 +192,7 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
     protected LocalDateTime modifiedAt;
 
     @Column(name = "is_del") // true == 소프트딜리트
-    protected boolean is_del = false;
+    protected boolean softDeleted = false;
 
     /**
      * 관리자
@@ -217,6 +219,17 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
     protected String successLog;
 
 
+    @Column(name = "active_unique_info", insertable = false, updatable = false)
+    protected Boolean activeUniqueInfo;
+
+//    @Column(name = "name_hmac", length = 64)
+//    protected String nameHmac;
+
+    /**
+     * 검색 속도 최적화를 위한 연락처 단방향 암호화 필드 (블라인드 인덱싱)
+     */
+//    @Column(name = "ph_num_hmac", length = 64)
+//    protected String phNumHmac;
     /**
      * 환불 관련 필드 (기존 수동 환불 필요 필드)
      *

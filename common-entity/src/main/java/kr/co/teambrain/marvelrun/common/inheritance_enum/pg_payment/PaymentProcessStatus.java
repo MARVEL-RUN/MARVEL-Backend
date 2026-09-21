@@ -23,5 +23,14 @@ public enum PaymentProcessStatus {
     FAILED,
 
     // Toss에서 결제가 처리되었는지 현재 MarvelRun이 확정하지 못한 상태
-    UNKNOWN
+    UNKNOWN,
+
+    /**
+     * 승인 시작 전에 주문이 무효화되어 더 이상 결제할 수 없는 상태.(관리자 홀딩해제, 사용자의 신청내역 수정 등)
+     *
+     * 미결제 확보 반환 등에 의해 사용되며,
+     * 실제 승인 실패나 승인된 결제의 취소를 의미하지 않는다.
+     * 다시 결제하려면 새로운 Payment를 생성한다.
+     */
+    INVALIDATED
 }

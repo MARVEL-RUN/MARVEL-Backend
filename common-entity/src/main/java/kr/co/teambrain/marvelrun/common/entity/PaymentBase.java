@@ -34,10 +34,10 @@ public abstract class PaymentBase<R extends RegistrationBase, O extends Organiza
      * 하나의 Registration에서
      * 최초결제 / 재결제 / 추가결제 등이 여러 번 발생할 수 있다.
      */
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(
             name = "registration_id",
-            nullable = false
+            nullable = true
     )
     protected R registration;
 
