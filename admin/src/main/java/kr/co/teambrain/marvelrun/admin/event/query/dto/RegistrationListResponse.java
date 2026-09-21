@@ -23,4 +23,5 @@ public record RegistrationListResponse(
         String status,            // 상태: 결제완료, 대기, 환불완료 등의 진행 상태
         LocalDateTime createdAt   // 신청일시: registrationDate 필드
 ) {
+
 }

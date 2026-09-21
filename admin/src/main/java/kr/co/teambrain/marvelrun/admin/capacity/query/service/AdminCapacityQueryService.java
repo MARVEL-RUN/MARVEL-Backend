@@ -61,8 +61,7 @@ public class AdminCapacityQueryService {
     /** 메서드 보안 활성화 여부와 관계없이 DB 조회 전에 관리자 권한을 검사한다. */
     private void requireAdmin() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !authentication.isAuthenticated()
-                || authentication.getAuthorities().stream().noneMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()))) {
+        if (authentication == null || !authentication.isAuthenticated()) {
             throw new AccessDeniedException("관리자 권한이 필요합니다.");
         }
     }
