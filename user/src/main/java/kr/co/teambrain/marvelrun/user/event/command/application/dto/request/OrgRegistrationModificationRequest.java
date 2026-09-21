@@ -3,6 +3,7 @@ package kr.co.teambrain.marvelrun.user.event.command.application.dto.request;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.OrgRegistrationModificationParticipantRequest;
 
 import java.util.List;
@@ -20,6 +21,8 @@ import java.util.List;
  * 수정 완료 후 남아 있어야 할 전체 구성원 목록이다.
  */
 public record OrgRegistrationModificationRequest(
+
+        boolean guardianConsent,
 
         @NotNull
         @Valid

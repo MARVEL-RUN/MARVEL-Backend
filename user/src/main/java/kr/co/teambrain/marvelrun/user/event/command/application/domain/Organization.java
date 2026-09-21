@@ -17,6 +17,9 @@ import static lombok.AccessLevel.PROTECTED;
 @NoArgsConstructor(access = PROTECTED)
 public class Organization
         extends OrganizationBase<Event> {
-
+    
+    public void guardianConsentChecked() {
+        this.guardianConsent = true; //해당 값은 ture -> false로 바뀔 수 없음
+    }
 
 }

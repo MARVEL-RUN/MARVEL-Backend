@@ -101,7 +101,21 @@ public class OrgRegistrationModificationService {
         modificationGuard.protect(access);
         paymentGuard.prepareLockedPayments(lockedPayments);
 
-        OrgRegistrationModificationCandidateContext candidate = candidateValidator.validate(access);
+        /** 최신 단체 정보에 이번 수정 요청의 보호자 동의를 반영한다. */
+        boolean requestedConsent = request.guardianConsent();
+
+        // 기존 동의 철회 차단
+        if (access.organization().isGuardianConsent() && !requestedConsent) {
+            throw new CustomException(ErrorCode.GUARDIAN_CONSENT_REQUIRED);
+        }
+
+        // 최초 동의 반영: 트랜잭션 커밋 시 저장
+        if (!access.organization().isGuardianConsent() && requestedConsent) {
+            access.organization().guardianConsentChecked();
+        }
+
+        OrgRegistrationModificationCandidateContext candidate =
+                candidateValidator.validate(access);
 
         List<OrgRegistrationParticipantPricing> priced =
                 pricingService.repriceOrganization(candidate);
