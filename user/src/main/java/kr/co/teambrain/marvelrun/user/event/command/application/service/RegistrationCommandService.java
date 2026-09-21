@@ -122,7 +122,8 @@ public class RegistrationCommandService {
                         eventCategory,
                         context.souvenirJsons(),
                         request,
-                        contractAmount
+                        contractAmount,
+                        now // 추가됨
                 );
 
         Registration savedRegistration =

@@ -222,6 +222,20 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
     @Column(name = "active_unique_info", insertable = false, updatable = false)
     protected Boolean activeUniqueInfo;
 
+    // 약관 관련 컬럼 추가
+
+    @Column(name = "terms_essential_agreed", nullable = false)
+    protected Boolean termsEssentialAgreed = false;
+
+    @Column(name = "terms_marketing_agreed", nullable = false)
+    protected Boolean termsMarketingAgreed = false;
+
+    @Column(name = "terms_marketing_channel_agreed", nullable = false)
+    protected Boolean termsMarketingChannelAgreed = false;
+
+    @Column(name = "terms_agreed_at", nullable = false)
+    protected LocalDateTime termsAgreedAt;
+
 //    @Column(name = "name_hmac", length = 64)
 //    protected String nameHmac;
 
