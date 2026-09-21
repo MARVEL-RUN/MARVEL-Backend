@@ -3,6 +3,7 @@ package kr.co.teambrain.marvelrun.admin.event.query.util;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Predicate;
+import kr.co.teambrain.marvelrun.admin.event.command.domain.Event;
 import kr.co.teambrain.marvelrun.admin.event.command.domain.EventCategory;
 import kr.co.teambrain.marvelrun.admin.event.command.domain.Registration;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationSearchCondition;
@@ -24,6 +25,12 @@ public class RegistrationSpecification {
     ) {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
+
+            // 0. 대회(Event) 필터 추가
+            if (StringUtils.hasText(condition.eventId())) {
+                Join<Registration, Event> eventJoin = root.join("event", JoinType.INNER);
+                predicates.add(cb.equal(eventJoin.get("id"), condition.eventId()));
+            }
 
             // 1. 상태(Status) 필터
             if (condition.status() != null) {
