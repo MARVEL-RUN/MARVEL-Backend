@@ -6,11 +6,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.service.OrgRegis
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 /**
  * PG 심사용 단체 참가신청 생성 API.
@@ -58,5 +54,15 @@ public class OrgRegistrationCommandController {
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(response);
+    }
+
+    @GetMapping("/organization/duplicate-id-check")
+    public ResponseEntity<?> registerOrganization(
+            @PathVariable String eventId,
+            @RequestParam String groupName
+    ) {
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(orgRegistrationCommandService.checkExistsGroupName(groupName, eventId));
     }
 }
