@@ -36,8 +36,6 @@ public class RegistrationQueryService {
     private final RegistrationQueryRepository registrationQueryRepository;
     private final PaymentQueryRepository paymentQueryRepository;
 
-
-    private final PaymentQueryRepository paymentQueryRepository;
     private final SouvenirQueryRepository souvenirQueryRepository;
 
     public Page<RegistrationListResponse> getRegistrationList(

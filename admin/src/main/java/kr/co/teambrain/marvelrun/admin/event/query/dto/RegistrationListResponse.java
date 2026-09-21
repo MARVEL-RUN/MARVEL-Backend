@@ -21,6 +21,9 @@ public record RegistrationListResponse(
         String phoneNumber,       // 연락처: AES 복호화가 완료된 평문 전화번호
         String marketingConsent,  // 마케팅동의: 임시로 activeUniqueInfo 필드를 활용해 "Y" 또는 "N" 표기
         String status,            // 상태: 결제완료, 대기, 환불완료 등의 진행 상태
-        LocalDateTime createdAt   // 신청일시: registrationDate 필드
+        LocalDateTime createdAt,   // 신청일시: registrationDate 필드
+
+        LeaderInfoResponse leaderInfo
 ) {
+
 }
