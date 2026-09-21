@@ -108,7 +108,9 @@ public class RegistrationQueryService {
         }
 
         String genderStr = registration.getGender() == GenderClass.M ? "남성" : "여성";
-        String statusStr = payment != null ? payment.getProcessStatus().name() : "-";
+        String statusStr = (payment != null && payment.getProcessStatus() == PaymentProcessStatus.UNKNOWN)
+                ? PaymentProcessStatus.UNKNOWN.name()
+                : registration.getStatus().name();
 
         return RegistrationListResponse.builder()
                 .registrationId(registration.getId())
@@ -197,8 +199,9 @@ public class RegistrationQueryService {
         String orderId = payment != null ? payment.getOrderId() : "-";
         String paymentStatus = payment != null ? payment.getProcessStatus().name() : "-";
 
-        String paymentMethod = payment != null && payment.getPaymentMethod() != null
-                ? payment.getPaymentMethod().name() : "-";
+        String paymentMethod = (payment != null && payment.getProcessStatus() == PaymentProcessStatus.UNKNOWN)
+                ? PaymentProcessStatus.UNKNOWN.name()
+                : registration.getStatus().name();
 
         return RegistrationDetailResponse.builder()
                 .name(registration.getName())
