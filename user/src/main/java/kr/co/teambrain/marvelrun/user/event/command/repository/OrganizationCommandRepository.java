@@ -26,4 +26,8 @@ public interface OrganizationCommandRepository
             @Param("eventId") String eventId,
             @Param("organizationId") String organizationId
     );
+
+    boolean existsByGroupNameAndEventId(String groupName, String eventId);
+
+    boolean existsByLoginIdAndEventId(String loginId, String eventId);
 }

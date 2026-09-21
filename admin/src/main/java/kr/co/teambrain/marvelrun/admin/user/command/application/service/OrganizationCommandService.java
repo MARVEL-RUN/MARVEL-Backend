@@ -7,6 +7,7 @@ import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registra
 import kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationCommandRepository;
 import kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.admin.user.command.repository.OrganizationCommandRepository;
+import kr.co.teambrain.marvelrun.admin.user.query.dto.OrgNameExistResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -45,4 +46,16 @@ public class OrganizationCommandService {
             registration.resetPasswordByAdmin(request.newPassword());
         }
     }
+
+    @Transactional(readOnly = true)
+    public OrgNameExistResponse checkExistsGroupInfo(String groupName, String loginId, String eventId) {
+        return OrgNameExistResponse.fromRawValue(
+                groupName,
+                organizationCommandRepository.existsByGroupNameAndEventId(groupName, eventId),
+                loginId,
+                organizationCommandRepository.existsByLoginIdAndEventId(loginId, eventId)
+        );
+    }
+
+
 }
