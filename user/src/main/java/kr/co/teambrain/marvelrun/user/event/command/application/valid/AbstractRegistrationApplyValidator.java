@@ -596,7 +596,7 @@ public abstract class AbstractRegistrationApplyValidator {
         }
 
         LocalDate nineteenthBirthday =
-                leaderBirth.plusYears(19);
+                leaderBirth.plusYears(14);
 
         if (eventDate.isBefore(nineteenthBirthday)) {
             throw new CustomException(

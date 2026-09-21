@@ -49,10 +49,12 @@ public record RegistrationModificationRequest(
 
         String addressDetail,
 
+        boolean guardianConsent,
         @Size(max = 50)
         String guardianName,
-
         @Size(max = 14)
-        String guardianPhNum
+        String guardianPhNum,
+        @Size(max = 50)
+        String guardianRelationship
 ) {
 }
