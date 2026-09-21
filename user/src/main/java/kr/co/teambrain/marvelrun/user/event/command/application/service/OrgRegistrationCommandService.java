@@ -17,7 +17,6 @@ import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organizat
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrgRegistrationCreateRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.OrgInfoExistResponse;
-import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.OrgNameExistResponse;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.OrgRegistrationCreateResponse;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.OrgRegistrationApplyValidator;
 import kr.co.teambrain.marvelrun.user.event.command.repository.OrganizationCommandRepository;
