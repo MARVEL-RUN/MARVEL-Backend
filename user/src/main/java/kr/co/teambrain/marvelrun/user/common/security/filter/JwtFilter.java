@@ -82,6 +82,9 @@ public class JwtFilter
                 "/v1/admin/login"
         )
                 || path.equals(
+                "/marvelrun-flow-test.html"
+        )
+                || path.equals(
                 "/v1/admin/refresh"
         )) {
 
@@ -109,7 +112,8 @@ public class JwtFilter
                 "/v1/public/**",
                 path) ||
                 pathMatcher.match(
-                        "/**/public/**", path)
+                        "/public/**",
+                        path)
         ) {
 
 

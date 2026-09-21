@@ -57,10 +57,72 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-webflux'
 }
 
-tasks.named('test') {
-	useJUnitPlatform()
+/*
+ * 일반 테스트.
+ *
+ * 특정 테스트 DB의 기존 데이터에 의존하는 정책 검증과
+ * 실제 DB 상태를 변경하는 수동 결제 검증은 제외한다.
+ * build/check에서는 이 일반 테스트만 실행한다.
+ */
+tasks.named('test', Test) {
+	useJUnitPlatform {
+		excludeTags 'policy-db', 'payment-db', 'capacity-db'
+	}
 }
+/*
+ * 기존 테스트 DB의 신청 정책을 검증하는 수동 실행용 작업.
+ *
+ * 실행 명령: .\gradlew.bat policyDbTest
+ *
+ * build/check의 의존 작업으로 연결하지 않는다.
+ * DB 접속정보는 실행 환경의 MARVELRUN_TEST_DB_* 변수를 사용한다.
+ */
+tasks.register('policyDbTest', Test) {
+	group = 'verification'
+	description = '기존 테스트 DB의 참가신청 정책을 검증합니다.'
+
+	dependsOn tasks.named('testClasses')
+
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+
+	useJUnitPlatform {
+		includeTags 'policy-db'
+	}
+
+	/*
+     * 외부 DB의 데이터 변경은 Gradle 입력 파일에 반영되지 않는다.
+     * 이전 성공 결과를 재사용하지 않고 명시적 실행마다 검증한다.
+     */
+	outputs.upToDateWhen { false }
+	outputs.cacheIf { false }
+}
+
+/*
+ * 정원·예약 MVP의 실제 DB 테스트를 명시적으로 실행한다.
+ *
+ * 일반 build/check에는 연결하지 않는다.
+ * 외부 DB 상태가 달라질 수 있으므로 실행 결과를 재사용하지 않는다.
+ */
+tasks.register('capacityDbTest', Test) {
+	group = 'verification'
+	description = '정원·예약 MVP의 DB 동작을 검증합니다.'
+
+	dependsOn tasks.named('testClasses')
+
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+
+	useJUnitPlatform {
+		includeTags 'capacity-db'
+	}
+
+	maxParallelForks = 1
+
+	outputs.upToDateWhen { false }
+	outputs.cacheIf { false }
+}
+
 tasks.named('bootJar') {
 	archiveFileName = 'user-app.jar'
 }
-

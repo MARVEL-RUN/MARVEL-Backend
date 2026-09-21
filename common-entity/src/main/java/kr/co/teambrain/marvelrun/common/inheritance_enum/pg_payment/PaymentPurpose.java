@@ -1,19 +1,11 @@
 package kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment;
 
-/**
- * Payment가 생성된 업무 목적.
- *
- * "어떤 방식으로 결제했는가"가 아니라
- * "왜 새로운 Payment를 생성하여 돈을 받는가"를 구분한다.
- *
- * 환불 및 부분환불은 PaymentCancel의 책임이므로 포함하지 않는다.
- */
+/** 돈을 받는 주문의 목적을 구분한다. 환불은 PaymentCancel에 기록한다. */
 public enum PaymentPurpose {
-
-    // 최초 참가 신청에 대한 참가비 결제
+    /** 아직 확정하지 않은 참가자의 최초 참가비. */
     REGISTRATION_TRY,
-
-    // 기존 결제 이후 계약금액 증가 등에 따른 추가 결제
-    // ex. 단체신청 인원 추가, 신청내역 수정 추가금 등
-    ADDITIONAL_PAYMENT
+    /** 이미 참가가 확정된 참가자의 추가 납부액. */
+    ADDITIONAL_PAYMENT,
+    /** 최초 참가비와 기존 참가자의 추가 납부액을 함께 받는 단체 주문. */
+    MIXED_PAYMENT
 }

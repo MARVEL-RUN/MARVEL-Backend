@@ -26,7 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/public/events/{eventId}/registrations")
+@RequestMapping("/v1/public/events/{eventId}/registrations")
 public class OrgRegistrationCommandController {
 
     private final OrgRegistrationCommandService

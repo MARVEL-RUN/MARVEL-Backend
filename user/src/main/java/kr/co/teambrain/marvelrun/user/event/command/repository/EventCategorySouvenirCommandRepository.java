@@ -25,4 +25,20 @@ public interface EventCategorySouvenirCommandRepository
             @Param("eventCategoryId") String eventCategoryId,
             @Param("souvenirIds") Collection<String> souvenirIds
     );
+
+    /**
+     * 해당 종목에 매핑된 전체 기념품을 조회한다.
+     *
+     * 현재는 매핑된 기념품을 모두 신청 요청에 포함해야 하므로,
+     * 요청 기념품 ID나 활성 여부로 조회 대상을 제한하지 않는다.
+     */
+    @Query("""
+        select ecs
+        from EventCategorySouvenir ecs
+        join fetch ecs.souvenir
+        where ecs.eventCategory.id = :eventCategoryId
+        """)
+    List<EventCategorySouvenir> findAllMappingsByCategoryId(
+            @Param("eventCategoryId") String eventCategoryId
+    );
 }

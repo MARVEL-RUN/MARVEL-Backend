@@ -4,10 +4,14 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventVisibleStatus;
+import lombok.NoArgsConstructor;
+import lombok.experimental.SuperBuilder;
 
 import java.time.LocalDateTime;
 
 @Getter
+@SuperBuilder
+@NoArgsConstructor
 @MappedSuperclass
 public abstract class EventBase {
 
@@ -34,9 +38,6 @@ public abstract class EventBase {
     @Column(name = "organizer", nullable = false, length = 20)
     protected String organizer;
 
-    @Column(name = "regist_maximum", nullable = false)
-    protected Integer registMaximum;
-
     @Column(name = "events_page_url", nullable = true)
     protected String eventsPageUrl;
 
@@ -48,7 +49,7 @@ public abstract class EventBase {
     @Enumerated(EnumType.STRING)
     protected EventVisibleStatus visibleStatus = EventVisibleStatus.OPEN; // event의 메인 표기 여부 + 관련된 모든 요청 가능 여부에만 영향
 
-    @Column(name = "regist_start_date")
+    @Column(name = "regist_start_date", nullable = false)
     protected LocalDateTime registStartDate;
 
     @Column(name = "regist_deadline", nullable = false)

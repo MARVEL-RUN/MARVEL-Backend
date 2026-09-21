@@ -4,7 +4,7 @@ import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.TossPaymentStatus;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
-import kr.co.teambrain.marvelrun.user.payment.command.domain.Payment;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;

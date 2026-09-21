@@ -7,6 +7,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.validation.ObjectError;
@@ -19,9 +20,19 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+/** 업무·입력·저장 충돌을 기존 HTTP 오류 계약으로 변환한다. */
 @RestControllerAdvice
 @Slf4j
 public class GlobalExceptionHandler {
+
+    /** 동시 uniqueInfo 갱신의 최종 DB 충돌을 기존 중복 신청 오류로 변환한다. */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> handleRegistrationUniqueConflict(DataIntegrityViolationException exception) {
+        if (RegistrationUniqueConstraint.matches(exception)) {
+            return ErrorResponse.error(new CustomException(ErrorCode.REGISTRATION_ALREADY_EXISTS));
+        }
+        return handleException(exception);
+    }
 
     @ExceptionHandler(CustomException.class)
     public ResponseEntity<ErrorResponse> handleCustomException(CustomException e) {
@@ -202,6 +213,25 @@ public class GlobalExceptionHandler {
 //
 //        return ResponseEntity.badRequest().body(batchErrorResponse(List.of(me)));
 //    }
+
+
+    /**
+     * 낙관적 잠금 충돌을 상태 변경 경합으로 응답한다.
+     *
+     * 호출자는 현재 상태를 다시 조회해야 하며,
+     * 외부 결제 호출을 무조건 재시도해서는 안 된다.
+     */
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<ErrorResponse> handleOptimisticLockFailure(
+            ObjectOptimisticLockingFailureException exception
+    ) {
+        return ErrorResponse.error(
+                new CustomException(
+                        ErrorCode.CONCURRENT_MODIFICATION,
+                        exception
+                )
+        );
+    }
 
     private static <T extends Throwable> T findCause(Throwable t, Class<T> type) {
         Throwable cur = t;
