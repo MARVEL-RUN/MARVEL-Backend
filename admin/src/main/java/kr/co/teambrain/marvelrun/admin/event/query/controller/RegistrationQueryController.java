@@ -25,6 +25,9 @@ public class RegistrationQueryController {
     public ResponseEntity<Page<RegistrationListResponse>>
     getRegistrations(
 
+            @RequestParam(required = true) // 대회 식별자는 필수값으로 권장 (특정 대회를 누르고 들어오므로)
+            String eventId,
+
             @RequestParam(required = false)
             String type,
 
@@ -61,6 +64,7 @@ public class RegistrationQueryController {
 
         // 분리된 검색 파라미터들을 비즈니스 로직 전달을 위해 DTO로 응집
         RegistrationSearchCondition condition = new RegistrationSearchCondition(
+                eventId,
                 type,
                 eventCategoryId,
                 status,

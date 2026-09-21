@@ -44,10 +44,6 @@ cert:
   assets:
     base-uri: "classpath:/cert_assets/"  # 로컬 개발: resources/cert-assets/
 
-crypto:
-  aes:
-    secret-key: ${crypto.aes-secret-key}
-
 # swagger 설정
 springdoc:
   api-docs:
