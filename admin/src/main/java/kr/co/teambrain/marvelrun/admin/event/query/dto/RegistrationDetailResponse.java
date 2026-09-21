@@ -31,6 +31,11 @@ public record RegistrationDetailResponse(
         String address,               // 주소
         String addressDetail,          // 상세주소
         String organizationId,
-        LeaderInfoResponse leaderInfo
+        LeaderInfoResponse leaderInfo,
+
+        boolean termsEssentialAgreed, // 필수동의여부
+        boolean termsMarketingAgreed, // 마케팅동의여부
+        boolean termsMarketingChannelAgreed // 전송매체기반마케팅동의여부
+        
 ) {
 }

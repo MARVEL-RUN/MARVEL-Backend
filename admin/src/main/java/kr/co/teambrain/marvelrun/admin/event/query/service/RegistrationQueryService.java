@@ -102,7 +102,7 @@ public class RegistrationQueryService {
                 .orElse(null);
 
         String marketingConsent = "N";
-        if (Boolean.TRUE.equals(registration.getActiveUniqueInfo())) {
+        if (Boolean.TRUE.equals(registration.getTermsMarketingAgreed())) {
             marketingConsent = "Y";
         }
 
@@ -231,6 +231,9 @@ public class RegistrationQueryService {
                 .leaderInfo(
                         leaderInfoResponse
                 )
+                .termsEssentialAgreed(registration.getTermsEssentialAgreed())
+                .termsMarketingAgreed(registration.getTermsMarketingAgreed())
+                .termsMarketingChannelAgreed(registration.getTermsMarketingChannelAgreed())
                 .build();
     }
 }
