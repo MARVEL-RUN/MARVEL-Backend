@@ -10,7 +10,7 @@ import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationSearchConditi
 import kr.co.teambrain.marvelrun.admin.event.query.repository.PaymentQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.util.RegistrationSpecification;
-import kr.co.teambrain.marvelrun.common.crypto.CryptoUtils;
+//import kr.co.teambrain.marvelrun.common.crypto.CryptoUtils;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import lombok.RequiredArgsConstructor;
@@ -29,7 +29,7 @@ public class RegistrationQueryService {
 
     private final RegistrationQueryRepository registrationQueryRepository;
     private final PaymentQueryRepository paymentQueryRepository;
-    private final CryptoUtils cryptoUtils;
+//    private final CryptoUtils cryptoUtils;
 
     public Page<RegistrationListResponse> getRegistrationList(RegistrationSearchCondition condition, Pageable pageable) {
 
