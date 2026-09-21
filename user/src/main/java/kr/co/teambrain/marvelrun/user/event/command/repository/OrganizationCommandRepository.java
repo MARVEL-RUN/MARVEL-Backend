@@ -28,4 +28,6 @@ public interface OrganizationCommandRepository
     );
 
     boolean existsByGroupNameAndEventId(String groupName, String eventId);
+
+    boolean existsByLoginIdAndEventId(String groupName, String eventId);
 }

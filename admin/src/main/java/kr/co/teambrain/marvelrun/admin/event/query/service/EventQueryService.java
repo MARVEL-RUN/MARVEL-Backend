@@ -1,7 +1,9 @@
 package kr.co.teambrain.marvelrun.admin.event.query.service;
 
-import kr.co.teambrain.marvelrun.admin.event.command.domain.Event;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.EventCategoryResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.EventListResponse;
+import kr.co.teambrain.marvelrun.admin.event.query.repository.EventCategoryQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.EventQueryRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -17,6 +19,7 @@ import java.util.stream.Collectors;
 public class EventQueryService {
 
     private final EventQueryRepository eventQueryRepository;
+    private final EventCategoryQueryRepository eventCategoryQueryRepository;
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy.MM.dd");
 
     /**
@@ -44,4 +47,14 @@ public class EventQueryService {
                 .registrationPeriod(registrationPeriod)
                 .build();
     }
+
+    public List<EventCategoryResponse> getEventCategories(String eventId) {
+        return eventCategoryQueryRepository.findAllByEvent_IdOrderByOrderAsc(eventId).stream()
+                .map(category -> EventCategoryResponse.builder()
+                        .id(category.getId())
+                        .name(category.getName()) // EventCategoryBase의 name 필드 사용[cite: 15]
+                        .build())
+                .collect(Collectors.toList());
+    }
+
 }

@@ -78,10 +78,12 @@ public class OrgRegistrationCommandService {
 
 
     @Transactional(readOnly = true)
-    public OrgNameExistResponse checkExistsGroupName(String groupName, String eventId) {
+    public OrgNameExistResponse checkExistsGroupInfo(String groupName, String loginId, String eventId) {
         return OrgNameExistResponse.fromRawValue(
                 groupName,
-                organizationCommandRepository.existsByGroupNameAndEventId(groupName, eventId)
+                organizationCommandRepository.existsByGroupNameAndEventId(groupName, eventId),
+                loginId,
+                organizationCommandRepository.existsByLoginIdAndEventId(groupName, eventId)
         );
     }
 

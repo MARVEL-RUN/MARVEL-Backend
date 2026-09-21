@@ -59,10 +59,11 @@ public class OrgRegistrationCommandController {
     @GetMapping("/organization/duplicate-id-check")
     public ResponseEntity<?> registerOrganization(
             @PathVariable String eventId,
-            @RequestParam String groupName
+            @RequestParam("groupName") String groupName,
+            @RequestParam("groupLoginId") String loginId
     ) {
         return ResponseEntity
                 .status(HttpStatus.OK)
-                .body(orgRegistrationCommandService.checkExistsGroupName(groupName, eventId));
+                .body(orgRegistrationCommandService.checkExistsGroupInfo(groupName, loginId, eventId));
     }
 }

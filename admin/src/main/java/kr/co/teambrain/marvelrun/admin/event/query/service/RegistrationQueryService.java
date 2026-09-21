@@ -5,9 +5,11 @@ import java.util.stream.Collectors;
 
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
-import kr.co.teambrain.marvelrun.admin.event.command.domain.Payment;
-import kr.co.teambrain.marvelrun.admin.event.command.domain.Registration;
+
 import kr.co.teambrain.marvelrun.admin.event.query.repository.SouvenirQueryRepository;
+
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Payment;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.LeaderInfoResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationDetailResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationListResponse;
@@ -15,8 +17,9 @@ import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationSearchConditi
 import kr.co.teambrain.marvelrun.admin.event.query.repository.PaymentQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.util.RegistrationSpecification;
-import kr.co.teambrain.marvelrun.admin.user.command.domain.Organization;
+import kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -76,6 +79,7 @@ public class RegistrationQueryService {
     }
 
     private RegistrationListResponse convertToDto(Registration registration, long listNumber, Map<String, String> souvenirNames) {
+
         boolean isOrganization = registration.getOrganization() != null;
         String type = isOrganization ? "단체" : "개인";
 
@@ -94,12 +98,18 @@ public class RegistrationQueryService {
             );
         }
 
+        Payment payment = paymentQueryRepository.findFirstByRegistrationIdOrderByCreatedAtDesc(registration.getId())
+                .orElse(null);
+
         String marketingConsent = "N";
         if (Boolean.TRUE.equals(registration.getActiveUniqueInfo())) {
             marketingConsent = "Y";
         }
 
         String genderStr = registration.getGender() == GenderClass.M ? "남성" : "여성";
+        String statusStr = (payment != null && payment.getProcessStatus() == PaymentProcessStatus.UNKNOWN)
+                ? PaymentProcessStatus.UNKNOWN.name()
+                : registration.getStatus().name();
 
         return RegistrationListResponse.builder()
                 .registrationId(registration.getId())
@@ -113,7 +123,7 @@ public class RegistrationQueryService {
                 .souvenirName(souvenirName)
                 .phoneNumber(plainPhone)
                 .marketingConsent(marketingConsent)
-                .status(registration.getStatus().name())
+                .status(statusStr)
                 .createdAt(registration.getRegistrationDate())
                 .build();
     }
@@ -188,6 +198,11 @@ public class RegistrationQueryService {
 
         // 결제 정보 널 체크[cite: 10]
         String orderId = payment != null ? payment.getOrderId() : "-";
+
+        String paymentStatus = (payment != null && payment.getProcessStatus() == PaymentProcessStatus.UNKNOWN)
+                ? PaymentProcessStatus.UNKNOWN.name()
+                : registration.getStatus().name();
+
         String paymentMethod = payment != null && payment.getPaymentMethod() != null
                 ? payment.getPaymentMethod().name() : "-";
 
@@ -209,7 +224,7 @@ public class RegistrationQueryService {
                 .amount(registration.getContractAmount())
                 .orderId(orderId)
                 .paymentMethod(paymentMethod)
-                .paymentStatus(registration.getStatus().name())
+                .paymentStatus(paymentStatus)
                 .address(registration.getAddress() != null ? registration.getAddress() : "-")
                 .addressDetail(registration.getAddressDetail() != null ? registration.getAddressDetail() : "-")
                 .organizationId(organizationId)

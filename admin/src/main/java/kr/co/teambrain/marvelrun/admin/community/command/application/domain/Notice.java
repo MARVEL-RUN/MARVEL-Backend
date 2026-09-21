@@ -4,7 +4,7 @@ package kr.co.teambrain.marvelrun.admin.community.command.application.domain;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import kr.co.teambrain.marvelrun.admin.auth.command.application.domain.Admin;
-import kr.co.teambrain.marvelrun.admin.event.command.domain.Event;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.common.entity.NoticeBase;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
