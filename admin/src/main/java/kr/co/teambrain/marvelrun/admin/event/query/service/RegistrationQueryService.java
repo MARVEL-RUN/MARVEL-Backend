@@ -8,12 +8,14 @@ import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.event.command.domain.Payment;
 import kr.co.teambrain.marvelrun.admin.event.command.domain.Registration;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.SouvenirQueryRepository;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.LeaderInfoResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationDetailResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationListResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationSearchCondition;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.PaymentQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.util.RegistrationSpecification;
+import kr.co.teambrain.marvelrun.admin.user.command.domain.Organization;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import lombok.RequiredArgsConstructor;
@@ -139,9 +141,22 @@ public class RegistrationQueryService {
         // 이메일 추출: 단체면 단체 대표 이메일, 개인이면 유저 이메일
         String email = null;
         String organizationId = null;
+
+        LeaderInfoResponse leaderInfoResponse = null;
         if (isOrganization) {
-            email = registration.getOrganization().getEmail();
-            organizationId = registration.getOrganization().getId();
+            Organization targetOrganization = registration.getOrganization();
+
+            email = targetOrganization.getEmail();
+            organizationId = targetOrganization.getId();
+
+            leaderInfoResponse = new LeaderInfoResponse(
+                    targetOrganization.getGroupName(),
+                    targetOrganization.getLeaderName(),
+                    targetOrganization.getLeaderBirth(),
+                    targetOrganization.getLeaderPhNum(),
+                    targetOrganization.getAddress(),
+                    targetOrganization.getAddressDetail()
+            );
         } else if (registration.getUser() != null) {
             email = registration.getUser().getEmail();
         }
@@ -196,6 +211,9 @@ public class RegistrationQueryService {
                 .paymentStatus(registration.getStatus().name())
                 .address(registration.getAddress() != null ? registration.getAddress() : "-")
                 .addressDetail(registration.getAddressDetail() != null ? registration.getAddressDetail() : "-")
+                .leaderInfo(
+                        leaderInfoResponse
+                )
                 .build();
     }
 }

@@ -28,6 +28,7 @@ public record RegistrationDetailResponse(
         String paymentStatus,         // 결제여부
         String address,               // 주소
         String addressDetail,          // 상세주소
-        String organizationId
+        String organizationId,
+        LeaderInfoResponse leaderInfo
 ) {
 }
