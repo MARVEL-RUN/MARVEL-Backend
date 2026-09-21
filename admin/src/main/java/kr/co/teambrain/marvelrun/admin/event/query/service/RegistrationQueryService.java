@@ -154,8 +154,18 @@ public class RegistrationQueryService {
         String souvenirSize = "-";
         List<SouvenirJson> souvenirs = registration.getSouvenirJson();
         if (souvenirs != null && !souvenirs.isEmpty()) {
-            souvenirName = souvenirs.get(0).souvenirId(); // 추후 Souvenir 이름 매핑 필요
-            souvenirSize = souvenirs.get(0).selectedSize() != null ? souvenirs.get(0).selectedSize() : "-";
+            SouvenirJson selected = souvenirs.get(0);
+
+            souvenirName = souvenirQueryRepository
+                    .findNamesByIds(List.of(selected.souvenirId()))
+                    .stream()
+                    .map(SouvenirQueryRepository.SouvenirNameProjection::getName)
+                    .findFirst()
+                    .orElse("-");
+
+            souvenirSize = selected.selectedSize() != null
+                    ? selected.selectedSize()
+                    : "-";
         }
 
         // 보호자 정보 널 체크
