@@ -56,6 +56,7 @@ public class Registration extends RegistrationBase<
         this.gender = request.gender();
         this.address = request.address();
         this.addressDetail = request.addressDetail();
+        this.guardianPhNum = request.guardianPhNum();
     }
 
     public static Registration createForPaymentMvp(
@@ -300,8 +301,7 @@ public class Registration extends RegistrationBase<
         this.addressDetail = request.addressDetail();
 
         this.guardianName = normalizedGuardianName;
-        this.guardianConsent =
-                Boolean.TRUE.equals(request.guardianConsent());
+        this.guardianPhNum = request.guardianPhNum();
 
         this.contractAmount = newContractAmount;
     }

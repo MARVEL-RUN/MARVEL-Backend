@@ -15,6 +15,7 @@ import java.util.List;
  *
  * access는 현재 신청 소유권 확인에만 사용하고,
  * 나머지 필드는 검증 이후 적용될 수정 후보값이다.
+ * 보호자 동의는 수정 입력으로 받지 않고 기존 저장값을 유지한다.
  */
 public record RegistrationModificationRequest(
 
@@ -51,6 +52,7 @@ public record RegistrationModificationRequest(
         @Size(max = 50)
         String guardianName,
 
-        Boolean guardianConsent
+        @Size(max = 14)
+        String guardianPhNum
 ) {
 }

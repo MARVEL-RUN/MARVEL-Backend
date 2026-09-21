@@ -8,36 +8,43 @@ import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.Orga
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationAccessRequest;
 import java.util.Objects;
 
-/** 수정과 금융 요청에서 동일하게 사용하는 현재 저장값 기반 본인확인이다. */
+/** 엔티티와 조회 프로젝션이 같은 저장값 비교 계약으로 본인확인을 수행한다. */
 public final class RegistrationAccessVerifier {
-    /** 정적 검증 책임만 제공한다. */
+    /** 공통 정적 검증만 제공한다. */
     private RegistrationAccessVerifier() { }
 
-    /** 기존 개인 인증 계약을 유지하며 누락된 입력은 인증 성공으로 취급하지 않는다. */
+    /** 기존 수정·금융 호출의 개인 인증 시그니처를 유지한다. */
     public static void verifyPersonal(Registration registration, RegistrationAccessRequest access) {
-        if (registration == null || access == null
-                || blank(access.name()) || blank(access.birth())
+        if (registration == null) { throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED); }
+        verifyPersonal(registration.getName(), registration.getBirth(), registration.getPhNum(),
+                registration.getPassword(), access);
+    }
+
+    /** 프로젝션의 개인 저장값으로 인증하며 조회를 위해 엔티티를 다시 가져오지 않는다. */
+    public static void verifyPersonal(String name, String birth, String phNum, String password,
+            RegistrationAccessRequest access) {
+        if (access == null || blank(access.name()) || blank(access.birth())
                 || blank(access.phNum()) || blank(access.password())
-                || !Objects.equals(registration.getName(), access.name())
-                || !Objects.equals(registration.getBirth(), access.birth())
-                || !Objects.equals(registration.getPhNum(), access.phNum())
-                || !Objects.equals(registration.getPassword(), access.password())) {
+                || !Objects.equals(name, access.name()) || !Objects.equals(birth, access.birth())
+                || !Objects.equals(phNum, access.phNum()) || !Objects.equals(password, access.password())) {
             throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
         }
     }
 
-    /** 기존 단체 로그인 정보 비교 계약을 공통으로 사용한다. */
+    /** 기존 수정·금융 호출의 단체 인증 시그니처를 유지한다. */
     public static void verifyOrganization(Organization organization, OrganizationAccessRequest access) {
-        if (organization == null || access == null
-                || blank(access.loginId()) || blank(access.password())
-                || !Objects.equals(organization.getLoginId(), access.loginId())
-                || !Objects.equals(organization.getPassword(), access.password())) {
+        if (organization == null) { throw new CustomException(ErrorCode.ORGANIZATION_ACCESS_DENIED); }
+        verifyOrganization(organization.getLoginId(), organization.getPassword(), access);
+    }
+
+    /** 단체 프로젝션의 로그인 저장값으로 기존과 동일하게 인증한다. */
+    public static void verifyOrganization(String loginId, String password, OrganizationAccessRequest access) {
+        if (access == null || blank(access.loginId()) || blank(access.password())
+                || !Objects.equals(loginId, access.loginId()) || !Objects.equals(password, access.password())) {
             throw new CustomException(ErrorCode.ORGANIZATION_ACCESS_DENIED);
         }
     }
 
-    /** 인증 입력의 누락을 판정한다. */
-    private static boolean blank(String value) {
-        return value == null || value.isBlank();
-    }
+    /** 외부 인증 입력의 필수 값만 확인한다. */
+    private static boolean blank(String value) { return value == null || value.isBlank(); }
 }

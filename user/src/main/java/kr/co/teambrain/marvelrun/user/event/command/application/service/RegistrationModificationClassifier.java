@@ -31,7 +31,8 @@ public class RegistrationModificationClassifier {
     }
 
     /**
-     * 개인 신청을 비교한다. 보호자 값은 실제 참가 정책 입력이므로 변경 시 전체 수정이다.
+     * 개인 신청을 비교한다. 보호자 이름은 정책 입력이고 전화번호만의 변경은 개인정보 수정이다.
+     * 보호자 동의는 수정 요청에 없으므로 변경 판정에서 제외한다.
      * access는 인증 입력이며 비교에서 제외한다. 주소의 null은 기존처럼 삭제할 최종값이다.
      */
     public Change classifyPersonal(Registration current, RegistrationModificationRequest request) {
@@ -40,15 +41,15 @@ public class RegistrationModificationClassifier {
         }
         if (policyFieldsChanged(current, request.eventCategoryId(), request.birth(),
                 request.selectedSouvenirList())
-                || !Objects.equals(current.getGuardianName(), normalizeGuardianName(request.guardianName()))
-                || current.isGuardianConsent() != Boolean.TRUE.equals(request.guardianConsent())) {
+                || !Objects.equals(current.getGuardianName(), normalizeGuardianName(request.guardianName()))) {
             return Change.FULL;
         }
         boolean changed = !Objects.equals(current.getName(), request.name())
                 || !Objects.equals(current.getPhNum(), request.phNum())
                 || current.getGender() != request.gender()
                 || !Objects.equals(current.getAddress(), request.address())
-                || !Objects.equals(current.getAddressDetail(), request.addressDetail());
+                || !Objects.equals(current.getAddressDetail(), request.addressDetail())
+                || !Objects.equals(current.getGuardianPhNum(), request.guardianPhNum());
         return changed ? Change.PERSONAL_INFORMATION : Change.NONE;
     }
 

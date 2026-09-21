@@ -102,7 +102,7 @@ public class RegistrationModificationCandidateValidator
         RegistrationPolicyValidationResult validated =
                 validateParticipantSelection(
                         accessContext.event(),
-                        toPolicyInput(request),
+                        toPolicyInput(request, currentRegistration.isGuardianConsent()),
                         selections,
                         policies,
                         accessContext.now().toLocalDate()
@@ -119,12 +119,13 @@ public class RegistrationModificationCandidateValidator
     }
 
     /**
-     * 개인 수정 후보값에서 참가 정책검증에 필요한 값만 추출한다.
+     * 개인 수정 후보값과 기존 보호자 동의로 참가 정책 입력을 구성한다.
      *
      * 소유권 확인용 access와 비밀번호는 정책 입력에 포함하지 않는다.
      */
     private RegistrationPolicySelection toPolicyInput(
-            RegistrationModificationRequest request
+            RegistrationModificationRequest request,
+            boolean storedGuardianConsent
     ) {
         return new RegistrationPolicySelection(
                 request.eventCategoryId(),
@@ -132,7 +133,7 @@ public class RegistrationModificationCandidateValidator
                 new RegistrationPolicyInput(
                         request.birth(),
                         request.guardianName(),
-                        request.guardianConsent()
+                        storedGuardianConsent
                 )
         );
     }
