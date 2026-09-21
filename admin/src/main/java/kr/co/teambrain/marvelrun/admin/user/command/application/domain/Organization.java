@@ -18,4 +18,8 @@ public class Organization extends OrganizationBase<Event> {
     public void resetPasswordByAdmin(String newPassword) {
         this.password = newPassword;
     }
+
+    public void resetLoginIdByAdmin(String newLoginId) {
+        this.loginId = newLoginId;
+    }
 }
