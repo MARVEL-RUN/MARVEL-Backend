@@ -197,11 +197,13 @@ public class RegistrationQueryService {
 
         // 결제 정보 널 체크[cite: 10]
         String orderId = payment != null ? payment.getOrderId() : "-";
-        String paymentStatus = payment != null ? payment.getProcessStatus().name() : "-";
 
-        String paymentMethod = (payment != null && payment.getProcessStatus() == PaymentProcessStatus.UNKNOWN)
+        String paymentStatus = (payment != null && payment.getProcessStatus() == PaymentProcessStatus.UNKNOWN)
                 ? PaymentProcessStatus.UNKNOWN.name()
                 : registration.getStatus().name();
+
+        String paymentMethod = payment != null && payment.getPaymentMethod() != null
+                ? payment.getPaymentMethod().name() : "-";
 
         return RegistrationDetailResponse.builder()
                 .name(registration.getName())
