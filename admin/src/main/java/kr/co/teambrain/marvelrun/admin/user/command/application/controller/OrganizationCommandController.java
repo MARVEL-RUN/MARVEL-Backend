@@ -24,7 +24,7 @@ public class OrganizationCommandController {
         return ResponseEntity.noContent().build();
     }
 
-    @PostMapping("/{organizationId}/password")
+    @PutMapping("/{organizationId}/loginId")
     public ResponseEntity<?> resetOrganizationLoginId(
             @PathVariable String organizationId,
             @Valid @RequestBody LoginIdResetRequest request
