@@ -80,6 +80,7 @@ public class RegistrationQueryService {
     }
 
     private RegistrationListResponse convertToDto(Registration registration, long listNumber, Map<String, String> souvenirNames) {
+
         boolean isOrganization = registration.getOrganization() != null;
         String type = isOrganization ? "단체" : "개인";
 
@@ -98,12 +99,16 @@ public class RegistrationQueryService {
             );
         }
 
+        Payment payment = paymentQueryRepository.findFirstByRegistrationIdOrderByCreatedAtDesc(registration.getId())
+                .orElse(null);
+
         String marketingConsent = "N";
         if (Boolean.TRUE.equals(registration.getActiveUniqueInfo())) {
             marketingConsent = "Y";
         }
 
         String genderStr = registration.getGender() == GenderClass.M ? "남성" : "여성";
+        String statusStr = payment != null ? payment.getProcessStatus().name() : "-";
 
         return RegistrationListResponse.builder()
                 .registrationId(registration.getId())
@@ -117,7 +122,7 @@ public class RegistrationQueryService {
                 .souvenirName(souvenirName)
                 .phoneNumber(plainPhone)
                 .marketingConsent(marketingConsent)
-                .status(registration.getStatus().name())
+                .status(statusStr)
                 .createdAt(registration.getRegistrationDate())
                 .build();
     }
