@@ -10,7 +10,9 @@ public enum ErrorCode {
             HttpStatus.NOT_FOUND,
             "문의글을 찾을 수 없습니다."
     ),
-
+    REGISTRATION_NOT_FOUND(
+            HttpStatus.NOT_FOUND,
+            "해당 신청 내역을 찾을 수 없습니다."),
     ANSWER_NOT_FOUND(
             HttpStatus.NOT_FOUND,
             "답변을 찾을 수 없습니다."

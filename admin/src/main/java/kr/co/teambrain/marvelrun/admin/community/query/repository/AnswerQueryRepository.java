@@ -1,7 +1,7 @@
 package kr.co.teambrain.marvelrun.admin.community.query.repository;
 
 import kr.co.teambrain.marvelrun.admin.community.command.application.domain.Answer;
-import kr.co.teambrain.marvelrun.admin.community.query.dto.AdminAnswerDetailProjection;
+import kr.co.teambrain.marvelrun.admin.community.query.dto.projection.AdminAnswerDetailProjection;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
