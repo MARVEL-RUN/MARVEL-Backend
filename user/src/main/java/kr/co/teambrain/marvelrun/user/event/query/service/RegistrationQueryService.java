@@ -64,7 +64,7 @@ public class RegistrationQueryService {
                     refunds.stream().filter(r -> ownIds.contains(r.paymentId())).toList(), row.paymentDeadline(), now);
             result.add(new RegistrationQueryResponse(row.id(), row.name(), row.birth(), row.phNum(), row.gender(),
                     row.categoryId(), row.categoryName(), selections(row, names), row.address(), row.addressDetail(),
-                    row.guardianName(), row.guardianPhNum(), row.status(), row.contractAmount(), row.paidAmount(),
+                    row.guardianConsent(), row.guardianName(), row.guardianPhNum(), row.guardianRelationShip(), row.status(), row.contractAmount(), row.paidAmount(),
                     payment.status(), payment.refundStatus(), payment.action(), payment.warning(), payment.paymentId(), payment.orderId()));
         }
         return List.copyOf(result);

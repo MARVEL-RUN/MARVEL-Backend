@@ -12,7 +12,15 @@ public record RegistrationQueryResponse(
         String registrationId, String name, String birth, String phNum, GenderClass gender,
         String eventCategoryId, String eventCategoryName,
         List<RegistrationSouvenirResponse> selectedSouvenirList,
-        String address, String addressDetail, String guardianName, String guardianPhNum,
+        String address, String addressDetail,
+
+        boolean guardianConsent,
+
+        String guardianName,
+
+        String guardianPhNum,
+        String guardianRelationship,
+
         RegistrationStatus registrationStatus,
         BigDecimal totalAmount, BigDecimal paidAmount,
         PaymentProcessStatus paymentStatus, PaymentCancelStatus refundStatus,

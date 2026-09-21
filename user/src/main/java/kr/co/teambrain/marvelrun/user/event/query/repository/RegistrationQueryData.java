@@ -21,7 +21,7 @@ public final class RegistrationQueryData {
     public record Member(String id, String name, String birth, String phNum, String password,
             GenderClass gender, String categoryId, String categoryName,
             List<SouvenirJson> souvenirs, String address, String addressDetail,
-            GuardianBase guardianBase, String guardianName, String guardianPhNum,
+            GuardianBase guardianBase, boolean guardianConsent, String guardianName, String guardianPhNum, String guardianRelationShip,
             RegistrationStatus status, BigDecimal contractAmount, BigDecimal paidAmount,
             boolean deleted, ReservationStatus reservationStatus, LocalDateTime paymentDeadline) { }
 
