@@ -370,36 +370,31 @@ public class Registration extends RegistrationBase<
         this.gender = request.gender();
     }
 
-    /**
-     * 자원 반환을 마친 단체 구성원을 활성 참가 목록에서 제거한다.
-     *
-     * 참가 의무가 없어지므로 현재 계약금액은 0으로 변경한다.
-     * 실제 순결제금액과 Organization 연결은 환불 추적을 위해 보존한다.
-     *
-     * 순결제금액이 남아 있으면 취소 후속 처리 대기 상태로 둔다.
-     * 결제금액이 없으면 참가 취소를 완료한다.
-     */
+    /** 단체 일부 제거의 기존 호출 계약을 유지하며 공통 참가 취소 상태 전이를 사용한다. */
     public void removeFromOrganization() {
         if (organization == null || softDeleted) {
-            throw new CustomException(
-                    ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET,
-                    " 활성 단체 구성원만 제거할 수 있습니다."
-            );
+            throw new CustomException(ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET,
+                    "활성 단체 구성원만 제거할 수 있습니다.");
         }
+        cancelParticipation();
+    }
 
+    /**
+     * 자원 반환을 마친 신청의 참가 의무를 없애고 실제 환불 완료까지 순납부액을 보존한다.
+     * 호출자는 같은 트랜잭션에서 인증·충돌 검증·예약 반환을 먼저 완료해야 한다.
+     * 개인과 단체의 소속 및 과거 결제 원장은 변경하지 않는다.
+     */
+    public void cancelParticipation() {
+        if (softDeleted) {
+            throw new CustomException(ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET);
+        }
         if (paidAmount == null || paidAmount.signum() < 0) {
-            throw new CustomException(
-                    ErrorCode.REGISTRATION_FINANCIAL_STATE_INVALID,
-                    " 신청의 순결제금액이 없거나 음수입니다."
-            );
+            throw new CustomException(ErrorCode.REGISTRATION_FINANCIAL_STATE_INVALID);
         }
-
         this.softDeleted = true;
         this.contractAmount = BigDecimal.ZERO;
-
         this.status = paidAmount.signum() > 0
-                ? RegistrationStatus.CANCELLATION_PENDING
-                : RegistrationStatus.CANCELED;
+                ? RegistrationStatus.CANCELLATION_PENDING : RegistrationStatus.CANCELED;
     }
 
     /**

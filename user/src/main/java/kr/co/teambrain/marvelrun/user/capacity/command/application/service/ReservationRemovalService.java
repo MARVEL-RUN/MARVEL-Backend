@@ -18,7 +18,7 @@ import java.time.LocalDateTime;
 import java.util.*;
 
 /**
- * 단체에서 제거하는 참가자의 실제 자원 점유를 반환한다.
+ * 개인 참가 취소와 단체 구성원 제거·전체 취소의 실제 자원 점유를 반환한다.
  *
  * 결제 처리와 Registration 삭제는 수행하지 않는다.
  * 호출자는 소유권과 금융 충돌을 검증하고 같은 Tx에서 호출해야 한다.
@@ -124,7 +124,7 @@ public class ReservationRemovalService {
                     ReservationHistoryEntry.Action.RELEASE,
                     now,
                     null,
-                    "단체 구성원 제거에 따른 자원 반환",
+                    "참가 취소 또는 단체 구성원 제거에 따른 자원 반환",
                     List.of()
             );
 

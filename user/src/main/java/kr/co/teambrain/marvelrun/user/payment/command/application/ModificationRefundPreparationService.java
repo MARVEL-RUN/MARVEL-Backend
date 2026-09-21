@@ -18,7 +18,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.*;
 
-/** 기존 FULL 수정 트랜잭션에 환불 시도·귀속·추적 로그 저장을 연결한다. Toss는 호출하지 않는다. */
+/** 신청 수정·참가 취소 트랜잭션에 환불 시도·귀속·추적 로그 저장을 연결한다. Toss는 호출하지 않는다. */
 @Service
 @RequiredArgsConstructor
 @Transactional(propagation = Propagation.MANDATORY)
@@ -54,8 +54,13 @@ public class ModificationRefundPreparationService {
         String correlationId = UUID.randomUUID().toString();
         List<Refund> result = new ArrayList<>();
         for (RefundPreparationPlan plan : plans) {
-            PaymentCancel cancellation = cancelRepository.save(PaymentCancel.preparePriceAdjustment(
-                    plan.payment(), plan.amount(), plan.type(), "refund-" + UUID.randomUUID()));
+            boolean participationCancellation = plan.targets().stream()
+                    .allMatch(target -> target.originalAllocation().getRegistration().isSoftDeleted());
+            String idempotencyKey = "refund-" + UUID.randomUUID();
+            PaymentCancel prepared = participationCancellation
+                    ? PaymentCancel.prepareRegistrationCancellation(plan.payment(), plan.amount(), plan.type(), idempotencyKey)
+                    : PaymentCancel.preparePriceAdjustment(plan.payment(), plan.amount(), plan.type(), idempotencyKey);
+            PaymentCancel cancellation = cancelRepository.save(prepared);
             allocationCreator.create(cancellation, plan.targets());
             logRepository.save(PaymentProcessLog.builder()
                     .paymentId(plan.payment().getId()).paymentCancelId(cancellation.getId())

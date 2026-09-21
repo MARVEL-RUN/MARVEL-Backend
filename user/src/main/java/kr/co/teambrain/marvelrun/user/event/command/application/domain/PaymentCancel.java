@@ -52,6 +52,15 @@ public class PaymentCancel
                 .idempotencyKey(idempotencyKey).build();
     }
 
+    /** 동일한 금액·원결제 검증을 사용하고 참가 자체 취소 목적과 PG 전송 사유를 기록한다. */
+    public static PaymentCancel prepareRegistrationCancellation(
+            Payment payment, BigDecimal amount, PaymentCancelType type, String idempotencyKey) {
+        PaymentCancel prepared = preparePriceAdjustment(payment, amount, type, idempotencyKey);
+        prepared.purpose = PaymentCancelPurpose.REGISTRATION_CANCELLATION;
+        prepared.cancelReason = "참가 취소에 따른 잔여 납부액 환불";
+        return prepared;
+    }
+
     /** 준비된 시도 하나만 외부 전송 대상으로 획득한다. 이미 시작한 시도는 재전송하지 않는다. */
     public boolean startRefund(java.time.LocalDateTime now) {
         if (status != PaymentCancelStatus.PROCESSING || requestedAt != null) { return false; }
