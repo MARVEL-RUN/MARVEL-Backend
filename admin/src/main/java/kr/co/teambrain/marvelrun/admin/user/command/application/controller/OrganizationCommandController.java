@@ -27,12 +27,11 @@ public class OrganizationCommandController {
     @GetMapping("/organization/duplicate-id-check")
     public ResponseEntity<?> registerOrganization(
             @RequestParam("eventId") String eventId,
-            @RequestParam("groupName") String groupName,
             @RequestParam("groupLoginId") String loginId
     ) {
         return ResponseEntity
                 .status(HttpStatus.OK)
-                .body(organizationCommandService.checkExistsGroupInfo(groupName, loginId, eventId));
+                .body(organizationCommandService.checkExistsGroupInfo(loginId, eventId));
     }
 
 }
