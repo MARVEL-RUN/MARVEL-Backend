@@ -81,7 +81,7 @@ public class OrgRegistrationCommandService {
     public OrgInfoExistResponse checkExistsLoginId(String requestValue, String eventId) {
         return OrgInfoExistResponse.fromRawValue(
                 requestValue,
-                organizationCommandRepository.existsByGroupNameAndEventId(requestValue, eventId)
+                organizationCommandRepository.existsByLoginIdAndEventId(requestValue, eventId)
         );
     }
 
