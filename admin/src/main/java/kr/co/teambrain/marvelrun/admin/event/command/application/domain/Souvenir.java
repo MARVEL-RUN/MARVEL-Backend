@@ -1,8 +1,8 @@
-package kr.co.teambrain.marvelrun.admin.event.command.domain;
+package kr.co.teambrain.marvelrun.admin.event.command.application.domain;
 
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
-import kr.co.teambrain.marvelrun.common.entity.EventBase;
+import kr.co.teambrain.marvelrun.common.entity.SouvenirBase;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -10,7 +10,7 @@ import static lombok.AccessLevel.PROTECTED;
 
 @Getter
 @Entity
-@Table(name = "event")
+@Table(name = "souvenir")
 @NoArgsConstructor(access = PROTECTED)
-public class Event extends EventBase {
+public class Souvenir extends SouvenirBase<Event> {
 }

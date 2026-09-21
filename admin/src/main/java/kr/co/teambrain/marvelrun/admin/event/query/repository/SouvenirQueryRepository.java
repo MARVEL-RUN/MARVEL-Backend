@@ -1,6 +1,6 @@
-package kr.co.teambrain.marvelrun.admin.event.command.repository;
+package kr.co.teambrain.marvelrun.admin.event.query.repository;
 
-import kr.co.teambrain.marvelrun.admin.event.command.domain.Souvenir;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Souvenir;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
