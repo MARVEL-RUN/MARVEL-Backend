@@ -1,4 +1,4 @@
-package kr.co.teambrain.marvelrun.admin.community.query.dto;
+package kr.co.teambrain.marvelrun.admin.community.query.dto.projection;
 
 import java.time.LocalDateTime;
 
