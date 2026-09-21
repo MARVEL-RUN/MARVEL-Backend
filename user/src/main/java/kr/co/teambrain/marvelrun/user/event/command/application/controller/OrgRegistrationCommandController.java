@@ -57,13 +57,22 @@ public class OrgRegistrationCommandController {
     }
 
     @GetMapping("/organization/duplicate-id-check")
-    public ResponseEntity<?> registerOrganization(
+    public ResponseEntity<?> duplicateIdCheck(
             @PathVariable String eventId,
-            @RequestParam("groupName") String groupName,
             @RequestParam("groupLoginId") String loginId
     ) {
         return ResponseEntity
                 .status(HttpStatus.OK)
-                .body(orgRegistrationCommandService.checkExistsGroupInfo(groupName, loginId, eventId));
+                .body(orgRegistrationCommandService.checkExistsLoginId(loginId, eventId));
+    }
+
+    @GetMapping("/organization/duplicate-name-check")
+    public ResponseEntity<?> duplicateNameCheck(
+            @PathVariable String eventId,
+            @RequestParam("groupName") String groupName
+    ) {
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(orgRegistrationCommandService.checkExistsGroupName(groupName, eventId));
     }
 }
