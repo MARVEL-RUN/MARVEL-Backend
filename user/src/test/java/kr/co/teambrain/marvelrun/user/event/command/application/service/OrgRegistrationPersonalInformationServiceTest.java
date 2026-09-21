@@ -153,7 +153,7 @@ class OrgRegistrationPersonalInformationServiceTest {
     void invalidInputAndAccessFailBeforeLocks() {
         expect(ErrorCode.INVALID_REGISTRATION_MODIFICATION_ARGUMENT, request(participant("a", " ", "c"), participant("b", "b", "c")));
         expect(ErrorCode.ORGANIZATION_ACCESS_DENIED, new OrgRegistrationModificationRequest(
-                new OrganizationAccessRequest("wrong", "Test1234!"), List.of(participant("a", "a", "c"), participant("b", "b", "c"))));
+                true, new OrganizationAccessRequest("wrong", "Test1234!"), List.of(participant("a", "a", "c"), participant("b", "b", "c"))));
         verifyNoInteractions(entityManager);
     }
 
@@ -194,7 +194,7 @@ class OrgRegistrationPersonalInformationServiceTest {
 
     /** 최종 전체목록과 테스트 인증정보를 담는다. */
     private OrgRegistrationModificationRequest request(OrgRegistrationModificationParticipantRequest... participants) {
-        return new OrgRegistrationModificationRequest(new OrganizationAccessRequest("group-test", "Test1234!"), List.of(participants));
+        return new OrgRegistrationModificationRequest(true, new OrganizationAccessRequest("group-test", "Test1234!"), List.of(participants));
     }
 
     /** 업무 오류와 부분 저장·전체 경로 미호출을 함께 확인한다. */

@@ -186,6 +186,8 @@ public class RegistrationQueryService {
         // 보호자 정보 널 체크
         String guardianPhone = registration.getGuardianPhNum() != null ? registration.getGuardianPhNum() : "-";
         String guardianRel = registration.getGuardianRelationship() != null ? registration.getGuardianRelationship() : "-";
+        String guardianName = registration.getGuardianName() != null ? registration.getGuardianName() : "-";
+
 
         // 결제 정보 널 체크[cite: 10]
         String orderId = payment != null ? payment.getOrderId() : "-";
@@ -202,6 +204,8 @@ public class RegistrationQueryService {
                 .birth(registration.getBirth())
                 .phoneNumber(registration.getPhNum())
                 .email(email != null ? email : "-")
+                .guardianConsent(registration.isGuardianConsent())
+                .guardianName(guardianName)
                 .guardianPhoneNumber(guardianPhone)
                 .guardianRelationship(guardianRel)
                 .createdAt(registration.getRegistrationDate())

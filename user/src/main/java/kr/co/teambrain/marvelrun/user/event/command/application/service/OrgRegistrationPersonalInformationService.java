@@ -3,10 +3,12 @@ package kr.co.teambrain.marvelrun.user.event.command.application.service;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.OrgRegistrationModificationAccessContext;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.OrgRegistrationModificationParticipantRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.OrgRegistrationPersonalInformationValidator;
+import kr.co.teambrain.marvelrun.user.event.command.repository.OrganizationCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -38,12 +40,30 @@ public class OrgRegistrationPersonalInformationService {
         validator.validate(access);
         Map<String, Registration> members = access.currentRegistrations().stream()
                 .collect(Collectors.toMap(Registration::getId, Function.identity()));
+
+
+        Organization organization = access.organization();
+        boolean requestedConsent = access.request().guardianConsent();
+
+        // 기존 동의 철회 차단
+        if (organization.isGuardianConsent() && !requestedConsent) {
+            throw new CustomException(ErrorCode.GUARDIAN_CONSENT_REQUIRED);
+        }
+
+        // 최초 동의 반영: 트랜잭션 커밋 시 저장
+        if (!organization.isGuardianConsent() && requestedConsent) {
+            organization.guardianConsentChecked();
+        }
+
+
         boolean changed = false;
         for (OrgRegistrationModificationParticipantRequest request : access.request().registrations()) {
             Registration registration = members.get(request.registrationId());
+
             if (!Objects.equals(registration.getName(), request.name())
                     || !Objects.equals(registration.getPhNum(), request.phNum())
                     || registration.getGender() != request.gender()) {
+
                 registration.applyOrganizationPersonalInformation(request);
                 changed = true;
             }

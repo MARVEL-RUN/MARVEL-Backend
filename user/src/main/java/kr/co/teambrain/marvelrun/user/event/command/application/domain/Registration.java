@@ -41,22 +41,52 @@ public class Registration extends RegistrationBase<
         > {
 
     /**
-     * 개인정보 분류와 검증을 마친 개인 신청에 정정 필드만 반영한다.
-     * 종목·생년월일·기념품·보호자·금융 정보는 요청에서 다시 대입하지 않는다.
+     * 개인 신청의 기본정보와 보호자 정보를 공통 반영한다.
+     * 종목·생년월일·기념품·금융 정보는 변경하지 않는다.
      */
     public void applyPersonalInformation(RegistrationModificationRequest request) {
         if (organization != null || softDeleted) {
-            throw new CustomException(ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET);
+            throw new CustomException(
+                    ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET
+            );
         }
+
         if (request == null) {
-            throw new CustomException(ErrorCode.INVALID_REGISTRATION_MODIFICATION_ARGUMENT);
+            throw new CustomException(
+                    ErrorCode.INVALID_REGISTRATION_MODIFICATION_ARGUMENT
+            );
         }
+
+        boolean requestedConsent = request.guardianConsent();
+
+        // 기존 동의 철회 차단
+        if (this.guardianConsent && !requestedConsent) {
+            throw new CustomException(ErrorCode.GUARDIAN_CONSENT_REQUIRED);
+        }
+
+        String normalizedGuardianName = request.guardianName();
+        if (normalizedGuardianName != null) {
+            normalizedGuardianName = normalizedGuardianName.strip();
+
+            if (normalizedGuardianName.isEmpty()) {
+                normalizedGuardianName = null;
+            }
+        }
+
         this.name = request.name();
         this.phNum = request.phNum();
         this.gender = request.gender();
         this.address = request.address();
         this.addressDetail = request.addressDetail();
+
+        this.guardianName = normalizedGuardianName;
         this.guardianPhNum = request.guardianPhNum();
+        this.guardianRelationship = request.guardianRelationship();
+
+        // 최초 동의 반영: 트랜잭션 커밋 시 저장
+        if (!this.guardianConsent && requestedConsent) {
+            this.guardianConsent = true;
+        }
     }
 
     public static Registration createForPaymentMvp(
@@ -280,31 +310,11 @@ public class Registration extends RegistrationBase<
         List<SouvenirJson> souvenirs =
                 List.copyOf(validatedSouvenirs);
 
-        String normalizedGuardianName =
-                request.guardianName();
-
-        if (normalizedGuardianName != null) {
-            normalizedGuardianName = normalizedGuardianName.strip();
-
-            if (normalizedGuardianName.isEmpty()) {
-                normalizedGuardianName = null;
-            }
-        }
+        applyPersonalInformation(request);
 
         this.eventCategory = validatedCategory;
         this.souvenirJson = souvenirs;
-
-        this.name = request.name();
-        this.phNum = request.phNum();
         this.birth = request.birth();
-        this.gender = request.gender();
-
-        this.address = request.address();
-        this.addressDetail = request.addressDetail();
-
-        this.guardianName = normalizedGuardianName;
-        this.guardianPhNum = request.guardianPhNum();
-
         this.contractAmount = newContractAmount;
     }
 
