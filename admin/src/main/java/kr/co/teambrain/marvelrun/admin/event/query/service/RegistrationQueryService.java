@@ -211,6 +211,7 @@ public class RegistrationQueryService {
                 .paymentStatus(registration.getStatus().name())
                 .address(registration.getAddress() != null ? registration.getAddress() : "-")
                 .addressDetail(registration.getAddressDetail() != null ? registration.getAddressDetail() : "-")
+                .organizationId(organizationId)
                 .leaderInfo(
                         leaderInfoResponse
                 )
