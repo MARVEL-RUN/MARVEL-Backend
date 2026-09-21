@@ -7,7 +7,7 @@ import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.event.command.domain.Payment;
 import kr.co.teambrain.marvelrun.admin.event.command.domain.Registration;
-import kr.co.teambrain.marvelrun.admin.event.command.repository.SouvenirQueryRepository;
+import kr.co.teambrain.marvelrun.admin.event.query.repository.SouvenirQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.LeaderInfoResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationDetailResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationListResponse;
@@ -23,11 +23,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
