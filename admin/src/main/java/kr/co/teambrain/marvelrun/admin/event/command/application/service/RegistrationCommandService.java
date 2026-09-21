@@ -29,6 +29,10 @@ public class RegistrationCommandService {
             throw new CustomException(ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET);
         }
 
+        if (request.newPassword().length() < 6) {
+            throw new CustomException(ErrorCode.INVALID_PASSWORD_LENGTH);
+        }
+
         registration.resetPasswordByAdmin(request.newPassword());
     }
 }

@@ -27,8 +27,14 @@ public class OrganizationCommandService {
      * 단체 신청(대표 및 모든 소속 구성원) 비밀번호 초기화
      */
     public void resetOrganizationPassword(String organizationId, PasswordResetRequest request) {
+
         Organization organization = organizationCommandRepository.findById(organizationId)
                 .orElseThrow(() -> new CustomException(ErrorCode.ORGANIZATION_NOT_FOUND)); // 해당 에러코드 추가 필요
+
+        if (request.newPassword().length() < 6) {
+            throw new CustomException(ErrorCode.INVALID_PASSWORD_LENGTH);
+        }
+
 
         // 1. 단체 자체의 비밀번호 변경
         organization.resetPasswordByAdmin(request.newPassword());
