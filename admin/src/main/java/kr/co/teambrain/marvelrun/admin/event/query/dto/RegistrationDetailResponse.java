@@ -19,6 +19,8 @@ public record RegistrationDetailResponse(
         String birth,                 // 생년월일
         String phoneNumber,           // 연락처
         String email,                 // 이메일 (유저 또는 단체 테이블 참조)
+        boolean guardianConsent,
+        String guardianName,
         String guardianPhoneNumber,   // 보호자 연락처
         String guardianRelationship,  // 보호자 관계
         LocalDateTime createdAt,      // 신청일시
@@ -29,6 +31,11 @@ public record RegistrationDetailResponse(
         String address,               // 주소
         String addressDetail,          // 상세주소
         String organizationId,
-        LeaderInfoResponse leaderInfo
+        LeaderInfoResponse leaderInfo,
+
+        boolean termsEssentialAgreed, // 필수동의여부
+        boolean termsMarketingAgreed, // 마케팅동의여부
+        boolean termsMarketingChannelAgreed // 전송매체기반마케팅동의여부
+        
 ) {
 }

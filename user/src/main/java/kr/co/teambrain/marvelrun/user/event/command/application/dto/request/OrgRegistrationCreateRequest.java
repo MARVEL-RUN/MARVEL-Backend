@@ -20,6 +20,15 @@ public record OrgRegistrationCreateRequest(
         OrgProfileRequest profile,
 
         @NotEmpty
-        List<@Valid OrgRegistrationParticipantRequest> registrations
+        List<@Valid OrgRegistrationParticipantRequest> registrations,
+
+        @NotNull(message = "필수 약관 동의 여부가 누락되었습니다.")
+        Boolean termsEssentialAgreed,
+
+        @NotNull(message = "마케팅 활용 동의 여부가 누락되었습니다.")
+        Boolean termsMarketingAgreed,
+
+        @NotNull(message = "전자적 전송매체 수신 동의 여부가 누락되었습니다.")
+        Boolean termsMarketingChannelAgreed
 ) {
 }

@@ -5,24 +5,18 @@ import kr.co.teambrain.marvelrun.admin.auth.command.repository.AdminCommandRepos
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.community.command.application.dto.NoticeUpdate;
-import kr.co.teambrain.marvelrun.admin.event.command.domain.Event;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.admin.security.util.AdminInfoUtil;
-import kr.co.teambrain.marvelrun.admin.auth.command.application.domain.Admin;
-import kr.co.teambrain.marvelrun.admin.auth.command.repository.AdminCommandRepository;
 import kr.co.teambrain.marvelrun.admin.community.command.application.domain.Notice;
 import kr.co.teambrain.marvelrun.admin.community.command.application.domain.NoticeCategory;
 import kr.co.teambrain.marvelrun.admin.community.command.application.dto.NoticeCreate;
 import kr.co.teambrain.marvelrun.admin.community.command.repository.NoticeCategoryCommandRepository;
 import kr.co.teambrain.marvelrun.admin.community.command.repository.NoticeCommandRepository;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.EventCommandRepository;
-import kr.co.teambrain.marvelrun.admin.security.util.AdminInfoUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.ArrayList;
-import java.util.List;
 
 @Slf4j
 @Service

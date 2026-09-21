@@ -16,6 +16,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrgRegistrationCreateRequest;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.OrgInfoExistResponse;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.OrgRegistrationCreateResponse;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.OrgRegistrationApplyValidator;
 import kr.co.teambrain.marvelrun.user.event.command.repository.OrganizationCommandRepository;
@@ -76,6 +77,21 @@ public class OrgRegistrationCommandService {
     private final PaymentAllocationCommandRepository paymentAllocationCommandRepository;
 
 
+    @Transactional(readOnly = true)
+    public OrgInfoExistResponse checkExistsLoginId(String requestValue, String eventId) {
+        return OrgInfoExistResponse.fromRawValue(
+                requestValue,
+                organizationCommandRepository.existsByLoginIdAndEventId(requestValue, eventId)
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public OrgInfoExistResponse checkExistsGroupName(String requestValue, String eventId) {
+        return OrgInfoExistResponse.fromRawValue(
+                requestValue,
+                organizationCommandRepository.existsByGroupNameAndEventId(requestValue, eventId)
+        );
+    }
     /**
      * 단체 구성원 전체의 신청과 자원을 하나의 트랜잭션으로 처리한다.
      *
@@ -112,7 +128,9 @@ public class OrgRegistrationCommandService {
         List<Registration> registrations =
                 createRegistrations(
                         savedOrganization,
-                        context
+                        context,
+                        request,
+                        now
                 );
 
         List<Registration> savedRegistrations =
@@ -172,96 +190,6 @@ public class OrgRegistrationCommandService {
                 payment
         );
     }
-
-    /**
-     * 기존 단체의 최초 미결제 참가자들에 대한 새 결제 주문을 생성한다.
-     *
-     * 현재 단체 구성원을 대상으로 하며 참가자 추가나 신청 수정은 수행하지 않는다.
-     * HELD 참가자의 확보는 유지하고 RELEASED 참가자만 재확보한다.
-     *
-     * 호출자는 해당 단체의 작업 권한을 먼저 검증해야 한다.
-     * 모든 참가자의 확보 준비와 새 단체 주문 생성은 동일 트랜잭션에서 처리한다.
-     */
-//    @Transactional
-//    public OrgRegistrationCreateResponse prepareRepayment(
-//            String eventId,
-//            String organizationId
-//    ) {
-//
-//        registrationCapacityService.lockEvent(eventId);
-//
-//        LocalDateTime now =
-//                serverTimeProvider.currentDateTime();
-//
-//        Organization organization =
-//                organizationCommandRepository.findById(organizationId)
-//                        .orElseThrow(
-//                                () -> new CustomException(
-//                                        ErrorCode.PAYMENT_NOT_CONFIRMABLE,
-//                                        " 재결제 대상 단체를 찾을 수 없습니다."
-//                                )
-//                        );
-//
-//        if (!eventId.equals(organization.getEvent().getId())) {
-//            throw new CustomException(
-//                    ErrorCode.PAYMENT_NOT_CONFIRMABLE,
-//                    " 재결제 대상 단체의 대회가 일치하지 않습니다."
-//            );
-//        }
-//
-//        List<Registration> registrations =
-//                registrationCommandRepository.findAllByOrganization_Id(
-//                        organizationId
-//                );
-//
-//        /*
-//         * 전체 대상이 최초 미결제 신청인지 검증하고,
-//         * 반환된 예약에 대해서만 재확보한다.
-//         *
-//         * 일부 구성원이 결제 완료·삭제 상태인 단체를
-//         * 임의로 제외하여 다른 금액의 주문으로 만들지 않는다.
-//         */
-//        registrationCapacityService.prepareForRepayment(
-//                organization.getEvent(),
-//                registrations,
-//                now
-//        );
-//
-//        /*
-//         * 개별 계약금액은 재산정하지 않는다.
-//         * 기존 메서드로 현재 결제 대상의 계약금액을 합산한다.
-//         */
-//        BigDecimal totalContractAmount =
-//                calculateTotalContractAmount(registrations);
-//
-//        Payment payment =
-//                paymentCreator.createInitialPayment(
-//                        organization,
-//                        totalContractAmount,
-//                        UUID.randomUUID().toString()
-//                );
-//
-//        paymentAllocationCreator.create(
-//                payment,
-//                registrations.stream()
-//                        .map(
-//                                registration ->
-//                                        new PaymentAllocationTarget(
-//                                                registration,
-//                                                registration.getContractAmount()
-//                                        )
-//                        )
-//                        .toList()
-//        );
-//
-//
-//
-//        return OrgRegistrationCreateResponse.from(
-//                organization,
-//                registrations,
-//                payment
-//        );
-//    }
 
     // [TO-BE] OrgRegistrationCommandService.java 내 prepareRepayment 수정안 (2-F)
 
@@ -435,6 +363,8 @@ public class OrgRegistrationCommandService {
         );
     }
 
+    @Transactional()
+
 
     /**
      * 단체 자체 정보 생성.
@@ -520,12 +450,19 @@ public class OrgRegistrationCommandService {
      */
     private List<Registration> createRegistrations(
             Organization organization,
-            OrgRegistrationCreateContext context
+            OrgRegistrationCreateContext context,
+            OrgRegistrationCreateRequest request,
+            LocalDateTime now
     ) {
         List<Registration> registrations =
                 new ArrayList<>(
                         context.registrations().size()
                 );
+
+        // request 루트에서 바로 약관 동의 값을 꺼내옵니다.
+        boolean termsEssential = request.termsEssentialAgreed();
+        boolean termsMarketing = request.termsMarketingAgreed();
+        boolean termsMarketingChannel = request.termsMarketingChannelAgreed();
 
         for (OrgRegistrationCreateContext.ParticipantContext participantContext
                 : context.registrations()) {
@@ -552,7 +489,11 @@ public class OrgRegistrationCommandService {
                             organization,
                             participantContext.request(),
                             participantContext.souvenirJsons(),
-                            contractAmount
+                            contractAmount,
+                            now,
+                            termsEssential,          // 일괄 적용
+                            termsMarketing,          // 일괄 적용
+                            termsMarketingChannel    // 일괄 적용
                     );
 
             registrations.add(

@@ -22,10 +22,6 @@ public record OrgAccountRequest(
                 max = 64,
                 message = "비밀번호는 6~64자여야 합니다."
         )
-        @Pattern(
-                regexp = "^[A-Za-z\\d~!@#$%^&*()_+\\-={}\\[\\]\\\\|:;\"'<>,.?/]+$",
-                message = "허용되지 않는 문자가 포함되어 있습니다."
-        )
         String organizationPassword
 ) {
 }

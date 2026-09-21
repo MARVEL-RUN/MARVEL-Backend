@@ -1,8 +1,8 @@
 package kr.co.teambrain.marvelrun.admin.community.command.application.domain;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
-import kr.co.teambrain.marvelrun.admin.event.command.domain.Event;
-import kr.co.teambrain.marvelrun.admin.user.command.domain.User;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event;
+import kr.co.teambrain.marvelrun.admin.user.command.application.domain.User;
 import kr.co.teambrain.marvelrun.common.entity.QuestionBase;
 
 // 아래 두 import만 현재 Admin 프로젝트의 실제 경로 사용

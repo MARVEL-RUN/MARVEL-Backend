@@ -101,7 +101,21 @@ public class OrgRegistrationModificationService {
         modificationGuard.protect(access);
         paymentGuard.prepareLockedPayments(lockedPayments);
 
-        OrgRegistrationModificationCandidateContext candidate = candidateValidator.validate(access);
+        /** 최신 단체 정보에 이번 수정 요청의 보호자 동의를 반영한다. */
+        boolean requestedConsent = request.guardianConsent();
+
+        // 기존 동의 철회 차단
+        if (access.organization().isGuardianConsent() && !requestedConsent) {
+            throw new CustomException(ErrorCode.GUARDIAN_CONSENT_REQUIRED);
+        }
+
+        // 최초 동의 반영: 트랜잭션 커밋 시 저장
+        if (!access.organization().isGuardianConsent() && requestedConsent) {
+            access.organization().guardianConsentChecked();
+        }
+
+        OrgRegistrationModificationCandidateContext candidate =
+                candidateValidator.validate(access);
 
         List<OrgRegistrationParticipantPricing> priced =
                 pricingService.repriceOrganization(candidate);
@@ -228,6 +242,12 @@ public class OrgRegistrationModificationService {
             return;
         }
 
+        // MVP 단축 전략: 기존 구성원(대표 등)의 약관 동의 내역을 새 인원에게도 동일하게 복사 적용
+        Registration reference = candidate.currentRegistrations().get(0);
+        boolean termsEssential = Boolean.TRUE.equals(reference.getTermsEssentialAgreed());
+        boolean termsMarketing = Boolean.TRUE.equals(reference.getTermsMarketingAgreed());
+        boolean termsChannel = Boolean.TRUE.equals(reference.getTermsMarketingChannelAgreed());
+
         List<CapacityHoldRequest> holdRequests = new ArrayList<>();
 
         for (OrgRegistrationParticipantPricing item : added) {
@@ -254,7 +274,11 @@ public class OrgRegistrationModificationService {
                                     candidate.organization(),
                                     creationInput,
                                     participant.souvenirJsons(),
-                                    item.price().newContractAmount()
+                                    item.price().newContractAmount(),
+                                    now,
+                                    termsEssential, // DTO 형식 맞춤용 (팩토리 메서드에서 무시되거나 재덮어쓰기됨)
+                                    termsMarketing,
+                                    termsChannel
                             )
                     );
 
