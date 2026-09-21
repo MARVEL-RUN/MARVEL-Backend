@@ -17,6 +17,7 @@ import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryR
 import kr.co.teambrain.marvelrun.admin.event.query.util.RegistrationSpecification;
 import kr.co.teambrain.marvelrun.admin.user.command.domain.Organization;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -189,9 +190,7 @@ public class RegistrationQueryService {
 
         // 결제 정보 널 체크[cite: 10]
         String orderId = payment != null ? payment.getOrderId() : "-";
-        String paymentStatus = payment != null
-                ? ("UNKNOWN".equals(payment.getProcessStatus().name()) ? registration.getStatus().name() : payment.getProcessStatus().name())
-                : "-";
+        String paymentStatus = payment != null ? payment.getProcessStatus().name() : "-";
 
         String paymentMethod = payment != null && payment.getPaymentMethod() != null
                 ? payment.getPaymentMethod().name() : "-";
