@@ -74,6 +74,7 @@ public class RegistrationQueryService {
         String genderStr = registration.getGender() == GenderClass.M ? "남성" : "여성";
 
         return RegistrationListResponse.builder()
+                .registrationId(registration.getId())
                 .listNumber(listNumber)
                 .type(type)
                 .name(plainName)
