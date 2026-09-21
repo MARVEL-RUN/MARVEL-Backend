@@ -22,6 +22,7 @@ import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
 
@@ -94,7 +95,8 @@ public class Registration extends RegistrationBase<
             EventCategory eventCategory,
             List<SouvenirJson> souvenirJsons,
             RegistrationCreateRequest request,
-            BigDecimal contractAmount
+            BigDecimal contractAmount,
+            LocalDateTime now // 추가됨
     ) {
 
         String guardianName = request.guardianName();
@@ -128,6 +130,10 @@ public class Registration extends RegistrationBase<
                 .contractAmount(contractAmount)
                 .paidAmount(BigDecimal.ZERO)
                 .status(RegistrationStatus.PAYMENT_PENDING)
+                .termsEssentialAgreed(request.termsEssentialAgreed()) // 추가됨
+                .termsMarketingAgreed(request.termsMarketingAgreed()) // 추가됨
+                .termsMarketingChannelAgreed(request.termsMarketingChannelAgreed()) // 추가됨
+                .termsAgreedAt(now) // 추가됨
                 .build();
     }
 
@@ -140,7 +146,11 @@ public class Registration extends RegistrationBase<
             Organization organization,
             OrgRegistrationParticipantRequest request,
             List<SouvenirJson> souvenirJsons,
-            BigDecimal contractAmount
+            BigDecimal contractAmount,
+            LocalDateTime now,                  // 추가됨: 약관 동의 일시
+            boolean termsEssentialAgreed,       // 추가됨: 필수 약관 동의
+            boolean termsMarketingAgreed,       // 추가됨: 마케팅 동의
+            boolean termsMarketingChannelAgreed // 추가됨: 전자적 매체 수신 동의
     ) {
 
         return Registration.builder()
@@ -221,7 +231,19 @@ public class Registration extends RegistrationBase<
                 .paidAmount(
                         BigDecimal.ZERO
                 )
-
+                // --- 새롭게 추가된 약관 동의 매핑 ---
+                .termsEssentialAgreed(
+                        termsEssentialAgreed
+                )
+                .termsMarketingAgreed(
+                        termsMarketingAgreed
+                )
+                .termsMarketingChannelAgreed(
+                        termsMarketingChannelAgreed
+                )
+                .termsAgreedAt(
+                        now
+                )
                 .build();
     }
 

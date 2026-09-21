@@ -1,10 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.dto.request;
 
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotEmpty;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.*;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 
@@ -48,7 +45,16 @@ public record RegistrationCreateRequest(
         @Size(max = 14)
         String guardianPhNum,
         @Size(max = 50)
-        String guardianRelationship
+        String guardianRelationship,
+
+        @NotNull(message = "필수 약관 동의 여부가 누락되었습니다.")
+        Boolean termsEssentialAgreed,
+
+        @NotNull(message = "마케팅 활용 동의 여부가 누락되었습니다.")
+        Boolean termsMarketingAgreed,
+
+        @NotNull(message = "전자적 전송매체 수신 동의 여부가 누락되었습니다.")
+        Boolean termsMarketingChannelAgreed
 
 ) {
 }

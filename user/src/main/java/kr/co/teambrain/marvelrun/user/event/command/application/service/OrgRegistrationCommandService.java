@@ -112,7 +112,9 @@ public class OrgRegistrationCommandService {
         List<Registration> registrations =
                 createRegistrations(
                         savedOrganization,
-                        context
+                        context,
+                        request,
+                        now
                 );
 
         List<Registration> savedRegistrations =
@@ -520,12 +522,19 @@ public class OrgRegistrationCommandService {
      */
     private List<Registration> createRegistrations(
             Organization organization,
-            OrgRegistrationCreateContext context
+            OrgRegistrationCreateContext context,
+            OrgRegistrationCreateRequest request,
+            LocalDateTime now
     ) {
         List<Registration> registrations =
                 new ArrayList<>(
                         context.registrations().size()
                 );
+
+        // request 루트에서 바로 약관 동의 값을 꺼내옵니다.
+        boolean termsEssential = request.termsEssentialAgreed();
+        boolean termsMarketing = request.termsMarketingAgreed();
+        boolean termsMarketingChannel = request.termsMarketingChannelAgreed();
 
         for (OrgRegistrationCreateContext.ParticipantContext participantContext
                 : context.registrations()) {
@@ -552,7 +561,11 @@ public class OrgRegistrationCommandService {
                             organization,
                             participantContext.request(),
                             participantContext.souvenirJsons(),
-                            contractAmount
+                            contractAmount,
+                            now,
+                            termsEssential,          // 일괄 적용
+                            termsMarketing,          // 일괄 적용
+                            termsMarketingChannel    // 일괄 적용
                     );
 
             registrations.add(
