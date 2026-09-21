@@ -26,8 +26,8 @@ public class OrganizationCommandController {
 
     @GetMapping("/organization/duplicate-id-check")
     public ResponseEntity<?> registerOrganization(
-            @PathVariable String eventId,
-            @RequestParam String groupName,
+            @RequestParam("eventId") String eventId,
+            @RequestParam("groupName") String groupName,
             @RequestParam("groupLoginId") String loginId
     ) {
         return ResponseEntity

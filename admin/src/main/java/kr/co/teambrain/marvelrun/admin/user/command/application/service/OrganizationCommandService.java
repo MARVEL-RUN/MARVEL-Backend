@@ -53,7 +53,7 @@ public class OrganizationCommandService {
                 groupName,
                 organizationCommandRepository.existsByGroupNameAndEventId(groupName, eventId),
                 loginId,
-                organizationCommandRepository.existsByLoginIdAndEventId(groupName, eventId)
+                organizationCommandRepository.existsByLoginIdAndEventId(loginId, eventId)
         );
     }
 

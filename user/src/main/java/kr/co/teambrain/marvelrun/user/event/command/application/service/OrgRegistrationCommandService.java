@@ -83,7 +83,7 @@ public class OrgRegistrationCommandService {
                 groupName,
                 organizationCommandRepository.existsByGroupNameAndEventId(groupName, eventId),
                 loginId,
-                organizationCommandRepository.existsByLoginIdAndEventId(groupName, eventId)
+                organizationCommandRepository.existsByLoginIdAndEventId(loginId, eventId)
         );
     }
 
