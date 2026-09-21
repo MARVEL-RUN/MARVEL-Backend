@@ -3,7 +3,7 @@ package kr.co.teambrain.marvelrun.admin.community.query.service;
 
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
-import kr.co.teambrain.marvelrun.admin.community.query.dto.AdminAnswerDetailProjection;
+import kr.co.teambrain.marvelrun.admin.community.query.dto.projection.AdminAnswerDetailProjection;
 import kr.co.teambrain.marvelrun.admin.community.query.dto.response.AnswerDetailResponse;
 import kr.co.teambrain.marvelrun.admin.community.query.repository.AnswerQueryRepository;
 import lombok.RequiredArgsConstructor;

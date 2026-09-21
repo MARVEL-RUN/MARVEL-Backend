@@ -219,6 +219,17 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
     protected String successLog;
 
 
+    @Column(name = "active_unique_info", insertable = false, updatable = false)
+    protected Boolean activeUniqueInfo;
+
+//    @Column(name = "name_hmac", length = 64)
+//    protected String nameHmac;
+
+    /**
+     * 검색 속도 최적화를 위한 연락처 단방향 암호화 필드 (블라인드 인덱싱)
+     */
+//    @Column(name = "ph_num_hmac", length = 64)
+//    protected String phNumHmac;
     /**
      * 환불 관련 필드 (기존 수동 환불 필요 필드)
      *
