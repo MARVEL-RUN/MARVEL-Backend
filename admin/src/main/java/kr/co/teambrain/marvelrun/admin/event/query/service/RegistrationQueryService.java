@@ -189,6 +189,10 @@ public class RegistrationQueryService {
 
         // 결제 정보 널 체크[cite: 10]
         String orderId = payment != null ? payment.getOrderId() : "-";
+        String paymentStatus = payment != null
+                ? ("UNKNOWN".equals(payment.getProcessStatus().name()) ? registration.getStatus().name() : payment.getProcessStatus().name())
+                : "-";
+
         String paymentMethod = payment != null && payment.getPaymentMethod() != null
                 ? payment.getPaymentMethod().name() : "-";
 
@@ -208,7 +212,7 @@ public class RegistrationQueryService {
                 .amount(registration.getContractAmount())
                 .orderId(orderId)
                 .paymentMethod(paymentMethod)
-                .paymentStatus(registration.getStatus().name())
+                .paymentStatus(paymentStatus)
                 .address(registration.getAddress() != null ? registration.getAddress() : "-")
                 .addressDetail(registration.getAddressDetail() != null ? registration.getAddressDetail() : "-")
                 .organizationId(organizationId)
