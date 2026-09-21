@@ -2,8 +2,10 @@ package kr.co.teambrain.marvelrun.admin.user.query.service;
 
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Payment;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.SouvenirQueryRepository;
+import kr.co.teambrain.marvelrun.admin.event.query.repository.PaymentQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
 import kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.admin.user.query.dto.OrganizationDetailResponse;
@@ -12,6 +14,8 @@ import kr.co.teambrain.marvelrun.admin.user.query.dto.OrganizationMemberDto;
 import kr.co.teambrain.marvelrun.admin.user.query.dto.OrganizationSearchCondition;
 import kr.co.teambrain.marvelrun.admin.user.query.repository.OrganizationQueryRepository;
 import kr.co.teambrain.marvelrun.admin.user.query.util.OrganizationSpecification;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -19,6 +23,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -31,6 +36,7 @@ public class OrganizationQueryService {
     private final OrganizationQueryRepository organizationQueryRepository;
     private final RegistrationQueryRepository registrationQueryRepository;
     private final SouvenirQueryRepository souvenirQueryRepository;
+    private final PaymentQueryRepository paymentQueryRepository;
 
     public Page<OrganizationListResponse> getOrganizationList(
             OrganizationSearchCondition condition,
@@ -81,7 +87,7 @@ public class OrganizationQueryService {
         List<Registration> registrations = registrationQueryRepository
                 .findByOrganizationIdAndSoftDeletedFalse(organizationId);
 
-        // 3. 신청자들의 기념품 ID를 추출하여 한 번에 기념품명 맵핑 (N+1 방지)
+        // 3. 신청자들의 기념품 ID 추출 및 매핑
         List<String> souvenirIds = registrations.stream()
                 .map(Registration::getSouvenirJson)
                 .filter(souvenirs -> souvenirs != null && !souvenirs.isEmpty())
@@ -97,8 +103,17 @@ public class OrganizationQueryService {
                         SouvenirQueryRepository.SouvenirNameProjection::getName
                 ));
 
-        // 4. 소속 인원 DTO 변환
-        List<OrganizationMemberDto> members = registrations.stream().map(reg -> {
+        // 4. 단체의 최신 결제 내역 조회 (UNKNOWN 상태 확인 목적)
+        Payment latestPayment = paymentQueryRepository.findFirstByOrganization_IdOrderByCreatedAtDesc(organizationId)
+                .orElse(null);
+        boolean isPaymentUnknown = latestPayment != null
+                && latestPayment.getProcessStatus() == PaymentProcessStatus.UNKNOWN;
+
+        // 5. 소속 인원 DTO 변환
+        List<OrganizationMemberDto> members = new ArrayList<>();
+        long listNumber = 1; // 화면 UI에 맞춰 1번부터 오름차순 부여
+
+        for (Registration reg : registrations) {
             String sName = "-";
             String sSize = "-";
             List<SouvenirJson> souvenirs = reg.getSouvenirJson();
@@ -109,18 +124,29 @@ public class OrganizationQueryService {
                 sSize = selected.selectedSize() != null ? selected.selectedSize() : "-";
             }
 
-            return OrganizationMemberDto.builder()
+            // 추가 요청된 데이터 변환 로직 적용
+            String genderStr = reg.getGender() == GenderClass.M ? "남성" : "여성";
+            String marketingConsent = Boolean.TRUE.equals(reg.getActiveUniqueInfo()) ? "Y" : "N";
+            String finalStatus = isPaymentUnknown ? "UNKNOWN" : reg.getStatus().name();
+
+            members.add(OrganizationMemberDto.builder()
+                    .listNumber(listNumber++) // 페이징 번호 할당
                     .registrationId(reg.getId())
                     .name(reg.getName())
+                    .birth(reg.getBirth())
+                    .gender(genderStr)
                     .courseName(reg.getEventCategory().getName())
                     .souvenirName(sName)
                     .souvenirSize(sSize)
-                    .birth(reg.getBirth())
+                    .phoneNumber(reg.getPhNum())
+                    .marketingConsent(marketingConsent)
+                    .status(finalStatus)
+                    .createdAt(reg.getRegistrationDate()) // RegistrationBase의 신청일시 필드
                     .amount(reg.getContractAmount())
-                    .build();
-        }).toList();
+                    .build());
+        }
 
-        // 5. 최종 상세 응답 DTO 반환
+        // 6. 최종 상세 응답 DTO 반환
         return OrganizationDetailResponse.builder()
                 .organizationId(organization.getId())
                 .groupName(organization.getGroupName())
