@@ -27,6 +27,7 @@ public record RegistrationDetailResponse(
         String paymentMethod,         // 카드결제정보 대신 결제수단 (Payment 참조)[cite: 10]
         String paymentStatus,         // 결제여부
         String address,               // 주소
-        String addressDetail          // 상세주소
+        String addressDetail,          // 상세주소
+        String organizationId
 ) {
 }

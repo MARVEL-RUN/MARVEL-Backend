@@ -138,8 +138,10 @@ public class RegistrationQueryService {
 
         // 이메일 추출: 단체면 단체 대표 이메일, 개인이면 유저 이메일
         String email = null;
+        String organizationId = null;
         if (isOrganization) {
             email = registration.getOrganization().getEmail();
+            organizationId = registration.getOrganization().getId();
         } else if (registration.getUser() != null) {
             email = registration.getUser().getEmail();
         }
