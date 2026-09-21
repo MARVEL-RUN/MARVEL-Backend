@@ -89,6 +89,8 @@ public class Registration extends RegistrationBase<
                 .gender(request.gender())
                 .address(request.address())
                 .addressDetail(request.addressDetail())
+                .guardianRelationship(request.guardianRelationship())
+                .guardianPhNum(request.guardianPhNum())
                 .guardianName(guardianName)
                 .guardianConsent(
                         Boolean.TRUE.equals(request.guardianConsent())
