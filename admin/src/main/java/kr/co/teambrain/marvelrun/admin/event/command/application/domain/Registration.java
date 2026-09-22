@@ -6,6 +6,7 @@ import kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organizat
 import kr.co.teambrain.marvelrun.admin.user.command.application.domain.User;
 import kr.co.teambrain.marvelrun.common.entity.RegistrationBase;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -45,6 +46,19 @@ public class Registration extends RegistrationBase<User, Event, EventCategory, O
         String timestamp = now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         String logMessage = String.format("[%s] 관리자에 의한 참가자 기본 정보(개인정보/주소 등) 강제 수정", timestamp);
 
+        if (this.detailMemo == null || this.detailMemo.isBlank()) {
+            this.detailMemo = logMessage;
+        } else {
+            this.detailMemo = this.detailMemo + "\n" + logMessage;
+        }
+    }
+
+    public void expireByAdmin(LocalDateTime now) {
+        this.softDeleted = true;
+        this.status = RegistrationStatus.EXPIRED; // 요청하신 EXPIRED 상태 전이
+
+        String timestamp = now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        String logMessage = String.format("[%s] 관리자에 의한 결제 대기 신청건 삭제 (EXPIRED)", timestamp);
         if (this.detailMemo == null || this.detailMemo.isBlank()) {
             this.detailMemo = logMessage;
         } else {

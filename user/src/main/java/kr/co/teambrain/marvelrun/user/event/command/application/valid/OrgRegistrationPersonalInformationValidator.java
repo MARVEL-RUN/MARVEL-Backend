@@ -10,6 +10,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inne
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDate;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -34,6 +35,13 @@ public class OrgRegistrationPersonalInformationValidator {
         for (Registration registration : access.currentRegistrations()) {
             policyValidator.validateStatus(registration);
         }
+
+        LocalDate leaderBirth = access.request().leaderBirth();
+        LocalDate eventDate = access.event().getStartDate().toLocalDate();
+        if (eventDate.isBefore(leaderBirth.plusYears(19))) {
+            throw new CustomException(ErrorCode.ORGANIZATION_LEADER_MUST_BE_ADULT);
+        }
+
         Set<UniqueInfo> finalIdentities = new HashSet<>();
         for (OrgRegistrationModificationParticipantRequest request : access.request().registrations()) {
             if (!finalIdentities.add(new UniqueInfo(request.name(), request.phNum(), request.birth()))) {
