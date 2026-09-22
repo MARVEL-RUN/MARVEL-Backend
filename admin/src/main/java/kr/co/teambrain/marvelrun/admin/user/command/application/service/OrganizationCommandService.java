@@ -6,6 +6,7 @@ import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationCommandRepository;
 import kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization;
+import kr.co.teambrain.marvelrun.admin.user.command.application.dto.AdminOrganizationModifyRequest;
 import kr.co.teambrain.marvelrun.admin.user.command.repository.OrganizationCommandRepository;
 import kr.co.teambrain.marvelrun.admin.user.query.dto.OrgLoginIdExistResponse;
 import lombok.RequiredArgsConstructor;
@@ -65,4 +66,25 @@ public class OrganizationCommandService {
         );
     }
 
+    public void modifyOrganizationInfo(String organizationId, AdminOrganizationModifyRequest request) {
+        Organization organization = organizationCommandRepository.findById(organizationId)
+                .orElseThrow(() -> new CustomException(ErrorCode.ORGANIZATION_NOT_FOUND));
+
+        // 단체명이 변경되었을 경우, 동일 대회 내 중복 단체명 방지 검증
+        if (!organization.getGroupName().equals(request.groupName()) &&
+                organizationCommandRepository.existsByGroupNameAndEventId(request.groupName(), organization.getEvent().getId())) {
+            throw new CustomException(ErrorCode.DUPLICATE_GROUP_NAME);
+        }
+
+        organization.modifyInfoByAdmin(
+                request.groupName(),
+                request.leaderName(),
+                request.leaderBirth(),
+                request.leaderPhNum(),
+                request.email(),
+                request.address(),
+                request.addressDetail(),
+                request.guardianConsent()
+        );
+    }
 }

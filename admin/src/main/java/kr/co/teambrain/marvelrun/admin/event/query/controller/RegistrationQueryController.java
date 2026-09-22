@@ -1,7 +1,8 @@
 package kr.co.teambrain.marvelrun.admin.event.query.controller;
 
-import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationDetailResponse;
-import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationListResponse;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.response.EventStatisticsResponse;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationDetailResponse;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationListResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationSearchCondition;
 import kr.co.teambrain.marvelrun.admin.event.query.service.RegistrationQueryService;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
@@ -10,7 +11,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
-import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -87,4 +87,14 @@ public class RegistrationQueryController {
                 registrationQueryService.getRegistrationDetail(registrationId)
         );
     }
+
+    @GetMapping("/{eventId}/statistics")
+    public ResponseEntity<EventStatisticsResponse> getEventStatistics(
+            @PathVariable String eventId
+    ) {
+        return ResponseEntity.ok(
+                registrationQueryService.getEventStatistics(eventId)
+        );
+    }
+
 }

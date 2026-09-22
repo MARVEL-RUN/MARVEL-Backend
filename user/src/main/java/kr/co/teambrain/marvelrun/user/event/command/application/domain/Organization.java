@@ -22,4 +22,16 @@ public class Organization
         this.guardianConsent = true; //해당 값은 ture -> false로 바뀔 수 없음
     }
 
+    public void updateEmail(String email) {
+        this.email = email;
+    }
+
+    public void applyProfileModification(String leaderName, String leaderBirth, String leaderPhNum, String email, String address, String addressDetail) {
+        this.leaderName = leaderName;
+        this.leaderBirth = leaderBirth;
+        this.leaderPhNum = leaderPhNum;
+        this.email = email;
+        this.address = address;
+        this.addressDetail = addressDetail;
+    }
 }

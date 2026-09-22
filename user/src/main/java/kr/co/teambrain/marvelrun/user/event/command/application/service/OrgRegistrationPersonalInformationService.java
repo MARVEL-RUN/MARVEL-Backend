@@ -57,6 +57,33 @@ public class OrgRegistrationPersonalInformationService {
 
 
         boolean changed = false;
+
+        String requestedBirth = access.request().leaderBirth().toString();
+
+        if (!Objects.equals(organization.getEmail(), access.request().email())
+                || !Objects.equals(organization.getLeaderName(), access.request().leaderName())
+                || !Objects.equals(organization.getLeaderBirth(), requestedBirth)
+                || !Objects.equals(organization.getLeaderPhNum(), access.request().leaderPhNum())
+                || !Objects.equals(organization.getAddress(), access.request().address())
+                || !Objects.equals(organization.getAddressDetail(), access.request().addressDetail())) {
+
+            organization.applyProfileModification(
+                    access.request().leaderName(),
+                    requestedBirth,
+                    access.request().leaderPhNum(),
+                    access.request().email(),
+                    access.request().address(),
+                    access.request().addressDetail()
+            );
+            changed = true;
+        }
+
+        if (!Objects.equals(organization.getEmail(), access.request().email())) {
+            organization.updateEmail(access.request().email());
+            changed = true;
+        }
+
+
         for (OrgRegistrationModificationParticipantRequest request : access.request().registrations()) {
             Registration registration = members.get(request.registrationId());
 

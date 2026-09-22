@@ -165,10 +165,15 @@ class RegistrationModificationPricingServiceTest {
                 mock(Organization.class),
                 List.of(current),
                 List.of(existingCandidate, newCandidate),
-                new OrgRegistrationModificationRequest(false, 
-                        new OrganizationAccessRequest("login", "password"),
-                        List.of(existingRequest, newRequest)
-                ),
+                new OrgRegistrationModificationRequest(false,
+                "test@example.com",
+                "테스트 주소",
+                "상세",
+                "테스트 단체장",
+                java.time.LocalDate.of(1990, 1, 1),
+                "010-0000-0000",
+                new OrganizationAccessRequest("login", "password"),
+                List.of(existingRequest, newRequest)),
                 NOW
         );
 
@@ -245,8 +250,7 @@ class RegistrationModificationPricingServiceTest {
             String birth
     ) {
         RegistrationModificationRequest request =
-                new RegistrationModificationRequest(
-                new RegistrationAccessRequest(
+                new RegistrationModificationRequest(new RegistrationAccessRequest(
                                 "기존이름",
                                 "1990-01-01",
                                 "010-1111-2222",
@@ -263,8 +267,8 @@ class RegistrationModificationPricingServiceTest {
                 true,
                 "보호자",
                 null,
-                null
-        );
+                null,
+                null);
 
         return new RegistrationModificationCandidateContext(
                 event,

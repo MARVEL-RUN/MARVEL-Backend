@@ -1,6 +1,8 @@
 package kr.co.teambrain.marvelrun.admin.payment.command;
 
 import jakarta.persistence.EntityManager;
+import kr.co.teambrain.marvelrun.admin.event.command.application.service.AdminUnpaidRegistrationCancellationService;
+import kr.co.teambrain.marvelrun.admin.event.command.application.service.RegistrationCommandService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import kr.co.teambrain.marvelrun.admin.payment.command.batch.*;
 import kr.co.teambrain.marvelrun.admin.payment.command.batch.AdminRefundBatchModels.*;
@@ -68,7 +70,7 @@ import static org.mockito.Mockito.*;
         "spring.datasource.hikari.maximum-pool-size=4"})
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@Import({AdminRefundEvidenceStore.class, AdminRefundEvidenceService.class, AdminRefundEvidenceMatcher.class, AdminPaymentQueryRepository.class, AdminRefundPreparationService.class, AdminRefundPreparationTransactionService.class, AdminRefundPreparationStore.class,
+@Import({AdminUnpaidRegistrationCancellationService.class, RegistrationCommandService.class, AdminRefundEvidenceStore.class, AdminRefundEvidenceService.class, AdminRefundEvidenceMatcher.class, AdminPaymentQueryRepository.class, AdminRefundPreparationService.class, AdminRefundPreparationTransactionService.class, AdminRefundPreparationStore.class,
         AdminRefundAccessService.class, AdminRefundLockRepository.class, AdminRefundTime.class,
         RegistrationPolicyCandidateValidator.class, RegistrationPolicyValidator.class, RegistrationPolicyLoader.class,
         RegistrationPricingService.class, CapacityRequirementResolver.class, ReservationCapacityDiffService.class,
@@ -84,6 +86,7 @@ class AdminRefundPreparationDatabaseTest {
         @Bean(destroyMethod = "close") ValidatorFactory refundValidatorFactory() { return Validation.buildDefaultValidatorFactory(); }
         @Bean Validator refundValidator(ValidatorFactory factory) { return factory.getValidator(); }
     }
+    @Autowired RegistrationCommandService registrationCommands;
     @Autowired EntityManager em;
     @Autowired JdbcTemplate jdbc;
     @Autowired PlatformTransactionManager manager;
@@ -758,6 +761,287 @@ class AdminRefundPreparationDatabaseTest {
             em.flush();
         });
         return org;
+    }
+
+    /** READY/FAILED/INVALIDATED 주문과 귀속은 보존하고 최초 미결제만 한 번 반환한다. */
+    @ParameterizedTest
+    @ValueSource(strings = {"READY", "FAILED", "INVALIDATED"})
+    void unpaidCancellationPreservesLedgerAndIsIdempotent(String paymentState) {
+        prepareUnpaid(paymentState);
+        var allocationBefore = jdbc.queryForList("select * from payment_allocation where payment_id=?", paymentId);
+        var response = registrationCommands.deletePaymentPendingRegistration(registrationId);
+        assertThat(response).isNotNull();
+        assertThat(state()).isEqualTo("EXPIRED");
+        assertThat(amount("contract_amount")).isEqualByComparingTo("0");
+        assertThat(amount("paid_amount")).isEqualByComparingTo("0");
+        assertThat(jdbc.queryForObject("select is_del from registration where id=?", Boolean.class, registrationId)).isTrue();
+        assertThat(jdbc.queryForObject("select process_status from payment where id=?", String.class, paymentId))
+                .isEqualTo(paymentState.equals("READY") ? "INVALIDATED" : paymentState);
+        assertThat(jdbc.queryForList("select * from payment_allocation where payment_id=?", paymentId)).isEqualTo(allocationBefore);
+        assertThat(jdbc.queryForObject("select amount from payment where id=?", BigDecimal.class, paymentId))
+                .isEqualByComparingTo("70000");
+        for (String capacity : List.of(total, capacityA, shirt)) {
+            assertThat(held(capacity)).isZero(); assertThat(count(capacity)).isZero();
+        }
+        assertThat(jdbc.queryForObject("select status from reservation where id=?", String.class, reservationId)).isEqualTo("RELEASED");
+        assertThat(jdbc.queryForObject("select json_length(history) from reservation where id=?", Integer.class, reservationId)).isEqualTo(1);
+        var once = unpaidSnapshot();
+        registrationCommands.deletePaymentPendingRegistration(registrationId);
+        assertThat(unpaidSnapshot()).isEqualTo(once);
+        verifyNoInteractions(toss);
+    }
+
+    /** 참가 상태만 미결제여도 승인 중·결과 불명·대상 완료 결제가 있으면 거절한다. */
+    @ParameterizedTest
+    @ValueSource(strings = {"CONFIRMING", "UNKNOWN", "COMPLETED"})
+    void unpaidCancellationRejectsUnsafePayment(String paymentState) {
+        prepareUnpaid(paymentState);
+        var before = unpaidSnapshot();
+        assertThatThrownBy(() -> registrationCommands.deletePaymentPendingRegistration(registrationId))
+                .isInstanceOfSatisfying(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode.REGISTRATION_MODIFICATION_PAYMENT_CONFLICT));
+        assertThat(unpaidSnapshot()).isEqualTo(before);
+        verifyNoInteractions(toss);
+    }
+
+    /** 금액·예약 상태·예약 상세·금융 귀속의 불일치를 자동 보정하지 않는다. */
+    @ParameterizedTest
+    @ValueSource(strings = {"paid", "PROCESSING", "CONSUMED", "missing-items", "missing-allocation", "missing-reservation"})
+    void unpaidCancellationRejectsInconsistentState(String invalid) {
+        prepareUnpaid("READY");
+        tx.executeWithoutResult(status -> {
+            switch (invalid) {
+                case "paid" -> jdbc.update("update registration set paid_amount=1 where id=?", registrationId);
+                case "PROCESSING", "CONSUMED" -> jdbc.update("update reservation set status=? where id=?", invalid, reservationId);
+                case "missing-items" -> jdbc.update("delete from reservation_item where reservation_id=?", reservationId);
+                case "missing-allocation" -> jdbc.update("delete from payment_allocation where payment_id=?", paymentId);
+                case "missing-reservation" -> {
+                    jdbc.update("delete from reservation_item where reservation_id=?", reservationId);
+                    jdbc.update("delete from reservation where id=?", reservationId);
+                }
+                default -> throw new AssertionError(invalid);
+            }
+        });
+        var before = unpaidSnapshot();
+        assertThatThrownBy(() -> registrationCommands.deletePaymentPendingRegistration(registrationId))
+                .isInstanceOf(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class);
+        assertThat(unpaidSnapshot()).isEqualTo(before);
+        verifyNoInteractions(toss);
+    }
+
+    /** 마지막 정원 반환이 실패하면 앞선 카운터·만료·예약 이력·주문 무효화까지 롤백한다. */
+    @Test
+    void unpaidCancellationRollsBackEarlierCapacityWrites() {
+        prepareUnpaid("READY");
+        String last = List.of(total, capacityA, shirt).stream().sorted().toList().getLast();
+        jdbc.update("update capacity set held_count=0 where id=?", last);
+        var before = unpaidSnapshot();
+        assertThatThrownBy(() -> registrationCommands.deletePaymentPendingRegistration(registrationId))
+                .isInstanceOfSatisfying(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode.CAPACITY_COUNTER_MISMATCH));
+        assertThat(unpaidSnapshot()).isEqualTo(before);
+        verifyNoInteractions(toss);
+    }
+
+    /** 이미 반환된 미결제 예약의 신청 취소에서는 다른 참가자의 정원을 차감하지 않는다. */
+    @Test
+    void unpaidCancellationDoesNotReleaseAlreadyReleasedReservation() {
+        prepareUnpaid("INVALIDATED");
+        jdbc.update("update reservation set status='RELEASED' where id=?", reservationId);
+        // 남아 있는 수량은 다른 신청의 확보분이라고 가정한다.
+        registrationCommands.deletePaymentPendingRegistration(registrationId);
+        for (String capacity : List.of(total, capacityA, shirt)) { assertThat(held(capacity)).isEqualTo(1); }
+        assertThat(state()).isEqualTo("EXPIRED");
+        assertThat(jdbc.queryForObject("select json_length(history) from reservation where id=?", Integer.class, reservationId)).isZero();
+    }
+
+    /** 승인되지 않은 공동 주문은 보존·무효화하고 선택하지 않은 구성원 예약은 유지한다. */
+    @Test
+    void unpaidGroupCancellationPreservesOtherMemberAndSharedAllocation() {
+        prepareUnpaid("READY");
+        String otherId = unpaidGroupMember(false);
+        var otherBefore = jdbc.queryForMap("select * from registration where id=?", otherId);
+        var allocations = jdbc.queryForList("select * from payment_allocation where payment_id=? order by id", paymentId);
+        registrationCommands.deletePaymentPendingRegistration(registrationId);
+        assertThat(jdbc.queryForMap("select * from registration where id=?", otherId)).isEqualTo(otherBefore);
+        assertThat(jdbc.queryForObject("select status from reservation where registration_id=?", String.class, otherId)).isEqualTo("HELD");
+        assertThat(jdbc.queryForObject("select process_status from payment where id=?", String.class, paymentId)).isEqualTo("INVALIDATED");
+        assertThat(jdbc.queryForList("select * from payment_allocation where payment_id=? order by id", paymentId)).isEqualTo(allocations);
+        for (String capacity : List.of(total, capacityA, shirt)) { assertThat(held(capacity)).isEqualTo(1); }
+        verifyNoInteractions(toss);
+    }
+
+    /** 같은 단체라도 다른 사람에게만 귀속된 완료 결제와 확정 정원을 변경하지 않는다. */
+    @Test
+    void unpaidGroupCancellationAllowsUnrelatedCompletedMember() {
+        prepareUnpaid("READY");
+        String otherId = unpaidGroupMember(true);
+        var completedBefore = jdbc.queryForList("select * from payment where process_status='COMPLETED' and organization_id=(select organization_id from registration where id=?)", registrationId);
+        registrationCommands.deletePaymentPendingRegistration(registrationId);
+        assertThat(jdbc.queryForList("select * from payment where process_status='COMPLETED' and organization_id=(select organization_id from registration where id=?)", registrationId)).isEqualTo(completedBefore);
+        assertThat(jdbc.queryForObject("select status from registration where id=?", String.class, otherId)).isEqualTo("CONFIRMED");
+        for (String capacity : List.of(total, capacityA, shirt)) {
+            assertThat(held(capacity)).isZero(); assertThat(count(capacity)).isEqualTo(1);
+        }
+        verifyNoInteractions(toss);
+    }
+
+    /** 환불 준비가 남은 범위는 참가 상태가 미결제로 표시되어도 취소를 차단한다. */
+    @ParameterizedTest
+    @ValueSource(strings = {"PROCESSING", "UNKNOWN"})
+    void unpaidCancellationRejectsUnresolvedRefund(String cancellationState) {
+        AdminRefundPrepared prepared = service.preparePartial(eventId, null, List.of(target(true)), command());
+        prepareUnpaid("READY");
+        jdbc.update("update payment_cancel set status=? where id=?", cancellationState, prepared.refunds().getFirst().paymentCancelId());
+        var before = unpaidSnapshot();
+        assertThatThrownBy(() -> registrationCommands.deletePaymentPendingRegistration(registrationId))
+                .isInstanceOfSatisfying(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode.PAYMENT_CANCEL_CONFLICT));
+        assertThat(unpaidSnapshot()).isEqualTo(before);
+        verifyNoInteractions(toss);
+    }
+
+    /** 실제 승인 API 호출 대신 동일한 DB 잠금·진행 상태를 재현하여 취소 경합을 검증한다. */
+    @Test
+    void unpaidCancellationCannotPassApprovalLocksOrConfirmingState() throws Exception {
+        prepareUnpaid("READY");
+        var locked = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var pool = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            var approval = pool.submit(() -> tx.executeWithoutResult(status -> {
+                jdbc.queryForObject("select id from event where id=? for update", String.class, eventId);
+                jdbc.queryForObject("select id from payment where id=? for update", String.class, paymentId);
+                jdbc.update("update payment set process_status='CONFIRMING',version=version+1 where id=?", paymentId);
+                jdbc.update("update reservation set status='PROCESSING',version=version+1 where id=?", reservationId);
+                locked.countDown();
+                awaitUnpaidTest(release);
+            }));
+            assertThat(locked.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThatThrownBy(() -> registrationCommands.deletePaymentPendingRegistration(registrationId))
+                    .isInstanceOfSatisfying(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class,
+                            e -> assertThat(e.getErrorCode()).isEqualTo(kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode.CONCURRENT_MODIFICATION));
+            release.countDown(); approval.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            var before = unpaidSnapshot();
+            assertThatThrownBy(() -> registrationCommands.deletePaymentPendingRegistration(registrationId))
+                    .isInstanceOfSatisfying(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class,
+                            e -> assertThat(e.getErrorCode()).isEqualTo(kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode.REGISTRATION_MODIFICATION_PAYMENT_CONFLICT));
+            assertThat(unpaidSnapshot()).isEqualTo(before);
+            verifyNoInteractions(toss);
+        } finally {
+            release.countDown(); pool.shutdownNow();
+            if (!pool.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)) { throw new IllegalStateException("경합 테스트 종료 실패"); }
+        }
+    }
+
+    /** 취소가 잠근 동안 중복 취소와 관리자 환불이 진입하지 않고 커밋 후 재호출은 무변경이다. */
+    @Test
+    void unpaidCancellationSerializesDuplicateAndRefundRequests() throws Exception {
+        prepareUnpaid("READY");
+        var locked = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var pool = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            var first = pool.submit(() -> tx.executeWithoutResult(status -> {
+                registrationCommands.deletePaymentPendingRegistration(registrationId);
+                locked.countDown(); awaitUnpaidTest(release);
+            }));
+            assertThat(locked.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            for (Runnable competing : List.<Runnable>of(
+                    () -> registrationCommands.deletePaymentPendingRegistration(registrationId),
+                    () -> service.prepareFull(eventId, null, List.of(registrationId), command()))) {
+                assertThatThrownBy(competing::run)
+                        .isInstanceOfSatisfying(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class,
+                                e -> assertThat(e.getErrorCode()).isEqualTo(kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode.CONCURRENT_MODIFICATION));
+            }
+            release.countDown(); first.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            var once = unpaidSnapshot();
+            registrationCommands.deletePaymentPendingRegistration(registrationId);
+            assertThat(unpaidSnapshot()).isEqualTo(once);
+            assertThat(held(total)).isZero();
+            verifyNoInteractions(toss);
+        } finally {
+            release.countDown(); pool.shutdownNow();
+            if (!pool.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)) { throw new IllegalStateException("경합 테스트 종료 실패"); }
+        }
+    }
+
+    /** UUID fixture를 최초 미결제 상황으로 전환한다. 외부 결제는 생성하지 않는다. */
+    private void prepareUnpaid(String paymentState) {
+        tx.executeWithoutResult(status -> {
+            jdbc.update("update registration set status='PAYMENT_PENDING',paid_amount=0,contract_amount=70000,is_del=0 where id=?", registrationId);
+            jdbc.update("update payment set process_status=?,toss_status=null,payment_key=null,approved_at=null where id=?", paymentState, paymentId);
+            jdbc.update("update reservation set status='HELD',history=json_array() where id=?", reservationId);
+            for (String capacity : List.of(total, capacityA, shirt)) {
+                jdbc.update("update capacity set held_count=1,confirmed_count=0 where id=?", capacity);
+            }
+        });
+    }
+
+    /** 공동 미결제 주문 또는 별도 완료 주문을 가진 두 번째 단체원을 만든다. */
+    private String unpaidGroupMember(boolean completed) {
+        return tx.execute(status -> {
+            String orgId = id();
+            jdbc.update("insert into organization(id,event_id,login_id,password,group_name,leader_name,leader_birth,leader_ph_num,guardian_consent,created_at) values(?,?,?,?,?,?,?,?,true,?)",
+                    orgId, eventId, "g" + id().substring(0, 15), "Test1234!", "fixture group", "leader", "1990-01-01", "010-0000-0000", now);
+            jdbc.update("update registration set organization_id=? where id=?", orgId, registrationId);
+            jdbc.update("update payment set registration_id=null,organization_id=?,amount=? where id=?", orgId, completed ? 70000 : 140000, paymentId);
+            var org = em.getReference(kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization.class, orgId);
+            Registration other = Registration.builder().organization(org).event(em.getReference(Event.class, eventId))
+                    .eventCategory(em.getReference(EventCategory.class, categoryA)).name("other-" + id().substring(0, 8))
+                    .phNum("010-0000-0000").birth("1990-01-01").gender(GenderClass.M).password("Test1234!")
+                    .souvenirJson(List.of(new SouvenirJson(souvenir, "M")))
+                    .status(completed ? RegistrationStatus.CONFIRMED : RegistrationStatus.PAYMENT_PENDING)
+                    .contractAmount(new BigDecimal("70000")).paidAmount(completed ? new BigDecimal("70000") : BigDecimal.ZERO)
+                    .termsEssentialAgreed(true).termsMarketingAgreed(false).termsMarketingChannelAgreed(false).termsAgreedAt(now).build();
+            em.persist(other);
+            Reservation reservation = Reservation.builder().registration(other)
+                    .status(completed ? ReservationStatus.CONSUMED : ReservationStatus.HELD).build();
+            em.persist(reservation);
+            for (String capacity : List.of(total, capacityA, shirt)) {
+                em.persist(ReservationItem.create(reservation, em.getReference(Capacity.class, capacity), 1));
+                jdbc.update(completed ? "update capacity set confirmed_count=confirmed_count+1 where id=?"
+                        : "update capacity set held_count=held_count+1 where id=?", capacity);
+            }
+            Payment payment = em.getReference(Payment.class, paymentId);
+            if (completed) {
+                payment = Payment.builder().organization(org).amount(new BigDecimal("70000"))
+                        .orderId("test-" + id()).orderName("other paid member").purpose(PaymentPurpose.REGISTRATION_TRY)
+                        .processStatus(PaymentProcessStatus.COMPLETED).tossStatus(TossPaymentStatus.DONE)
+                        .paymentKey("fixture-" + id()).confirmIdempotencyKey(id()).approvedAt(now).build();
+                em.persist(payment);
+            }
+            em.persist(PaymentAllocation.create(payment, other, new BigDecimal("70000")));
+            em.flush(); return other.getId();
+        });
+    }
+
+    /** 금융/신청/예약/카운터와 로그를 DB 현재값으로 비교한다. */
+    private java.util.Map<String, Object> unpaidSnapshot() {
+        java.util.Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("registration", jdbc.queryForList("select * from registration where event_id=? order by id", eventId));
+        result.put("payment", jdbc.queryForList("select * from payment where id=?", paymentId));
+        result.put("allocation", jdbc.queryForList("select * from payment_allocation where payment_id=? order by id", paymentId));
+        result.put("reservation", jdbc.queryForList("select * from reservation where registration_id=?", registrationId));
+        result.put("items", jdbc.queryForList("select * from reservation_item where reservation_id=? order by id", reservationId));
+        result.put("capacity", jdbc.queryForList("select * from capacity where event_id=? order by id", eventId));
+        result.put("cancel", jdbc.queryForList("select * from payment_cancel where payment_id=? order by id", paymentId));
+        result.put("log", jdbc.queryForList("select * from payment_process_log where payment_id=? order by id", paymentId));
+        return result;
+    }
+
+    /** DB에 남은 임시 확보 수량을 조회한다. */
+    private int held(String capacity) {
+        return jdbc.queryForObject("select held_count from capacity where id=?", Integer.class, capacity);
+    }
+
+    /** 시간 제한을 둬 경합 테스트가 무한 대기하지 않도록 한다. */
+    private static void awaitUnpaidTest(java.util.concurrent.CountDownLatch latch) {
+        try {
+            if (!latch.await(10, java.util.concurrent.TimeUnit.SECONDS)) { throw new IllegalStateException("경합 테스트 대기 초과"); }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt(); throw new IllegalStateException(exception);
+        }
     }
 
 }

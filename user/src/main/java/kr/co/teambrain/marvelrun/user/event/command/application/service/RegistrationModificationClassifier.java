@@ -3,6 +3,7 @@ package kr.co.teambrain.marvelrun.user.event.command.application.service;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationModificationRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrgRegistrationModificationRequest;
@@ -53,6 +54,7 @@ public class RegistrationModificationClassifier {
 
         boolean changed =
                 !Objects.equals(current.getName(), request.name())
+                        || !Objects.equals(current.getEmail(), request.email()) // 추가됨
                         || !Objects.equals(current.getPhNum(), request.phNum())
                         || current.getGender() != request.gender()
                         || !Objects.equals(current.getAddress(), request.address())
@@ -80,7 +82,8 @@ public class RegistrationModificationClassifier {
     /**
      * 접근 검증된 활성 구성원 전체와 요청을 비교한다. 순서는 무시하되 중복 ID는 거부한다.
      * 추가·삭제 또는 한 명의 정책 영향 변경만 있어도 요청 전체를 FULL로 분류한다.
-     * 단체 DTO에는 단체 자체의 변경 필드가 없으며 access는 인증에만 사용한다.
+     * 단체장·연락처·주소·이메일·보호자 동의 변경은 개인정보 수정으로 분류한다.
+     * access는 인증에만 사용한다.
      */
     public Change classifyOrganization(List<Registration> currentMembers,
                                        OrgRegistrationModificationRequest request) {
@@ -98,6 +101,19 @@ public class RegistrationModificationClassifier {
         Set<String> requestedIds = new HashSet<>();
         boolean full = false;
         boolean changed = false;
+
+        if (!currentMembers.isEmpty() && currentMembers.getFirst().getOrganization() != null) {
+            if (request.leaderBirth() == null) { throw invalidArgument(); }
+            Organization org = currentMembers.getFirst().getOrganization();
+            changed |= !Objects.equals(org.getEmail(), request.email())
+                    || !Objects.equals(org.getLeaderName(), request.leaderName())
+                    || !Objects.equals(org.getLeaderBirth(), request.leaderBirth().toString())
+                    || !Objects.equals(org.getLeaderPhNum(), request.leaderPhNum())
+                    || !Objects.equals(org.getAddress(), request.address())
+                    || !Objects.equals(org.getAddressDetail(), request.addressDetail())
+                    || org.isGuardianConsent() != request.guardianConsent();
+        }
+
         for (OrgRegistrationModificationParticipantRequest participant : request.registrations()) {
             if (participant == null) {
                 throw invalidArgument();

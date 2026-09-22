@@ -143,8 +143,7 @@ class RegistrationPersonalInformationServiceTest {
         Registration current = fixture(RegistrationStatus.CONFIRMED, NOW.minusDays(1), NOW.plusDays(1), EventStatus.OPEN);
         expect(ErrorCode.INVALID_REGISTRATION_MODIFICATION_ARGUMENT, request(" ", "c", "1990-01-01"));
         RegistrationModificationRequest original = request("새 이름", "c", "1990-01-01");
-        RegistrationModificationRequest denied = new RegistrationModificationRequest(
-                new RegistrationAccessRequest("다른 인증", "1990-01-01", "010-1111-2222", "test-only"),
+        RegistrationModificationRequest denied = new RegistrationModificationRequest(new RegistrationAccessRequest("다른 인증", "1990-01-01", "010-1111-2222", "test-only"),
                 original.eventCategoryId(),
                 original.selectedSouvenirList(),
                 original.name(),
@@ -156,8 +155,8 @@ class RegistrationPersonalInformationServiceTest {
                 original.guardianConsent(),
                 original.guardianName(),
                 original.guardianPhNum(),
-                original.guardianRelationship()
-        );
+                original.guardianRelationship(),
+                original.email());
         expect(ErrorCode.REGISTRATION_ACCESS_DENIED, denied);
         when(repository.existsOtherActiveByEventIdAndUniqueInfo("e", "r", "새 이름", "010-1111-2222", "1990-01-01"))
                 .thenReturn(true);
@@ -175,10 +174,20 @@ class RegistrationPersonalInformationServiceTest {
         when(policy.getGuardianRequiredBirthFrom()).thenReturn(java.time.LocalDate.of(1990, 1, 1));
         when(guardianPolicies.findByEventId("e")).thenReturn(Optional.of(policy));
         RegistrationModificationRequest original = request("기존 이름", "c", "1990-01-01");
-        RegistrationModificationRequest changed = new RegistrationModificationRequest(
-                original.access(), original.eventCategoryId(), original.selectedSouvenirList(),
-                original.name(), original.phNum(), original.birth(), original.gender(),
-                original.address(), original.addressDetail(), consent, "보호자", "010-3333-4444", "부");
+        RegistrationModificationRequest changed = new RegistrationModificationRequest(original.access(),
+                original.eventCategoryId(),
+                original.selectedSouvenirList(),
+                original.name(),
+                original.phNum(),
+                original.birth(),
+                original.gender(),
+                original.address(),
+                original.addressDetail(),
+                consent,
+                "보호자",
+                "010-3333-4444",
+                "부",
+                original.email());
         if (consent) {
             assertThat(commands.modifyPersonal("e", "r", changed).orders()).isEmpty();
             assertThat(current.getGuardianName()).isEqualTo("보호자");
@@ -216,8 +225,7 @@ class RegistrationPersonalInformationServiceTest {
 
     /** 변경할 업무값과 현재 인증값을 분리하여 요청을 만든다. */
     private RegistrationModificationRequest request(String name, String category, String birth) {
-        return new RegistrationModificationRequest(
-                new RegistrationAccessRequest("기존 이름", "1990-01-01", "010-1111-2222", "test-only"),
+        return new RegistrationModificationRequest(new RegistrationAccessRequest("기존 이름", "1990-01-01", "010-1111-2222", "test-only"),
                 category,
                 List.of(new SouvenirJson("s", "M")),
                 name,
@@ -229,8 +237,8 @@ class RegistrationPersonalInformationServiceTest {
                 false,
                 null,
                 null,
-                null
-        );
+                null,
+                null);
     }
 
     /** 업무 오류와 저장·전체 경로 미호출을 함께 확인한다. */

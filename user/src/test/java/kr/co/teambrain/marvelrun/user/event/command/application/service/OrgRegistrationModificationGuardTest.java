@@ -35,8 +35,15 @@ class OrgRegistrationModificationGuardTest {
     private final Event event = Event.builder().id("event").build();
     private final Organization organization = Organization.builder().id("organization").event(event).build();
     private final OrgRegistrationModificationAccessContext access = new OrgRegistrationModificationAccessContext(
-            event, organization, List.of(), new OrgRegistrationModificationRequest(false, 
-                    new OrganizationAccessRequest("test", "test-only"), List.of()), LocalDateTime.of(2026, 9, 20, 12, 0));
+            event, organization, List.of(), new OrgRegistrationModificationRequest(false,
+                "test@example.com",
+                "테스트 주소",
+                "상세",
+                "테스트 단체장",
+                java.time.LocalDate.of(1990, 1, 1),
+                "010-0000-0000",
+                new OrganizationAccessRequest("test", "test-only"),
+                List.of()), LocalDateTime.of(2026, 9, 20, 12, 0));
 
     /** NOWAIT 성공 이후에만 인증정보 refresh와 구성원 현재 읽기로 이어진다. */
     @Test

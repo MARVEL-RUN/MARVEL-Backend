@@ -249,8 +249,7 @@ class RegistrationPricingServiceDatabaseTest {
             String shirtSize
     ) {
 
-        return new RegistrationCreateRequest(
-                categoryId,
+        return new RegistrationCreateRequest(categoryId,
                 List.of(
                         new SouvenirJson(
                                 "souvenir-tshirt",
@@ -267,8 +266,13 @@ class RegistrationPricingServiceDatabaseTest {
                 GenderClass.M,
                 "테스트 주소",
                 "테스트 상세주소",
-                        true, "테스트 보호자", null, null,
-                        true, false, false
-                );
+                true,
+                "테스트 보호자",
+                null,
+                null,
+                true,
+                false,
+                false,
+                null);
     }
 }

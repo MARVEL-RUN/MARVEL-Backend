@@ -65,8 +65,10 @@ class OrgRegistrationPersonalInformationServiceTest {
     @BeforeEach
     void prepare() {
         Event event = Event.builder().id("e").eventStatus(EventStatus.OPEN)
-                .registStartDate(NOW.minusDays(1)).registDeadline(NOW.plusDays(1)).build();
-        organization = Organization.builder().id("o").event(event).loginId("group-test").password("Test1234!").build();
+                .startDate(NOW.plusDays(10)).registStartDate(NOW.minusDays(1)).registDeadline(NOW.plusDays(1)).build();
+        organization = Organization.builder().id("o").event(event).loginId("group-test").password("Test1234!")
+                .guardianConsent(true).email("test@example.com").address("테스트 주소").addressDetail("상세")
+                .leaderName("테스트 단체장").leaderBirth("1990-01-01").leaderPhNum("010-0000-0000").build();
         members = List.of(member("a", event), member("b", event));
         when(time.currentDateTime()).thenReturn(NOW);
         when(organizations.findModificationTarget("e", "o")).thenReturn(Optional.of(organization));
@@ -152,8 +154,15 @@ class OrgRegistrationPersonalInformationServiceTest {
     @Test
     void invalidInputAndAccessFailBeforeLocks() {
         expect(ErrorCode.INVALID_REGISTRATION_MODIFICATION_ARGUMENT, request(participant("a", " ", "c"), participant("b", "b", "c")));
-        expect(ErrorCode.ORGANIZATION_ACCESS_DENIED, new OrgRegistrationModificationRequest(
-                true, new OrganizationAccessRequest("wrong", "Test1234!"), List.of(participant("a", "a", "c"), participant("b", "b", "c"))));
+        expect(ErrorCode.ORGANIZATION_ACCESS_DENIED, new OrgRegistrationModificationRequest(true,
+                "test@example.com",
+                "테스트 주소",
+                "상세",
+                "테스트 단체장",
+                java.time.LocalDate.of(1990, 1, 1),
+                "010-0000-0000",
+                new OrganizationAccessRequest("wrong", "Test1234!"),
+                List.of(participant("a", "a", "c"), participant("b", "b", "c"))));
         verifyNoInteractions(entityManager);
     }
 
@@ -194,7 +203,15 @@ class OrgRegistrationPersonalInformationServiceTest {
 
     /** 최종 전체목록과 테스트 인증정보를 담는다. */
     private OrgRegistrationModificationRequest request(OrgRegistrationModificationParticipantRequest... participants) {
-        return new OrgRegistrationModificationRequest(true, new OrganizationAccessRequest("group-test", "Test1234!"), List.of(participants));
+        return new OrgRegistrationModificationRequest(true,
+                "test@example.com",
+                "테스트 주소",
+                "상세",
+                "테스트 단체장",
+                java.time.LocalDate.of(1990, 1, 1),
+                "010-0000-0000",
+                new OrganizationAccessRequest("group-test", "Test1234!"),
+                List.of(participants));
     }
 
     /** 업무 오류와 부분 저장·전체 경로 미호출을 함께 확인한다. */

@@ -3,6 +3,7 @@ package kr.co.teambrain.marvelrun.admin.user.command.application.controller;
 import jakarta.validation.Valid;
 import kr.co.teambrain.marvelrun.admin.common.dto.request.LoginIdResetRequest;
 import kr.co.teambrain.marvelrun.admin.common.dto.request.PasswordResetRequest;
+import kr.co.teambrain.marvelrun.admin.user.command.application.dto.AdminOrganizationModifyRequest;
 import kr.co.teambrain.marvelrun.admin.user.command.application.service.OrganizationCommandService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -45,6 +46,13 @@ public class OrganizationCommandController {
                 .body(organizationCommandService.checkExistsGroupInfo(loginId, eventId));
     }
 
-
+    @PatchMapping("/{organizationId}/basic-info")
+    public ResponseEntity<Void> modifyOrganizationInfo(
+            @PathVariable String organizationId,
+            @Valid @RequestBody AdminOrganizationModifyRequest request
+    ) {
+        organizationCommandService.modifyOrganizationInfo(organizationId, request);
+        return ResponseEntity.noContent().build();
+    }
 
 }

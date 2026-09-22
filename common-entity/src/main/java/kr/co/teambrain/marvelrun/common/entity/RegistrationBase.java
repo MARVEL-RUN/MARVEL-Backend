@@ -236,6 +236,9 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
     @Column(name = "terms_agreed_at", nullable = false)
     protected LocalDateTime termsAgreedAt;
 
+    @Column(name = "email", length = 255)
+    protected String email;
+
 //    @Column(name = "name_hmac", length = 64)
 //    protected String nameHmac;
 

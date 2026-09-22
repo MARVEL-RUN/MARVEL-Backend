@@ -1,7 +1,7 @@
 package kr.co.teambrain.marvelrun.admin.event.query.controller;
 
-import kr.co.teambrain.marvelrun.admin.event.query.dto.EventCategoryResponse;
-import kr.co.teambrain.marvelrun.admin.event.query.dto.EventListResponse;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.response.EventCategoryResponse;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.response.EventListResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.service.EventQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;

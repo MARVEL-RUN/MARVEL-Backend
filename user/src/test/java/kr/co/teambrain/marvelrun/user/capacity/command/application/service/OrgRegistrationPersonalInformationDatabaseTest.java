@@ -93,7 +93,15 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
                 "010-2222-3333", first.birth(), GenderClass.F);
         OrgRegistrationModificationRequest modified = replaceFirst(original, edited);
         if (paymentStatus.equals("COMPLETED")) {
-            modified = new OrgRegistrationModificationRequest(original.guardianConsent(), original.access(), List.of(edited,
+            modified = new OrgRegistrationModificationRequest(original.guardianConsent(),
+                original.email(),
+                original.address(),
+                original.addressDetail(),
+                original.leaderName(),
+                original.leaderBirth(),
+                original.leaderPhNum(),
+                original.access(),
+                List.of(edited,
                     renamed(original.registrations().get(1), "두 번째 정정")));
         }
         // 기존 신청 정정이므로 비활성화된 종목·기념품의 현재 신규 정책을 다시 적용하지 않는다.
@@ -132,7 +140,14 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
     void unchangedListHasNoWrites() {
         OrgRegistrationCreateResponse created = group(categoryA, categoryA);
         OrgRegistrationModificationRequest original = request(created.organizationId());
-        OrgRegistrationModificationRequest reordered = new OrgRegistrationModificationRequest(original.guardianConsent(), original.access(),
+        OrgRegistrationModificationRequest reordered = new OrgRegistrationModificationRequest(original.guardianConsent(),
+                original.email(),
+                original.address(),
+                original.addressDetail(),
+                original.leaderName(),
+                original.leaderBirth(),
+                original.leaderPhNum(),
+                original.access(),
                 List.of(original.registrations().get(1), original.registrations().getFirst()));
         Map<String, Map<String, Object>> before = members(created.organizationId());
         Map<String, List<Map<String, Object>>> resources = resources();
@@ -154,7 +169,14 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
     void failureAfterFlushRollsBackAllMembers() {
         OrgRegistrationCreateResponse created = group(categoryA, categoryA);
         OrgRegistrationModificationRequest original = request(created.organizationId());
-        OrgRegistrationModificationRequest modified = new OrgRegistrationModificationRequest(original.guardianConsent(), original.access(),
+        OrgRegistrationModificationRequest modified = new OrgRegistrationModificationRequest(original.guardianConsent(),
+                original.email(),
+                original.address(),
+                original.addressDetail(),
+                original.leaderName(),
+                original.leaderBirth(),
+                original.leaderPhNum(),
+                original.access(),
                 original.registrations().stream().map(value -> renamed(value, "정정-" + value.registrationId())).toList());
         Map<String, Map<String, Object>> before = members(created.organizationId());
         Map<String, List<Map<String, Object>>> resources = resources();
@@ -185,7 +207,15 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
             firstName = "충돌 없는 정정";
             secondName = s("select name from registration where id=?", externalId);
         }
-        OrgRegistrationModificationRequest modified = new OrgRegistrationModificationRequest(original.guardianConsent(), original.access(), List.of(
+        OrgRegistrationModificationRequest modified = new OrgRegistrationModificationRequest(original.guardianConsent(),
+                original.email(),
+                original.address(),
+                original.addressDetail(),
+                original.leaderName(),
+                original.leaderBirth(),
+                original.leaderPhNum(),
+                original.access(),
+                List.of(
                 renamed(a, firstName), renamed(b, secondName)));
         Map<String, Map<String, Object>> before = members(created.organizationId());
         Map<String, List<Map<String, Object>>> resources = resources();
@@ -200,7 +230,15 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
     void databaseCollationDuplicateRollsBackWholeGroup() {
         OrgRegistrationCreateResponse created = group(categoryA, categoryA);
         OrgRegistrationModificationRequest original = request(created.organizationId());
-        OrgRegistrationModificationRequest modified = new OrgRegistrationModificationRequest(original.guardianConsent(), original.access(), List.of(
+        OrgRegistrationModificationRequest modified = new OrgRegistrationModificationRequest(original.guardianConsent(),
+                original.email(),
+                original.address(),
+                original.addressDetail(),
+                original.leaderName(),
+                original.leaderBirth(),
+                original.leaderPhNum(),
+                original.access(),
+                List.of(
                 renamed(original.registrations().getFirst(), "Identity"), renamed(original.registrations().get(1), "identity")));
         Map<String, Map<String, Object>> before = members(created.organizationId());
         Map<String, List<Map<String, Object>>> resources = resources();
@@ -260,10 +298,26 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
                 ? replaceFirst(original, selected(first, categoryB, "1990-01-01"))
                 : change.equals("none") ? original : replaceFirst(original, renamed(first, "오래된 정정"));
         OrgRegistrationModificationRequest winner = switch (change) {
-            case "add", "none" -> new OrgRegistrationModificationRequest(original.guardianConsent(), original.access(), List.of(first,
+            case "add", "none" -> new OrgRegistrationModificationRequest(original.guardianConsent(),
+                original.email(),
+                original.address(),
+                original.addressDetail(),
+                original.leaderName(),
+                original.leaderBirth(),
+                original.leaderPhNum(),
+                original.access(),
+                List.of(first,
                     original.registrations().get(1), new OrgRegistrationModificationParticipantRequest(null, categoryA,
-                    List.of(new SouvenirJson(souvenirId, "S")), "추가 구성원", "010-0000-0000", "1990-01-01", GenderClass.M)));
-            case "remove" -> new OrgRegistrationModificationRequest(original.guardianConsent(), original.access(), List.of(first));
+                            List.of(new SouvenirJson(souvenirId, "S")), "추가 구성원", "010-0000-0000", "1990-01-01", GenderClass.M)));
+            case "remove" -> new OrgRegistrationModificationRequest(original.guardianConsent(),
+                original.email(),
+                original.address(),
+                original.addressDetail(),
+                original.leaderName(),
+                original.leaderBirth(),
+                original.leaderPhNum(),
+                original.access(),
+                List.of(first));
             case "category" -> replaceFirst(original, selected(first, categoryB, first.birth()));
             case "birth" -> replaceFirst(original, selected(first, categoryA, "1991-01-01"));
             case "information" -> replaceFirst(original, renamed(first, "먼저 정정"));
@@ -346,8 +400,16 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
                 """, (rs, row) -> new OrgRegistrationModificationParticipantRequest(rs.getString("id"),
                 rs.getString("event_category_id"), List.of(new SouvenirJson(souvenirId, "S")), rs.getString("name"),
                 rs.getString("ph_num"), rs.getString("birth"), GenderClass.valueOf(rs.getString("gender"))), orgId);
-        return new OrgRegistrationModificationRequest(true, new OrganizationAccessRequest(
-                s("select login_id from organization where id=?", orgId), "Test1234!"), participants);
+
+        return new OrgRegistrationModificationRequest(true,
+                s("select email from organization where id=?", orgId),
+                s("select address from organization where id=?", orgId),
+                s("select address_detail from organization where id=?", orgId),
+                s("select leader_name from organization where id=?", orgId),
+                java.time.LocalDate.parse(s("select leader_birth from organization where id=?", orgId)),
+                s("select leader_ph_num from organization where id=?", orgId),
+                new OrganizationAccessRequest(s("select login_id from organization where id=?", orgId), "Test1234!"),
+                participants);
     }
 
     /** 나머지 구성원은 유지하고 첫 참가자 요청만 교체한다. */
@@ -355,7 +417,15 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
                                                             OrgRegistrationModificationParticipantRequest first) {
         List<OrgRegistrationModificationParticipantRequest> participants = new ArrayList<>(request.registrations());
         participants.set(0, first);
-        return new OrgRegistrationModificationRequest(request.guardianConsent(), request.access(), participants);
+        return new OrgRegistrationModificationRequest(request.guardianConsent(),
+                request.email(),
+                request.address(),
+                request.addressDetail(),
+                request.leaderName(),
+                request.leaderBirth(),
+                request.leaderPhNum(),
+                request.access(),
+                participants);
     }
 
     /** 개인정보 변경용으로 이름만 교체한다. */

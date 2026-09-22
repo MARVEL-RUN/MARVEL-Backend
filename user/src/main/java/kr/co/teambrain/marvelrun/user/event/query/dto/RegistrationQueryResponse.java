@@ -9,7 +9,7 @@ import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_cancel.Pa
 
 /** 개인 접수 확인 및 수정 화면의 현재 입력값을 제공한다. 비밀번호·내부 버전은 제외한다. */
 public record RegistrationQueryResponse(
-        String registrationId, String name, String birth, String phNum, GenderClass gender,
+        String registrationId, String name, String email, String birth, String phNum, GenderClass gender,
         String eventCategoryId, String eventCategoryName,
         List<RegistrationSouvenirResponse> selectedSouvenirList,
         String address, String addressDetail,

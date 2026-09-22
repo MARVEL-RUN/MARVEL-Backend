@@ -22,4 +22,18 @@ public class Organization extends OrganizationBase<Event> {
     public void resetLoginIdByAdmin(String newLoginId) {
         this.loginId = newLoginId;
     }
+
+    public void modifyInfoByAdmin(
+            String groupName, String leaderName, String leaderBirth, String leaderPhNum,
+            String email, String address, String addressDetail, boolean guardianConsent
+    ) {
+        this.groupName = groupName;
+        this.leaderName = leaderName;
+        this.leaderBirth = leaderBirth;
+        this.leaderPhNum = leaderPhNum;
+        this.email = email;
+        this.address = address;
+        this.addressDetail = addressDetail;
+        this.guardianConsent = guardianConsent;
+    }
 }

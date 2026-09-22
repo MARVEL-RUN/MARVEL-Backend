@@ -1,11 +1,11 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotEmpty;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.OrgRegistrationModificationParticipantRequest;
 
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -21,8 +21,31 @@ import java.util.List;
  * 수정 완료 후 남아 있어야 할 전체 구성원 목록이다.
  */
 public record OrgRegistrationModificationRequest(
-
         boolean guardianConsent,
+
+        @Email(message = "이메일 형식이 올바르지 않습니다.")
+        @Size(max = 30)
+        String email,
+
+        @NotBlank
+        String address,
+
+        String addressDetail,
+
+        @NotBlank
+        String leaderName,
+
+        @NotNull
+        @Past(message = "생년월일은 과거여야 합니다.")
+        @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd")
+        LocalDate leaderBirth,
+
+        @NotBlank
+        @Pattern(
+                regexp = "^(?:010-\\d{4}-\\d{4}|02-\\d{3,4}-\\d{4}|0(?:3[1-3]|4[1-4]|5[1-5]|6[1-4])-\\d{3,4}-\\d{4})$",
+                message = "연락처 형식이 올바르지 않습니다."
+        )
+        String leaderPhNum,
 
         @NotNull
         @Valid

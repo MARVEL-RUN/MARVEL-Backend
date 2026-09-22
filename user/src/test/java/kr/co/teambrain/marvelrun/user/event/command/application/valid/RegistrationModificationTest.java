@@ -643,8 +643,7 @@ class RegistrationModificationTest {
             String guardian,
             Boolean consent
     ) {
-        return new RegistrationModificationRequest(
-                new RegistrationAccessRequest(
+        return new RegistrationModificationRequest(new RegistrationAccessRequest(
                         "기존이름", "1990-01-01", PHONE, "password"
                 ),
                 CATEGORY_ID,
@@ -658,8 +657,8 @@ class RegistrationModificationTest {
                 consent,
                 guardian,
                 null,
-                null
-        );
+                null,
+                null);
     }
 
     /**
@@ -668,8 +667,7 @@ class RegistrationModificationTest {
     private RegistrationCreateRequest creationRequest(
             RegistrationModificationRequest request
     ) {
-        return new RegistrationCreateRequest(
-                request.eventCategoryId(),
+        return new RegistrationCreateRequest(request.eventCategoryId(),
                 request.selectedSouvenirList(),
                 "password",
                 request.name(),
@@ -678,9 +676,14 @@ class RegistrationModificationTest {
                 request.gender(),
                 request.address(),
                 request.addressDetail(),
-                        request.guardianConsent(), request.guardianName(), request.guardianPhNum(), request.guardianRelationship(),
-                        true, false, false
-                );
+                request.guardianConsent(),
+                request.guardianName(),
+                request.guardianPhNum(),
+                request.guardianRelationship(),
+                true,
+                false,
+                false,
+                null);
     }
 
     /**
@@ -722,10 +725,15 @@ class RegistrationModificationTest {
                 event,
                 organization,
                 current,
-                new OrgRegistrationModificationRequest(organization.isGuardianConsent(), 
-                        new OrganizationAccessRequest("group-login", "password"),
-                        participants
-                ),
+                new OrgRegistrationModificationRequest(organization.isGuardianConsent(),
+                "test@example.com",
+                "테스트 주소",
+                "상세",
+                "테스트 단체장",
+                java.time.LocalDate.of(1990, 1, 1),
+                "010-0000-0000",
+                new OrganizationAccessRequest("group-login", "password"),
+                participants),
                 NOW
         );
     }

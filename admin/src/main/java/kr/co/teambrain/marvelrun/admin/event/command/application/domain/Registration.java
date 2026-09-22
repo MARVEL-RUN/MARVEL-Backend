@@ -5,17 +5,20 @@ import jakarta.persistence.Table;
 import kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.admin.user.command.application.domain.User;
 import kr.co.teambrain.marvelrun.common.entity.RegistrationBase;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import lombok.Getter;
 import lombok.experimental.SuperBuilder;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Objects;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
 
 import static lombok.AccessLevel.PROTECTED;
 
@@ -166,5 +169,57 @@ public class Registration extends RegistrationBase<User, Event, EventCategory, O
         }
 
         this.paidAmount = paidAmount.subtract(amount);
+    }
+
+    /**
+     * 관리자에 의한 참가자 기본 정보 강제 수정 및 메모 이력 기록
+     */
+    public void modifyBasicInfoByAdmin(
+            String name, String phNum, String email, String birth, GenderClass gender,
+            String address, String addressDetail,
+            String guardianName, String guardianPhNum, String guardianRelationship,
+            LocalDateTime now
+    ) {
+        this.name = name;
+        this.phNum = phNum;
+        this.email = email;
+        this.birth = birth;
+        this.gender = gender;
+        this.address = address;
+        this.addressDetail = addressDetail;
+        this.guardianName = guardianName;
+        this.guardianPhNum = guardianPhNum;
+        this.guardianRelationship = guardianRelationship;
+
+        String timestamp = now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        String logMessage = String.format("[%s] 관리자에 의한 참가자 기본 정보(개인정보/주소 등) 강제 수정", timestamp);
+
+        if (this.detailMemo == null || this.detailMemo.isBlank()) {
+            this.detailMemo = logMessage;
+        } else {
+            this.detailMemo = this.detailMemo + "\n" + logMessage;
+        }
+    }
+
+    /** 잠금 상태에서 최초 미결제와 예약 반환을 검증한 호출자만 신청을 만료시킨다. */
+    public void expireByAdmin(LocalDateTime now) {
+        if (softDeleted || status != RegistrationStatus.PAYMENT_PENDING) {
+            throw new CustomException(ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET);
+        }
+        if (paidAmount == null || paidAmount.signum() != 0
+                || contractAmount == null || contractAmount.signum() < 0) {
+            throw new CustomException(ErrorCode.REGISTRATION_FINANCIAL_STATE_INVALID);
+        }
+        this.contractAmount = BigDecimal.ZERO;
+        this.softDeleted = true;
+        this.status = RegistrationStatus.EXPIRED; // 요청하신 EXPIRED 상태 전이
+
+        String timestamp = now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        String logMessage = String.format("[%s] 관리자에 의한 결제 대기 신청건 삭제 (EXPIRED)", timestamp);
+        if (this.detailMemo == null || this.detailMemo.isBlank()) {
+            this.detailMemo = logMessage;
+        } else {
+            this.detailMemo = this.detailMemo + "\n" + logMessage;
+        }
     }
 }

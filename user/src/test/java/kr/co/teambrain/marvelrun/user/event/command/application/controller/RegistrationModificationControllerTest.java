@@ -56,7 +56,9 @@ class RegistrationModificationControllerTest {
         when(modifications.modifyOrganization(eq("event"), eq("org"), any())).thenReturn(result());
         mvc.perform(patch("/v1/public/events/event/organizations/org/registrations")
                 .contentType(MediaType.APPLICATION_JSON).content("""
-                {"access":{"loginId":"leader","password":"test"},"registrations":[
+                {"email":"test@example.com","address":"테스트 주소","addressDetail":"상세",
+                 "leaderName":"테스트 단체장","leaderBirth":"1990-01-01","leaderPhNum":"010-0000-0000",
+                 "access":{"loginId":"leader","password":"test"},"registrations":[
                  {"registrationId":"existing","eventCategoryId":"category",
                   "selectedSouvenirList":[{"souvenirId":"shirt","selectedSize":"S"}],
                   "name":"기존참가자","phNum":"010-1234-5678","birth":"1990-01-01","gender":"M"},
@@ -86,7 +88,11 @@ class RegistrationModificationControllerTest {
     void emptyOrganizationListIsBadRequest() throws Exception {
         mvc.perform(patch("/v1/public/events/event/organizations/org/registrations")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"access\":{\"loginId\":\"leader\",\"password\":\"test\"},\"registrations\":[]}"))
+                .content("""
+                {"email":"test@example.com","address":"테스트 주소","leaderName":"테스트 단체장",
+                 "leaderBirth":"1990-01-01","leaderPhNum":"010-0000-0000",
+                 "access":{"loginId":"leader","password":"test"},"registrations":[]}
+                """))
                 .andExpect(status().isBadRequest());
         verifyNoInteractions(modifications, retries);
     }

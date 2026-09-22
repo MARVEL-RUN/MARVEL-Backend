@@ -134,26 +134,30 @@ class RegistrationCreateFlowDatabaseTest {
         var result =
                 registrations.register(
                         EVENT_ID,
-                        new RegistrationCreateRequest(
-                                "category-2",
-                                List.of(
+                        new RegistrationCreateRequest("category-2",
+                List.of(
                                         new SouvenirJson(
                                                 "souvenir-tshirt",
                                                 "130"
                                         )
                                 ),
-                                "Test1234!",
-                                uniqueName(
+                "Test1234!",
+                uniqueName(
                                         "개인어린이"
                                 ),
-                                "010-0000-0000",
-                                "2013-09-11",
-                                GenderClass.M,
-                                "테스트 주소",
-                                "상세",
-                        true, "테스트 보호자", null, null,
-                        true, false, false
-                )
+                "010-0000-0000",
+                "2013-09-11",
+                GenderClass.M,
+                "테스트 주소",
+                "상세",
+                true,
+                "테스트 보호자",
+                null,
+                null,
+                true,
+                false,
+                false,
+                null)
                 );
 
         /*
