@@ -70,6 +70,7 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
         verify(toss, times(1)).confirm(
                 any(TossPaymentConfirmRequest.class), anyString()
         );
+        assertThat(s("select JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.resultComparison.status')) from payment_process_log where payment_id=? and process_type='CONFIRM_SUCCEEDED'", result.paymentId())).isEqualTo("SUCCESS");
     }
 
     /**
@@ -175,6 +176,7 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
                 """,
                 result.paymentId()
         )).isEqualTo(1);
+        assertThat(s("select JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.resultComparison.status')) from payment_process_log where payment_id=? and process_type='CONFIRM_FAILED'", result.paymentId())).isEqualTo("FAILED");
     }
 
     /**
@@ -217,6 +219,7 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
                 BigDecimal.class,
                 result.registrationId()
         )).isEqualByComparingTo("0");
+        assertThat(s("select JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.resultComparison.status')) from payment_process_log where payment_id=? and process_type='CONFIRM_UNKNOWN'", result.paymentId())).isEqualTo("UNVERIFIED");
     }
 
     /**
@@ -328,6 +331,7 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
                 """,
                 result.paymentId()
         )).isZero();
+        assertThat(s("select JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.resultComparison.status')) from payment_process_log where payment_id=? and process_type='CONFIRM_UNKNOWN'", result.paymentId())).isEqualTo("MISMATCH");
     }
 
     /** 실제 미납액만 추가 납부하고 기존 확정 정원·예약 및 중복 반영 방지를 검증한다. */
@@ -397,5 +401,20 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
                 .isEqualByComparingTo("40000"); // A 금액 불변
         assertThat(jdbc.queryForObject("select paid_amount from registration where id = ?", BigDecimal.class, memberB))
                 .isEqualByComparingTo("40000"); // B 금액 납부 완료
+    }
+    /** 다른 결제의 DONE 응답은 검증 성공이나 확정 실패로 오인하지 않는다. */
+    @Test
+    void mismatchedDoneResponseIsLoggedAsUnverified() {
+        kr.co.teambrain.marvelrun.user.event.command.application.dto.response.RegistrationCreateResponse result =
+                personal(categoryA, "S", "1990-01-01");
+        doAnswer(invocation -> {
+            TossPaymentConfirmRequest request = invocation.getArgument(0);
+            return approved("different-payment-key", request.orderId(), request.amount());
+        }).when(toss).confirm(any(TossPaymentConfirmRequest.class), anyString());
+        expectError(ErrorCode.PAYMENT_CONFIRM_UNKNOWN, () -> payments.confirm(confirmRequest(result.paymentId())));
+        assertThat(s("select process_status from payment where id=?", result.paymentId())).isEqualTo("UNKNOWN");
+        assertThat(jdbc.queryForObject("select paid_amount from registration where id=?", BigDecimal.class, result.registrationId())).isEqualByComparingTo("0");
+        assertThat(s("select JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.resultComparison.status')) from payment_process_log where payment_id=? and process_type='CONFIRM_UNKNOWN'",result.paymentId())).isEqualTo("UNVERIFIED");
+        assertThat(n("select count(*) from payment_process_log where payment_id=? and process_type='CONFIRM_SUCCEEDED'", result.paymentId())).isZero();
     }
 }

@@ -1,7 +1,7 @@
-package kr.co.teambrain.marvelrun.user.payment.command.application.refund;
+package kr.co.teambrain.marvelrun.admin.payment.command.application.refund;
 
 import jakarta.persistence.EntityManager;
-import kr.co.teambrain.marvelrun.user.payment.command.application.PaymentResultLogMetadata;
+import kr.co.teambrain.marvelrun.admin.payment.command.application.PaymentResultLogMetadata;
 import jakarta.persistence.LockModeType;
 import java.math.BigDecimal;
 import java.time.ZoneId;
@@ -11,17 +11,18 @@ import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.TossPaymentS
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_cancel.PaymentCancelStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_log.PaymentProcessSource;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_log.PaymentProcessType;
-import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
-import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
-import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
-import kr.co.teambrain.marvelrun.user.capacity.command.application.domain.Reservation;
-import kr.co.teambrain.marvelrun.user.capacity.command.repository.ReservationCommandRepository;
-import kr.co.teambrain.marvelrun.user.event.command.application.domain.PaymentCancel;
-import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
-import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult.Refund;
-import kr.co.teambrain.marvelrun.user.payment.command.application.domain.*;
-import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.*;
-import kr.co.teambrain.marvelrun.user.payment.command.infrastructure.toss.refund.*;
+import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
+import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
+import kr.co.teambrain.marvelrun.admin.payment.command.AdminRefundTime;
+import kr.co.teambrain.marvelrun.admin.capacity.command.application.domain.Reservation;
+import kr.co.teambrain.marvelrun.admin.capacity.command.repository.ReservationCommandRepository;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.PaymentCancel;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
+import kr.co.teambrain.marvelrun.admin.payment.command.application.refund.AdminRefundExecutionRequest.Refund;
+import kr.co.teambrain.marvelrun.admin.payment.command.application.domain.*;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Payment;
+import kr.co.teambrain.marvelrun.admin.payment.command.application.domain.repository.*;
+import kr.co.teambrain.marvelrun.admin.payment.command.infrastructure.toss.refund.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -34,11 +35,10 @@ import org.springframework.transaction.annotation.Transactional;
 public class RefundExecutionTransactionService {
     private final RefundExecutionLock locks;
     private final EntityManager entityManager;
-    private final PaymentCancelCommandRepository cancellations;
     private final PaymentCancelAllocationCommandRepository allocations;
     private final ReservationCommandRepository reservations;
     private final PaymentProcessLogCommandRepository logs;
-    private final ServerTimeProvider time;
+    private final AdminRefundTime time;
 
     /** 시작 시각을 커밋한 호출자 한 명에게만 불변 실행 정보를 반환한다. */
     public Optional<RefundExecutionTicket> begin(String eventId, String organizationId, Refund refund) {
@@ -53,7 +53,11 @@ public class RefundExecutionTransactionService {
                 || refund.correlationId() == null || refund.correlationId().isBlank()
                 || refund.correlationId().length() > 64) { throw invalid(); }
 
-        List<PaymentCancel> history = cancellations.findAllByPaymentIdsForUpdate(List.of(payment.getId()));
+        List<PaymentCancel> history = entityManager.createQuery(
+                        "select c from PaymentCancel c where c.payment.id = :id order by c.id", PaymentCancel.class)
+                .setParameter("id", payment.getId()).setLockMode(LockModeType.PESSIMISTIC_WRITE)
+                .setMaxResults(501).getResultList();
+        if (history.size() > 500) { throw invalid(); }
         Map<String, BigDecimal> completed = new HashMap<>();
         List<PaymentRefundBudget.CancelAmount> otherAmounts = new ArrayList<>();
         for (PaymentCancel previous : history) {
@@ -75,7 +79,7 @@ public class RefundExecutionTransactionService {
         TossCancelAttempt attempt = new TossCancelAttempt(cancel.getId(), payment.getPaymentKey(),
                 payment.getOrderId(), cancel.getIdempotencyKey(), cancel.getCancelReason(),
                 payment.getAmount(), cancel.getCancelAmount(), completed);
-        if (!cancel.startRefund(time.currentDateTime())) { return Optional.empty(); }
+        if (!cancel.startRefund(time.now())) { return Optional.empty(); }
         RefundExecutionTicket ticket = new RefundExecutionTicket(eventId, organizationId,
                 payment.getId(), refund.correlationId(), attempt, shares);
         appendLog(cancel, ticket.correlationId(), PaymentProcessType.CANCEL_REQUESTED, null);
@@ -234,13 +238,23 @@ public class RefundExecutionTransactionService {
     /** 개인정보와 Toss 원문 대신 식별자·상태·금액·거래키 중심의 추적 로그를 남긴다. */
     private void appendLog(PaymentCancel cancel, String correlationId, PaymentProcessType type, TossCancelOutcome outcome) {
         VerifiedTossCancellation evidence = outcome == null ? null : outcome.cancellation();
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("amount", cancel.getCancelAmount());
+        metadata.put("status", cancel.getStatus().name());
+        if (outcome != null) { metadata.put("externalOutcome", outcome.kind().name()); }
+        if (evidence != null) {
+            metadata.put("externalPaymentStatus", evidence.paymentStatus());
+            metadata.put("externalCancelAmount", evidence.cancelAmount());
+            metadata.put("externalRefundableAmount", evidence.refundableAmount());
+            metadata.put("externalCanceledAt", evidence.canceledAt().toString());
+        }
         logs.save(PaymentProcessLog.builder().paymentId(cancel.getPayment().getId()).paymentCancelId(cancel.getId())
                 .orderId(cancel.getPayment().getOrderId()).correlationId(correlationId)
-                .processType(type).source(PaymentProcessSource.API)
+                .processType(type).source(PaymentProcessSource.ADMIN)
                 .transactionKey(evidence == null ? cancel.getTransactionKey() : evidence.transactionKey())
                 .httpStatus(outcome == null ? null : outcome.httpStatus())
                 .errorCode(cancel.getErrorCode()).errorMessage(cancel.getErrorMessage())
-                .metadata(PaymentResultLogMetadata.refund(Map.of("amount", cancel.getCancelAmount(), "status", cancel.getStatus().name()), cancel.getStatus(), outcome))
+                .idempotencyKey(cancel.getIdempotencyKey()).metadata(PaymentResultLogMetadata.refund(metadata, cancel.getStatus(), outcome))
                 .build());
     }
 

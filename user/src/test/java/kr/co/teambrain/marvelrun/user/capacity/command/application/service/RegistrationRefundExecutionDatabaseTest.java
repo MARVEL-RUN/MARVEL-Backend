@@ -91,6 +91,7 @@ class RegistrationRefundExecutionDatabaseTest extends CapacityMvpTestSupport {
         assertThat(s("select toss_status from payment where id = ?", original.paymentId())).isEqualTo("PARTIAL_CANCELED");
         assertThat(result.orders()).isEmpty();
         verify(cancelClient, times(1)).cancel(any());
+        assertThat(s("select JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.resultComparison.status')) from payment_process_log where payment_cancel_id=? and process_type='CANCEL_SUCCEEDED'", result.refunds().get(0).paymentCancelId())).isEqualTo("SUCCESS");
     }
 
     /** 참가비가 0원으로 바뀌면 원결제를 전액 환불하고 참가 신청 자체는 확정 상태로 유지한다. */
@@ -129,6 +130,8 @@ class RegistrationRefundExecutionDatabaseTest extends CapacityMvpTestSupport {
                     original.registrationId(), personalRequest(original.registrationId(), categoryA)));
         }
         verify(cancelClient, times(1)).cancel(any());
+        assertThat(s("select JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.resultComparison.status')) from payment_process_log where payment_cancel_id=? and process_type=?", result.refunds().get(0).paymentCancelId(), status.equals("FAILED") ? "CANCEL_FAILED" : "CANCEL_UNKNOWN"))
+                .isEqualTo(status.equals("FAILED") ? "FAILED" : "UNVERIFIED");
     }
 
     /** 같은 외부 성공 결과를 두 번 적용해도 신청 금액과 완료 로그는 한 번만 변경된다. */
@@ -169,6 +172,7 @@ class RegistrationRefundExecutionDatabaseTest extends CapacityMvpTestSupport {
         assertThat(n("select count(*) from payment_process_log where payment_cancel_id = ? and process_type = 'CANCEL_SUCCEEDED'", cancelId)).isZero();
         assertThat(n("select count(*) from payment_process_log where payment_cancel_id = ? and process_type = 'CANCEL_UNKNOWN' and transaction_key is not null", cancelId)).isEqualTo(1);
         verify(cancelClient, times(1)).cancel(any());
+        assertThat(s("select JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.resultComparison.status')) from payment_process_log where payment_cancel_id=? and process_type='CANCEL_UNKNOWN'", result.refunds().get(0).paymentCancelId())).isEqualTo("MISMATCH");
     }
 
     /** 외부 응답을 기다리는 동안 동일 시도가 재진입해도 두 번째 외부 호출은 발생하지 않는다. */

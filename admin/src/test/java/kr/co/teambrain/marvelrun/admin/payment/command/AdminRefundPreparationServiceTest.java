@@ -73,7 +73,7 @@ class AdminRefundPreparationServiceTest {
         reservation = Reservation.builder().id("v").registration(registration).status(ReservationStatus.CONSUMED).version(0L).build();
         Payment payment = Payment.builder().id("p").registration(registration).amount(new BigDecimal("70000"))
                 .processStatus(PaymentProcessStatus.COMPLETED).paymentKey("fixture-key").orderId("fixture-order").build();
-        PaymentAllocation allocation = PaymentAllocation.builder().id("a").payment(payment).registration(registration)
+        PaymentAllocation allocation = PaymentAllocation.builder().id("application-admin-refund-test.yml").payment(payment).registration(registration)
                 .allocatedAmount(new BigDecimal("70000")).build();
         when(access.lock("test-marvelrun", null, List.of("r"))).thenReturn(new AdminRefundLockedScope(
                 "test-marvelrun", null, List.of(new AdminRefundLockedScope.RegistrationRow("r", null, false,

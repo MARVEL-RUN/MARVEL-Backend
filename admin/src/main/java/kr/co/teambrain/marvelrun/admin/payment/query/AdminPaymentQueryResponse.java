@@ -48,5 +48,11 @@ public final class AdminPaymentQueryResponse {
 
     /** 운영용 로그이며 내부 ID·인증 키·추적 키는 반환하지 않는다. */
     public record Log(LocalDateTime createdAt, String orderId, String processType, String source,
-            Integer httpStatus, String errorCode, String errorMessage, Map<String, Object> metadata) { }
+            Integer httpStatus, String errorCode, String errorMessage, Map<String, Object> metadata) {
+        /** 신규 증거가 없는 과거 로그는 미확인으로 노출한다. 기존 JSON과 생성자는 유지한다. */
+        @com.fasterxml.jackson.annotation.JsonProperty("comparisonStatus")
+        public kr.co.teambrain.marvelrun.admin.payment.command.application.PaymentResultComparison comparisonStatus() {
+            return kr.co.teambrain.marvelrun.admin.payment.command.application.PaymentResultLogMetadata.readStatus(metadata);
+        }
+    }
 }

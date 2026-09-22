@@ -69,4 +69,16 @@ public class Payment extends PaymentBase<Registration, Organization> {
         return true;
     }
 
+
+    /** 승인 원장 금액을 보존하면서 확인된 Toss 취소 상태만 갱신한다. */
+    public void recordVerifiedRefundStatus(
+            kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.TossPaymentStatus next) {
+        if (processStatus != kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus.COMPLETED
+                || (next != kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.TossPaymentStatus.CANCELED
+                && next != kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.TossPaymentStatus.PARTIAL_CANCELED)) {
+            throw new kr.co.teambrain.marvelrun.admin.common.exception.CustomException(
+                    kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR);
+        }
+        this.tossStatus = next;
+    }
 }

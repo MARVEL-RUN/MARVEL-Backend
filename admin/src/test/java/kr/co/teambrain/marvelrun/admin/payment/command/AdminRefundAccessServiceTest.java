@@ -33,16 +33,16 @@ class AdminRefundAccessServiceTest {
     /** 단체 일부 요청도 단체 전체 결제 충돌을 먼저 검사한 후 선택 참가자를 잠근다. */
     @Test
     void locksGroupInUserOrderAndSortsTargets() {
-        prepare("o", List.of("a", "b"));
-        var result = service.lock("e", "o", List.of("b", "a"));
+        prepare("o", List.of("application-admin-refund-test.yml", "b"));
+        var result = service.lock("e", "o", List.of("b", "application-admin-refund-test.yml"));
         var order = inOrder(repository);
         order.verify(repository).lockEvent("e");
         order.verify(repository).lockOrganization("e", "o");
-        order.verify(repository).lockPayments("e", "o", "a");
+        order.verify(repository).lockPayments("e", "o", "application-admin-refund-test.yml");
         order.verify(repository).lockCancellations(List.of("p"));
-        order.verify(repository).lockRegistrations("e", List.of("a", "b"));
+        order.verify(repository).lockRegistrations("e", List.of("application-admin-refund-test.yml", "b"));
         order.verifyNoMoreInteractions();
-        assertThat(result.registrations()).extracting(RegistrationRow::id).containsExactly("a", "b");
+        assertThat(result.registrations()).extracting(RegistrationRow::id).containsExactly("application-admin-refund-test.yml", "b");
         assertThat(result.registrations().getFirst().paidAmount()).isEqualByComparingTo("10000");
         assertThatThrownBy(() -> result.payments().clear()).isInstanceOf(UnsupportedOperationException.class);
     }
@@ -51,9 +51,9 @@ class AdminRefundAccessServiceTest {
     @ParameterizedTest
     @EnumSource(value = PaymentProcessStatus.class, names = {"CONFIRMING", "UNKNOWN"})
     void blocksUnresolvedPayment(PaymentProcessStatus status) {
-        prepare(null, List.of("a"));
-        when(repository.lockPayments("e", null, "a")).thenReturn(List.of(new PaymentRow("p", status)));
-        expect(ErrorCode.REGISTRATION_MODIFICATION_PAYMENT_CONFLICT, null, List.of("a"));
+        prepare(null, List.of("application-admin-refund-test.yml"));
+        when(repository.lockPayments("e", null, "application-admin-refund-test.yml")).thenReturn(List.of(new PaymentRow("p", status)));
+        expect(ErrorCode.REGISTRATION_MODIFICATION_PAYMENT_CONFLICT, null, List.of("application-admin-refund-test.yml"));
         verify(repository, never()).lockCancellations(anyList());
         verify(repository, never()).lockRegistrations(anyString(), anyList());
     }
@@ -62,9 +62,9 @@ class AdminRefundAccessServiceTest {
     @ParameterizedTest
     @EnumSource(value = PaymentCancelStatus.class, names = {"PROCESSING", "UNKNOWN"})
     void blocksUnresolvedRefund(PaymentCancelStatus status) {
-        prepare("o", List.of("a"));
+        prepare("o", List.of("application-admin-refund-test.yml"));
         when(repository.lockCancellations(List.of("p"))).thenReturn(List.of(new CancelRow("c", "p", status)));
-        expect(ErrorCode.PAYMENT_CANCEL_CONFLICT, "o", List.of("a"));
+        expect(ErrorCode.PAYMENT_CANCEL_CONFLICT, "o", List.of("application-admin-refund-test.yml"));
         verify(repository, never()).lockRegistrations(anyString(), anyList());
     }
 
@@ -72,21 +72,21 @@ class AdminRefundAccessServiceTest {
     @ParameterizedTest
     @EnumSource(value = PaymentCancelStatus.class, names = {"DONE", "FAILED"})
     void retainsResolvedRefundHistory(PaymentCancelStatus status) {
-        prepare(null, List.of("a"));
+        prepare(null, List.of("application-admin-refund-test.yml"));
         when(repository.lockCancellations(List.of("p"))).thenReturn(List.of(new CancelRow("c", "p", status)));
-        assertThat(service.lock("e", null, List.of("a")).cancellations()).hasSize(1);
+        assertThat(service.lock("e", null, List.of("application-admin-refund-test.yml")).cancellations()).hasSize(1);
     }
 
     /** 확정 상태라도 금액 요약이 깨졌으면 원장 준비로 진행하지 않는다. */
     @Test
     void rejectsInconsistentAmountsAndDeletedRegistration() {
-        prepare(null, List.of("a"));
+        prepare(null, List.of("application-admin-refund-test.yml"));
         for (RegistrationRow row : List.of(
-                new RegistrationRow("a", null, false, RegistrationStatus.CONFIRMED, BigDecimal.ZERO, BigDecimal.ZERO),
-                new RegistrationRow("a", null, false, RegistrationStatus.CONFIRMED, new BigDecimal("10000"), BigDecimal.ONE),
-                new RegistrationRow("a", null, true, RegistrationStatus.CONFIRMED, BigDecimal.TEN, BigDecimal.TEN))) {
-            when(repository.lockRegistrations("e", List.of("a"))).thenReturn(List.of(row));
-            expect(ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR, null, List.of("a"));
+                new RegistrationRow("application-admin-refund-test.yml", null, false, RegistrationStatus.CONFIRMED, BigDecimal.ZERO, BigDecimal.ZERO),
+                new RegistrationRow("application-admin-refund-test.yml", null, false, RegistrationStatus.CONFIRMED, new BigDecimal("10000"), BigDecimal.ONE),
+                new RegistrationRow("application-admin-refund-test.yml", null, true, RegistrationStatus.CONFIRMED, BigDecimal.TEN, BigDecimal.TEN))) {
+            when(repository.lockRegistrations("e", List.of("application-admin-refund-test.yml"))).thenReturn(List.of(row));
+            expect(ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR, null, List.of("application-admin-refund-test.yml"));
         }
     }
 
@@ -94,60 +94,60 @@ class AdminRefundAccessServiceTest {
     @ParameterizedTest
     @EnumSource(value = PaymentProcessStatus.class, names = {"READY", "FAILED", "INVALIDATED"})
     void retainsHistoryButRequiresCompletedPayment(PaymentProcessStatus history) {
-        prepare(null, List.of("a"));
-        when(repository.lockPayments("e", null, "a")).thenReturn(List.of(
+        prepare(null, List.of("application-admin-refund-test.yml"));
+        when(repository.lockPayments("e", null, "application-admin-refund-test.yml")).thenReturn(List.of(
                 new PaymentRow("p", PaymentProcessStatus.COMPLETED), new PaymentRow("q", history)));
-        assertThat(service.lock("e", null, List.of("a")).payments()).hasSize(2);
-        when(repository.lockPayments("e", null, "a")).thenReturn(List.of(new PaymentRow("q", history)));
-        expect(ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR, null, List.of("a"));
+        assertThat(service.lock("e", null, List.of("application-admin-refund-test.yml")).payments()).hasSize(2);
+        when(repository.lockPayments("e", null, "application-admin-refund-test.yml")).thenReturn(List.of(new PaymentRow("q", history)));
+        expect(ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR, null, List.of("application-admin-refund-test.yml"));
     }
 
     /** 결제 완료 신청 외 상태는 관리자의 신규 환불 대상으로 확대하지 않는다. */
     @ParameterizedTest
     @EnumSource(value = RegistrationStatus.class, mode = EnumSource.Mode.EXCLUDE, names = "CONFIRMED")
     void rejectsNonConfirmedRegistration(RegistrationStatus status) {
-        prepare(null, List.of("a"));
-        when(repository.lockRegistrations("e", List.of("a"))).thenReturn(List.of(
-                new RegistrationRow("a", null, false, status, new BigDecimal("10000"), new BigDecimal("10000"))));
-        expect(ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR, null, List.of("a"));
+        prepare(null, List.of("application-admin-refund-test.yml"));
+        when(repository.lockRegistrations("e", List.of("application-admin-refund-test.yml"))).thenReturn(List.of(
+                new RegistrationRow("application-admin-refund-test.yml", null, false, status, new BigDecimal("10000"), new BigDecimal("10000"))));
+        expect(ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR, null, List.of("application-admin-refund-test.yml"));
     }
 
     /** 개인 경로로 단체원을 처리하거나 누락·중복 명단을 승인하지 않는다. */
     @Test
     void rejectsWrongOwnershipAndMissingTarget() {
-        prepare(null, List.of("a"));
-        when(repository.lockRegistrations("e", List.of("a"))).thenReturn(List.of(row("a", "other")));
-        expect(ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR, null, List.of("a"));
-        when(repository.lockRegistrations("e", List.of("a"))).thenReturn(List.of());
-        expect(ErrorCode.REGISTRATION_NOT_FOUND, null, List.of("a"));
+        prepare(null, List.of("application-admin-refund-test.yml"));
+        when(repository.lockRegistrations("e", List.of("application-admin-refund-test.yml"))).thenReturn(List.of(row("application-admin-refund-test.yml", "other")));
+        expect(ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR, null, List.of("application-admin-refund-test.yml"));
+        when(repository.lockRegistrations("e", List.of("application-admin-refund-test.yml"))).thenReturn(List.of());
+        expect(ErrorCode.REGISTRATION_NOT_FOUND, null, List.of("application-admin-refund-test.yml"));
     }
 
     /** 쓰기 트랜잭션이 없거나 입력이 과다하면 어떤 잠금도 취득하지 않는다. */
     @Test
     void rejectsInvalidEntryBeforeDatabaseAccess() {
         TransactionSynchronizationManager.setActualTransactionActive(false);
-        assertThatThrownBy(() -> service.lock("e", null, List.of("a"))).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> service.lock("e", null, List.of("application-admin-refund-test.yml"))).isInstanceOf(IllegalStateException.class);
         TransactionSynchronizationManager.setActualTransactionActive(true);
         TransactionSynchronizationManager.setCurrentTransactionReadOnly(true);
-        assertThatThrownBy(() -> service.lock("e", null, List.of("a"))).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> service.lock("e", null, List.of("application-admin-refund-test.yml"))).isInstanceOf(IllegalStateException.class);
         TransactionSynchronizationManager.setCurrentTransactionReadOnly(false);
-        assertThatThrownBy(() -> service.lock("e", "o", Collections.nCopies(101, "a"))).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> service.lock("e", "o", List.of("a", "a"))).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> service.lock("e", null, List.of("a", "b"))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.lock("e", "o", Collections.nCopies(101, "application-admin-refund-test.yml"))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.lock("e", "o", List.of("application-admin-refund-test.yml", "application-admin-refund-test.yml"))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.lock("e", null, List.of("application-admin-refund-test.yml", "b"))).isInstanceOf(IllegalArgumentException.class);
         verifyNoInteractions(repository);
     }
 
     /** 조회 상한 초과는 일부 원장으로 진행하지 않고 트랜잭션 실패로 반환한다. */
     @Test
     void rejectsOverflowAndPropagatesLockFailure() {
-        prepare(null, List.of("a"));
-        when(repository.lockPayments("e", null, "a")).thenReturn(Collections.nCopies(501,
+        prepare(null, List.of("application-admin-refund-test.yml"));
+        when(repository.lockPayments("e", null, "application-admin-refund-test.yml")).thenReturn(Collections.nCopies(501,
                 new PaymentRow("p", PaymentProcessStatus.COMPLETED)));
-        assertThatThrownBy(() -> service.lock("e", null, List.of("a"))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.lock("e", null, List.of("application-admin-refund-test.yml"))).isInstanceOf(IllegalArgumentException.class);
         verify(repository, never()).lockRegistrations(anyString(), anyList());
         RuntimeException failure = new RuntimeException("database failure");
         when(repository.lockEvent("e")).thenThrow(failure);
-        assertThatThrownBy(() -> service.lock("e", null, List.of("a"))).isSameAs(failure);
+        assertThatThrownBy(() -> service.lock("e", null, List.of("application-admin-refund-test.yml"))).isSameAs(failure);
     }
 
     /** 잠금에 필요한 최소 원장 응답만 준비한다. */

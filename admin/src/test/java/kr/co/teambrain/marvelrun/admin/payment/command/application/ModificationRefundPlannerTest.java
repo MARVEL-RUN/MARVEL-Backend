@@ -30,7 +30,7 @@ class ModificationRefundPlannerTest {
     @Test
     void splitsRefundAcrossOriginalPayments() {
         Registration r = registration("r", null, "10000", "50000", false);
-        Payment a = payment("a", r, null, "30000");
+        Payment a = payment("application-admin-refund-test.yml", r, null, "30000");
         Payment b = payment("b", r, null, "20000");
         PaymentAllocation aa = allocation("aa", a, r, "30000");
         PaymentAllocation ab = allocation("ab", b, r, "20000");
@@ -49,7 +49,7 @@ class ModificationRefundPlannerTest {
     void subtractsCompletedRefundBeforePreparingAnother() {
         Registration r = registration("r", null, "20000", "40000", false);
         Payment p = payment("p", r, null, "50000");
-        PaymentAllocation a = allocation("a", p, r, "50000");
+        PaymentAllocation a = allocation("application-admin-refund-test.yml", p, r, "50000");
         PaymentCancel c = cancellation(p, PaymentCancelStatus.DONE, "10000");
         RefundPaymentLedger ledger = new RefundPaymentLedger(p, List.of(a), List.of(c), List.of(cancelAllocation(c, a, "10000")));
         List<RefundPreparationPlan> plans = planner.plan(List.of(r), List.of(ledger));
@@ -62,7 +62,7 @@ class ModificationRefundPlannerTest {
     void failedRefundDoesNotConsumeBudget() {
         Registration r = registration("r", null, "30000", "40000", false);
         Payment p = payment("p", r, null, "40000");
-        PaymentAllocation a = allocation("a", p, r, "40000");
+        PaymentAllocation a = allocation("application-admin-refund-test.yml", p, r, "40000");
         PaymentCancel c = cancellation(p, PaymentCancelStatus.FAILED, "10000");
         RefundPaymentLedger ledger = new RefundPaymentLedger(p, List.of(a), List.of(c), List.of(cancelAllocation(c, a, "10000")));
         assertThat(planner.plan(List.of(r), List.of(ledger)).get(0).amount()).isEqualByComparingTo("10000");
@@ -74,7 +74,7 @@ class ModificationRefundPlannerTest {
     void unsettledRefundBlocksPreparation(PaymentCancelStatus status) {
         Registration r = registration("r", null, "30000", "40000", false);
         Payment p = payment("p", r, null, "40000");
-        PaymentAllocation a = allocation("a", p, r, "40000");
+        PaymentAllocation a = allocation("application-admin-refund-test.yml", p, r, "40000");
         PaymentCancel c = cancellation(p, status, "5000");
         RefundPaymentLedger ledger = new RefundPaymentLedger(p, List.of(a), List.of(c), List.of(cancelAllocation(c, a, "5000")));
         assertError(() -> planner.plan(List.of(r), List.of(ledger)), ErrorCode.PAYMENT_CANCEL_CONFLICT);
@@ -84,7 +84,7 @@ class ModificationRefundPlannerTest {
     @Test
     void removedAndRetainedMembersKeepSeparateRefundAllocations() {
         Organization org = organization("org");
-        Registration a = registration("a", org, "30000", "40000", false);
+        Registration a = registration("application-admin-refund-test.yml", org, "30000", "40000", false);
         Registration b = registration("b", org, "0", "40000", true);
         Payment p = payment("p", null, org, "80000");
         PaymentAllocation aa = allocation("aa", p, a, "40000");
@@ -104,7 +104,7 @@ class ModificationRefundPlannerTest {
     @Test
     void cannotBorrowAnotherMembersAllocation() {
         Organization org = organization("org");
-        Registration a = registration("a", org, "0", "50000", true);
+        Registration a = registration("application-admin-refund-test.yml", org, "0", "50000", true);
         Registration b = registration("b", org, "40000", "40000", false);
         Payment p = payment("p", null, org, "80000");
         RefundPaymentLedger ledger = new RefundPaymentLedger(p, List.of(
@@ -117,7 +117,7 @@ class ModificationRefundPlannerTest {
     void rejectsCancelAllocationSumMismatch() {
         Registration r = registration("r", null, "20000", "30000", false);
         Payment p = payment("p", r, null, "40000");
-        PaymentAllocation a = allocation("a", p, r, "40000");
+        PaymentAllocation a = allocation("application-admin-refund-test.yml", p, r, "40000");
         PaymentCancel c = cancellation(p, PaymentCancelStatus.DONE, "10000");
         RefundPaymentLedger ledger = new RefundPaymentLedger(p, List.of(a), List.of(c), List.of(cancelAllocation(c, a, "9000")));
         assertError(() -> planner.plan(List.of(r), List.of(ledger)), ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR);
@@ -127,7 +127,7 @@ class ModificationRefundPlannerTest {
     @Test
     void rejectsAllocationOverRefundEvenWhenPaymentBudgetRemains() {
         Organization org = organization("org");
-        Registration a = registration("a", org, "0", "10000", true);
+        Registration a = registration("application-admin-refund-test.yml", org, "0", "10000", true);
         Registration b = registration("b", org, "30000", "30000", false);
         Payment p = payment("p", null, org, "40000");
         PaymentAllocation aa = allocation("aa", p, a, "10000");
