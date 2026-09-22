@@ -25,7 +25,7 @@ public class RegistrationQueryRepository {
     private final EntityManager entityManager;
 
     private static final String MEMBER_SELECT = """
-            select r.id as id, r.name as name, r.email, r.birth as birth, r.phNum as phNum,
+            select r.id as id, r.name as name, r.email as email, r.birth as birth, r.phNum as phNum,
                    r.password as password, r.gender as gender,
                    c.id as categoryId, c.name as categoryName, r.souvenirJson as souvenirs,
                    r.address as address, r.addressDetail as addressDetail,
