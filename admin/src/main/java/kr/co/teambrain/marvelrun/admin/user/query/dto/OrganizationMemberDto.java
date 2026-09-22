@@ -12,7 +12,6 @@ public class OrganizationMemberDto {
     private Long listNumber;         // 번호
     private String registrationId;
     private String name;             // 성명
-    private String email;            // 이메일 추가됨
     private String birth;            // 생년월일
     private String gender;           // 성별
     private String courseName;       // 코스

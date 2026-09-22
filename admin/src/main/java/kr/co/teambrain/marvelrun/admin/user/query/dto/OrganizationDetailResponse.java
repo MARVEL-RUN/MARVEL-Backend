@@ -15,6 +15,7 @@ public class OrganizationDetailResponse {
     private String leaderName;
     private String loginId;
     private LocalDateTime createdAt;
+    private String email;
 
     // 소속 인원 리스트
     private List<OrganizationMemberDto> members;
