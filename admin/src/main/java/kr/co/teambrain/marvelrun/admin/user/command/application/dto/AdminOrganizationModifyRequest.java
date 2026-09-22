@@ -17,7 +17,7 @@ public record AdminOrganizationModifyRequest(
         String leaderBirth,
 
         @NotBlank(message = "대표자 연락처를 입력해주세요.")
-        @Pattern(regexp = "^[0-9]+$", message = "연락처는 '-' 없이 숫자만 입력해주세요.")
+        @Pattern(regexp = "^\\d{2,3}-\\d{3,4}-\\d{4}$", message = "연락처는 '-'를 포함하여 입력해주세요. (예: 010-1234-5678)")
         String leaderPhNum,
 
         @Email(message = "이메일 형식이 올바르지 않습니다.")
