@@ -3,6 +3,7 @@ package kr.co.teambrain.marvelrun.user.event.command.application.service;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationModificationRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrgRegistrationModificationRequest;
@@ -99,6 +100,18 @@ public class RegistrationModificationClassifier {
         Set<String> requestedIds = new HashSet<>();
         boolean full = false;
         boolean changed = false;
+
+        if (!currentMembers.isEmpty() && currentMembers.getFirst().getOrganization() != null) {
+            Organization org = currentMembers.getFirst().getOrganization();
+            changed |= !Objects.equals(org.getEmail(), request.email())
+                    || !Objects.equals(org.getLeaderName(), request.leaderName())
+                    || !Objects.equals(org.getLeaderBirth(), request.leaderBirth().toString())
+                    || !Objects.equals(org.getLeaderPhNum(), request.leaderPhNum())
+                    || !Objects.equals(org.getAddress(), request.address())
+                    || !Objects.equals(org.getAddressDetail(), request.addressDetail())
+                    || org.isGuardianConsent() != request.guardianConsent();
+        }
+
         if (!currentMembers.isEmpty() && currentMembers.getFirst().getOrganization() != null) {
             changed = !Objects.equals(currentMembers.getFirst().getOrganization().getEmail(), request.email());
         }

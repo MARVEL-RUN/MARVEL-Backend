@@ -76,6 +76,11 @@ public class OrgRegistrationModificationCandidateValidator
     public OrgRegistrationModificationCandidateContext validate(
             OrgRegistrationModificationAccessContext accessContext
     ) {
+        validateOrganizationLeaderAge(
+                accessContext.request().leaderBirth(),
+                accessContext.event().getStartDate().toLocalDate()
+        );
+
         validateEvent(
                 accessContext.event(),
                 accessContext.now()
