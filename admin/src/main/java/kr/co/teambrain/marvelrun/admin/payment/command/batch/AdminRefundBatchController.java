@@ -20,7 +20,6 @@ import kr.co.teambrain.marvelrun.admin.payment.command.batch.AdminRefundBatchMod
 /** 결제액 환불과 부분환불의 진입점을 분리하고 기존 관리자 인증을 사용한다. */
 @RestController
 @RequestMapping("/v1/admin/events/{eventId}")
-@ConditionalOnProperty(name="admin.refund.batch.enabled",havingValue="true")
 @RequiredArgsConstructor
 public class AdminRefundBatchController {
     private final AdminRefundBatchService service;

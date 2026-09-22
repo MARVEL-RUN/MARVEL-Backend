@@ -14,7 +14,6 @@ import kr.co.teambrain.marvelrun.admin.payment.command.evidence.AdminRefundEvide
 /** 관리자 인증을 거친 외부 증거 수집과 저장 이력 조회를 분리한다. */
 @RestController
 @RequestMapping("/v1/admin/events/{eventId}/payment-refunds/{paymentCancelId}/evidence")
-@ConditionalOnProperty(name="admin.refund.batch.enabled",havingValue="true")
 @RequiredArgsConstructor
 public class AdminRefundEvidenceController {
     private final AdminRefundEvidenceService service;
