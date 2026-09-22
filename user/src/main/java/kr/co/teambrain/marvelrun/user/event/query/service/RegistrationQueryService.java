@@ -34,16 +34,48 @@ public class RegistrationQueryService {
     /** 개인 취소·재신청 이력도 일괄 조회하고 현재 본인확인을 통과한 행만 반환한다. */
     public List<RegistrationQueryResponse> personal(String eventId, RegistrationAccessRequest access) {
         LocalDateTime now = time.currentDateTime();
+
+        org.slf4j.Logger diagnosticLog =
+                org.slf4j.LoggerFactory.getLogger(RegistrationQueryService.class);
+
+        List<RegistrationQueryData.Member> candidates =
+                repository.personal(eventId, access);
+
+        diagnosticLog.warn(
+                "[신청조회 진단] 조회 건수={}",
+                candidates.size()
+        );
+
         List<RegistrationQueryData.Member> members = new ArrayList<>();
-        for (RegistrationQueryData.Member row : repository.personal(eventId, access)) {
+
+        for (RegistrationQueryData.Member row : candidates) {
             try {
-                RegistrationAccessVerifier.verifyPersonal(row.name(), row.birth(), row.phNum(), row.password(), access);
+                RegistrationAccessVerifier.verifyPersonal(
+                        row.name(),
+                        row.birth(),
+                        row.phNum(),
+                        row.password(),
+                        access
+                );
                 members.add(row);
             } catch (CustomException exception) {
-                if (exception.getErrorCode() != ErrorCode.REGISTRATION_ACCESS_DENIED) { throw exception; }
+                if (exception.getErrorCode() != ErrorCode.REGISTRATION_ACCESS_DENIED) {
+                    throw exception;
+                }
+
+                diagnosticLog.warn(
+                        "[신청조회 진단] 본인확인 실패: 이름일치={}, 생일일치={}, 전화번호일치={}, 비밀번호일치={}",
+                        java.util.Objects.equals(row.name(), access.name()),
+                        java.util.Objects.equals(row.birth(), access.birth()),
+                        java.util.Objects.equals(row.phNum(), access.phNum()),
+                        java.util.Objects.equals(row.password(), access.password())
+                );
             }
         }
-        if (members.isEmpty()) { throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED); }
+
+        if (members.isEmpty()) {
+            throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
+        }
         Map<String, String> names = souvenirNames(eventId, members);
         List<RegistrationQueryData.Payment> payments = repository.personalPayments(eventId,
                 members.stream().map(RegistrationQueryData.Member::id).toList());
