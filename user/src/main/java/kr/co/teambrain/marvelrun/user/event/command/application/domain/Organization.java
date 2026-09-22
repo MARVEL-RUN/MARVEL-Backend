@@ -26,4 +26,12 @@ public class Organization
         this.email = email;
     }
 
+    public void applyProfileModification(String leaderName, String leaderBirth, String leaderPhNum, String email, String address, String addressDetail) {
+        this.leaderName = leaderName;
+        this.leaderBirth = leaderBirth;
+        this.leaderPhNum = leaderPhNum;
+        this.email = email;
+        this.address = address;
+        this.addressDetail = addressDetail;
+    }
 }
