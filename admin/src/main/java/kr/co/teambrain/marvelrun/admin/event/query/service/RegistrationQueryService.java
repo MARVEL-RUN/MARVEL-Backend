@@ -1,8 +1,9 @@
 package kr.co.teambrain.marvelrun.admin.event.query.service;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
 import java.util.stream.Collectors;
 
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
@@ -24,6 +25,7 @@ import kr.co.teambrain.marvelrun.admin.event.query.util.RegistrationSpecificatio
 import kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentMethod;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import lombok.RequiredArgsConstructor;
@@ -31,8 +33,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -44,6 +44,7 @@ public class RegistrationQueryService {
     private final PaymentQueryRepository paymentQueryRepository;
 
     private final SouvenirQueryRepository souvenirQueryRepository;
+    private static final LocalDate CHILD_CUTOFF_DATE = LocalDate.of(2013, 11, 1);
 
     public Page<RegistrationListResponse> getRegistrationList(
             RegistrationSearchCondition condition,
@@ -248,70 +249,138 @@ public class RegistrationQueryService {
     public EventStatisticsResponse getEventStatistics(String eventId) {
         List<RegistrationStatDto> statsData = registrationQueryRepository.findStatsByEventId(eventId);
 
-        long totalRegistrations = 0;
-        long totalCompletedPayments = 0;
-        long personalRegistrations = 0;
-        long personalCompletedPayments = 0;
+        // 1. 표 헤더 렌더링용 코스명 추출
+        List<String> courseNames = statsData.stream()
+                .map(RegistrationStatDto::courseName)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
 
-        // UI에서 순서대로 표기되도록 LinkedHashMap 사용
-        Map<String, Long> genderStats = new LinkedHashMap<>();
-        genderStats.put("남성", 0L);
-        genderStats.put("여성", 0L);
+        // 2. 표 레이아웃용 행(Row) 라벨 정의
+        List<String> genderLabels = List.of("남", "여", "합계");
+        List<String> ageLabels = List.of("10대 이하", "20대", "30대", "40대", "50대", "60대 이상", "합계");
+        List<String> childLabels = List.of("일반", "아동", "합계");
 
-        Map<String, Long> ageGroupStats = new LinkedHashMap<>();
-        String[] ageGroups = {"10대 이하", "20대", "30대", "40대", "50대", "60대 이상"};
-        for (String group : ageGroups) {
-            ageGroupStats.put(group, 0L);
-        }
+        // 3. 통계 빌더 초기화
+        Map<String, StatRowBuilder> genderBuilders = initBuilders(genderLabels, courseNames);
+        Map<String, StatRowBuilder> ageBuilders = initBuilders(ageLabels, courseNames);
+        Map<String, StatRowBuilder> childBuilders = initBuilders(childLabels, courseNames);
 
         int currentYear = LocalDate.now().getYear();
 
+        // 4. 단일 루프 집계
         for (RegistrationStatDto data : statsData) {
-            totalRegistrations++;
-
             boolean isConfirmed = data.status() == RegistrationStatus.CONFIRMED;
+            boolean isFree = data.contractAmount() != null && data.contractAmount().compareTo(BigDecimal.ZERO) == 0;
+            boolean isCard = data.paymentMethod() == PaymentMethod.CARD || data.paymentMethod() == PaymentMethod.EASY_PAY;
+            boolean isTransfer = !isFree && !isCard;
             boolean isPersonal = data.organizationId() == null;
+            boolean isGroup = !isPersonal;
+            String course = data.courseName();
 
-            if (isConfirmed) totalCompletedPayments++;
-            if (isPersonal) {
-                personalRegistrations++;
-                if (isConfirmed) personalCompletedPayments++;
-            }
-
-            // 성별 집계
+            // [성별]
+            String genderLabel = data.gender() == GenderClass.M ? "남" : "여";
+            addStats(genderBuilders, "합계", course, isConfirmed, isFree, isCard, isTransfer, isPersonal, isGroup);
             if (data.gender() != null) {
-                String genderStr = data.gender() == GenderClass.M ? "남성" : "여성";
-                genderStats.put(genderStr, genderStats.getOrDefault(genderStr, 0L) + 1);
+                addStats(genderBuilders, genderLabel, course, isConfirmed, isFree, isCard, isTransfer, isPersonal, isGroup);
             }
 
-            // 나이대 집계 (생년월일 YYYY-MM-DD 형식의 앞 4자리 추출)
-            if (data.birth() != null && data.birth().length() >= 4) {
-                try {
-                    int birthYear = Integer.parseInt(data.birth().substring(0, 4));
-                    int age = currentYear - birthYear;
-                    String ageGroup;
+            // [연령대]
+            String ageLabel = getAgeGroup(data.birth(), currentYear);
+            addStats(ageBuilders, "합계", course, isConfirmed, isFree, isCard, isTransfer, isPersonal, isGroup);
+            if (ageLabel != null) {
+                addStats(ageBuilders, ageLabel, course, isConfirmed, isFree, isCard, isTransfer, isPersonal, isGroup);
+            }
 
-                    if (age < 20) ageGroup = "10대 이하";
-                    else if (age < 30) ageGroup = "20대";
-                    else if (age < 40) ageGroup = "30대";
-                    else if (age < 50) ageGroup = "40대";
-                    else if (age < 60) ageGroup = "50대";
-                    else ageGroup = "60대 이상";
-
-                    ageGroupStats.put(ageGroup, ageGroupStats.get(ageGroup) + 1);
-                } catch (NumberFormatException ignored) {
-                    // 비정상적인 생년월일 포맷 무시
-                }
+            // [아동 여부 (2013-11-01 기준)]
+            String childLabel = getChildGroup(data.birth());
+            addStats(childBuilders, "합계", course, isConfirmed, isFree, isCard, isTransfer, isPersonal, isGroup);
+            if (childLabel != null) {
+                addStats(childBuilders, childLabel, course, isConfirmed, isFree, isCard, isTransfer, isPersonal, isGroup);
             }
         }
 
+        // 5. 응답 조립
         return EventStatisticsResponse.builder()
-                .totalRegistrations(totalRegistrations)
-                .totalCompletedPayments(totalCompletedPayments)
-                .personalRegistrations(personalRegistrations)
-                .personalCompletedPayments(personalCompletedPayments)
-                .genderStats(genderStats)
-                .ageGroupStats(ageGroupStats)
+                .courseHeaders(courseNames)
+                .genderStats(buildRows(genderLabels, genderBuilders))
+                .ageGroupStats(buildRows(ageLabels, ageBuilders))
+                .childStats(buildRows(childLabels, childBuilders))
                 .build();
+    }
+
+    private Map<String, StatRowBuilder> initBuilders(List<String> labels, List<String> courses) {
+        Map<String, StatRowBuilder> map = new LinkedHashMap<>();
+        for (String label : labels) map.put("신청자(" + label + ")", new StatRowBuilder("신청자(" + label + ")", courses));
+        for (String label : labels) map.put("입금자(" + label + ")", new StatRowBuilder("입금자(" + label + ")", courses));
+        return map;
+    }
+
+    private void addStats(Map<String, StatRowBuilder> builders, String label, String course,
+                          boolean isConfirmed, boolean isFree, boolean isCard, boolean isTransfer,
+                          boolean isPersonal, boolean isGroup) {
+        builders.get("신청자(" + label + ")").add(course, isCard, isTransfer, isFree, isPersonal, isGroup);
+        if (isConfirmed || isFree) {
+            builders.get("입금자(" + label + ")").add(course, isCard, isTransfer, isFree, isPersonal, isGroup);
+        }
+    }
+
+    private List<EventStatisticsResponse.StatRowDto> buildRows(List<String> labels, Map<String, StatRowBuilder> builders) {
+        List<EventStatisticsResponse.StatRowDto> rows = new ArrayList<>();
+        for (String label : labels) rows.add(builders.get("신청자(" + label + ")").build());
+        for (String label : labels) rows.add(builders.get("입금자(" + label + ")").build());
+        return rows;
+    }
+
+    private String getAgeGroup(String birthStr, int currentYear) {
+        if (birthStr == null || birthStr.length() < 4) return null;
+        try {
+            int age = currentYear - Integer.parseInt(birthStr.substring(0, 4));
+            if (age < 20) return "10대 이하";
+            if (age < 30) return "20대";
+            if (age < 40) return "30대";
+            if (age < 50) return "40대";
+            if (age < 60) return "50대";
+            return "60대 이상";
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private String getChildGroup(String birthStr) {
+        if (birthStr == null || birthStr.length() < 10) return null;
+        try {
+            LocalDate birthDate = LocalDate.parse(birthStr, DateTimeFormatter.ISO_DATE);
+            return birthDate.isBefore(CHILD_CUTOFF_DATE) ? "일반" : "아동";
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static class StatRowBuilder {
+        String classification;
+        Map<String, Long> courseCounts = new LinkedHashMap<>();
+        long totalCount, cardCount, transferCount, freeCount, personalCount, groupCount;
+
+        StatRowBuilder(String classification, List<String> courseNames) {
+            this.classification = classification;
+            courseNames.forEach(name -> courseCounts.put(name, 0L));
+        }
+
+        void add(String course, boolean card, boolean transfer, boolean free, boolean personal, boolean group) {
+            if (course != null) {
+                courseCounts.put(course, courseCounts.getOrDefault(course, 0L) + 1);
+            }
+            totalCount++;
+            if (card) cardCount++;
+            if (transfer) transferCount++;
+            if (free) freeCount++;
+            if (personal) personalCount++;
+            if (group) groupCount++;
+        }
+
+        EventStatisticsResponse.StatRowDto build() {
+            return new EventStatisticsResponse.StatRowDto(classification, courseCounts, totalCount, cardCount, transferCount, freeCount, personalCount, groupCount);
+        }
     }
 }

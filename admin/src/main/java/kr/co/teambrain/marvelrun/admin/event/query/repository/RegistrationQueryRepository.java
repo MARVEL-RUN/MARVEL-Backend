@@ -21,9 +21,16 @@ public interface RegistrationQueryRepository extends JpaRepository<Registration,
     // 기존 코드 하단에 추가
     @Query("""
         select new kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationStatDto(
-            r.status, o.id, r.gender, r.birth
+            r.status, 
+            o.id, 
+            r.gender, 
+            r.birth,
+            c.name, 
+            r.contractAmount,
+            (select p.paymentMethod from Payment p where p.registration.id = r.id and p.processStatus = 'COMPLETED' order by p.createdAt desc limit 1)
         )
         from Registration r
+        join r.eventCategory c
         left join r.organization o
         where r.event.id = :eventId
           and r.softDeleted = false
