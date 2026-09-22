@@ -44,6 +44,8 @@ public class RegistrationPolicyValidator {
             DateTimeFormatter.ofPattern("uuuu-MM-dd")
                     .withResolverStyle(ResolverStyle.STRICT);
 
+    
+
     /**
      * 신규신청의 대회 상태와 기간을 검증한다.
      *

@@ -26,7 +26,7 @@ public class RegistrationPricingService {
      * 다른 Event에는 어린이 고정가격을 적용하지 않는다.
      */
     private static final String MVP_TARGET_EVENT_ID =
-            "test-marvelrun";
+            "marvelrun2026";
 
     private static final BigDecimal CHILD_FIXED_PRICE =
             new BigDecimal("40000");
