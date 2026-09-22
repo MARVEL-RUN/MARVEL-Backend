@@ -55,6 +55,8 @@ dependencies {
 
 	// Ncp 측 outbound mailer에 메일 발송 HTTP 요청을 전달하기위한 webclient 사용
 	implementation 'org.springframework.boot:spring-boot-starter-webflux'
+
+	implementation 'org.apache.poi:poi-ooxml:5.5.1'
 }
 
 tasks.named('test') {
