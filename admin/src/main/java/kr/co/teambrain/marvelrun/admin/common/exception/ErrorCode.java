@@ -12,6 +12,95 @@ public enum ErrorCode {
     PAYMENT_CANCEL_CONFLICT(HttpStatus.CONFLICT, "관련 환불 처리가 완료되지 않았습니다."),
     PAYMENT_CANCEL_INTEGRITY_ERROR(HttpStatus.CONFLICT, "환불 원장 정합성을 확인해야 합니다."),
 
+    CAPACITY_ACQUIRE_FAILED(
+            HttpStatus.CONFLICT,
+            "선택한 종목 또는 기념품의 확보 가능한 수량이 부족하거나 접수가 중단되었습니다."
+    ),
+    CAPACITY_CONFIGURATION_ERROR(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "정원 또는 기념품 재고 설정을 확인해주세요."
+    ),
+    CAPACITY_COUNTER_MISMATCH(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "예약 수량 처리 중 오류가 발생했습니다."
+    ),
+    DUPLICATE_SOUVENIR_SELECTION(HttpStatus.CONFLICT, "같은 기념품을 중복하여 선택할 수 없습니다."),
+    EVENT_CATEGORY_NOT_ACTIVE(HttpStatus.CONFLICT, "품절 또는 신청이 불가한 종목입니다"),
+    EVENT_CATEGORY_NOT_FOUND(HttpStatus.NOT_FOUND, "종목을 찾을 수 없습니다"),
+    EVENT_NOT_OPEN(HttpStatus.CONFLICT, "아직 신청이 불가능한 대회입니다"),
+    EVENT_REGISTRATION_CLOSED(
+            HttpStatus.BAD_REQUEST,
+            "대회 접수가 마감되었습니다."
+    ),
+    EVENT_REGISTRATION_NOT_STARTED(
+            HttpStatus.BAD_REQUEST,
+            "대회 접수 시작 전입니다."
+    ),
+    GUARDIAN_CONSENT_REQUIRED(
+            HttpStatus.BAD_REQUEST,
+            "해당 참가자는 법정대리인 동의가 필요합니다."
+    ),
+    GUARDIAN_NAME_REQUIRED(
+            HttpStatus.BAD_REQUEST,
+            "해당 참가자는 보호자 이름을 입력해야 합니다."
+    ),
+    INVALID_EVENT_CATEGORY_SOUVENIR(HttpStatus.CONFLICT, "해당 기념품은 해당 종목 내에서 선택할 수 없습니다."),
+    INVALID_REGISTRATION_BIRTH(
+            HttpStatus.BAD_REQUEST,
+            "생년월일은 오늘 이전의 유효한 날짜를 yyyy-MM-dd 형식으로 입력해주세요."
+    ),
+    INVALID_REGISTRATION_MODIFICATION_ARGUMENT(
+            HttpStatus.BAD_REQUEST,
+            "신청 수정 정보가 올바르지 않습니다."
+    ),
+    INVALID_RESERVATION_ARGUMENT(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "예약 처리에 필요한 정보가 올바르지 않습니다."
+    ),
+    INVALID_SOUVENIR_SIZE(HttpStatus.CONFLICT, "선택된 사이즈는 해당 기념품 내에서 선택할 수 없습니다."),
+    ORGANIZATION_LEADER_BIRTH_REQUIRED(
+            HttpStatus.BAD_REQUEST,
+            "단체장 생년월일을 입력해주세요."
+    ),
+    ORGANIZATION_LEADER_MUST_BE_ADULT(
+            HttpStatus.BAD_REQUEST,
+            "단체장은 대회일 기준 만 14세 이상이어야 합니다."
+    ),
+    PAYMENT_ALLOCATION_INTEGRITY_ERROR(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "결제 금액 귀속 정보가 일치하지 않습니다."
+    ),
+    PAYMENT_CANCEL_AMOUNT_EXCEEDED(
+            HttpStatus.CONFLICT,
+            "환불 요청 금액이 환불 가능한 금액을 초과합니다."
+    ),
+    REGISTRATION_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 참여한 대회에 다시 신청할 수 없습니다."),
+    REGISTRATION_CATEGORY_BIRTH_NOT_ALLOWED(
+            HttpStatus.BAD_REQUEST,
+            "참가자의 연령 조건으로는 해당 종목을 신청할 수 없습니다."
+    ),
+    REGISTRATION_FINANCIAL_STATE_INVALID(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "신청의 결제금액 상태를 확인해주세요."
+    ),
+    REGISTRATION_POLICY_CONFIGURATION_ERROR(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "참가신청 정책 설정을 확인할 수 없습니다. 관리자에게 문의해주세요."
+    ),
+    REGISTRATION_SOUVENIR_SIZE_NOT_ALLOWED(
+            HttpStatus.BAD_REQUEST,
+            "참가자의 연령 조건으로는 해당 기념품 사이즈를 선택할 수 없습니다."
+    ),
+    RESERVATION_NOT_FOUND(
+            HttpStatus.NOT_FOUND,
+            "신청의 예약 정보를 찾을 수 없습니다."
+    ),
+    RESERVATION_STATE_CONFLICT(
+            HttpStatus.CONFLICT,
+            "현재 예약 상태에서는 요청한 처리를 진행할 수 없습니다."
+    ),
+    SOUVENIR_NOT_ACTIVE(HttpStatus.CONFLICT, "품절 또는 신청이 불가한 기념품입니다"),
+
     QUESTION_NOT_FOUND(
             HttpStatus.NOT_FOUND,
             "문의글을 찾을 수 없습니다."

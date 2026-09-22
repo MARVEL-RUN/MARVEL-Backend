@@ -15,7 +15,7 @@ public enum ErrorCode {
 
     ORGANIZATION_LEADER_MUST_BE_ADULT(
             HttpStatus.BAD_REQUEST,
-            "단체장은 신청일 기준 만 19세 이상이어야 합니다."
+            "단체장은 대회일 기준 만 14세 이상이어야 합니다."
     ),
     REGISTRATION_POLICY_CONFIGURATION_ERROR(
             HttpStatus.INTERNAL_SERVER_ERROR,
