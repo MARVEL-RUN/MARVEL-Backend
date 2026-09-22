@@ -153,8 +153,10 @@ class RegistrationPersonalModificationServiceTest {
                 GenderClass.F,
                 "새 주소",
                 "새 상세주소",
+                true,
                 " 보호자 ",
-                true
+                null,
+                null
         );
 
         normalizedSouvenirs =

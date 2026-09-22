@@ -522,7 +522,7 @@ class RegistrationModificationTest {
     }
 
     /**
-     * 저장된 단체장 문자열 생년월일을 파싱하고 19번째 생일 경계를 적용한다.
+     * 저장된 단체장 문자열 생년월일을 파싱하고 14번째 생일 경계를 적용한다.
      */
     @Test
     void storedLeaderBirthUsesEventDateBoundary() {
@@ -533,7 +533,7 @@ class RegistrationModificationTest {
         assertThatCode(
                 () -> groupModify.validate(
                         groupContext(
-                                organization("2007-11-01", true),
+                                organization("2012-11-01", true),
                                 List.of(),
                                 requests
                         )
@@ -544,7 +544,7 @@ class RegistrationModificationTest {
                 ErrorCode.ORGANIZATION_LEADER_MUST_BE_ADULT,
                 () -> groupModify.validate(
                         groupContext(
-                                organization("2007-11-02", true),
+                                organization("2012-11-02", true),
                                 List.of(),
                                 requests
                         )
@@ -613,7 +613,8 @@ class RegistrationModificationTest {
                                         "뒤참가자", PHONE,
                                         "1990-01-01", GenderClass.M
                                 )
-                        )
+                        ),
+                        true, false, false
                 );
 
         expectError(
@@ -654,8 +655,10 @@ class RegistrationModificationTest {
                 GenderClass.M,
                 "변경주소",
                 "변경상세",
+                consent,
                 guardian,
-                consent
+                null,
+                null
         );
     }
 
@@ -675,9 +678,9 @@ class RegistrationModificationTest {
                 request.gender(),
                 request.address(),
                 request.addressDetail(),
-                request.guardianName(),
-                request.guardianConsent()
-        );
+                        request.guardianConsent(), request.guardianName(), request.guardianPhNum(), request.guardianRelationship(),
+                        true, false, false
+                );
     }
 
     /**
@@ -719,7 +722,7 @@ class RegistrationModificationTest {
                 event,
                 organization,
                 current,
-                new OrgRegistrationModificationRequest(
+                new OrgRegistrationModificationRequest(organization.isGuardianConsent(), 
                         new OrganizationAccessRequest("group-login", "password"),
                         participants
                 ),

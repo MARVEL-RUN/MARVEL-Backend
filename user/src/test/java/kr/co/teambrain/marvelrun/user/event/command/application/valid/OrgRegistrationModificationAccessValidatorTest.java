@@ -497,7 +497,7 @@ class OrgRegistrationModificationAccessValidatorTest {
             List<OrgRegistrationModificationParticipantRequest> registrations
     ) {
 
-        return new OrgRegistrationModificationRequest(
+        return new OrgRegistrationModificationRequest(false, 
                 access,
                 registrations
         );

@@ -267,8 +267,8 @@ class RegistrationPricingServiceDatabaseTest {
                 GenderClass.M,
                 "테스트 주소",
                 "테스트 상세주소",
-                "테스트 보호자",
-                true
-        );
+                        true, "테스트 보호자", null, null,
+                        true, false, false
+                );
     }
 }

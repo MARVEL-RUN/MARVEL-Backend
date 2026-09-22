@@ -280,10 +280,22 @@ class RegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupport
 
     /** 기존 fixture의 인증과 정책값을 유지하고 변경할 개인 필드 및 선택만 지정한다. */
     private RegistrationModificationRequest request(String id, String category, String size, String name, String address) {
-        return new RegistrationModificationRequest(new RegistrationAccessRequest(
+        return new RegistrationModificationRequest(
+                new RegistrationAccessRequest(
                 s("select name from registration where id = ?", id), "1990-01-01", "010-0000-0000", "Test1234!"),
-                category, List.of(new SouvenirJson(souvenirId, size)), name, "010-0000-0000", "1990-01-01",
-                GenderClass.M, address, "상세", "테스트 보호자", true);
+                category,
+                List.of(new SouvenirJson(souvenirId, size)),
+                name,
+                "010-0000-0000",
+                "1990-01-01",
+                GenderClass.M,
+                address,
+                "상세",
+                true,
+                "테스트 보호자",
+                null,
+                null
+        );
     }
 
     /** 신청의 전체 저장값을 JSON 문자열과 함께 비교한다. */

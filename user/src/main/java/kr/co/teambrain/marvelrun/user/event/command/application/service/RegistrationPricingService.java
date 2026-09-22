@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 
 /**
  * 9/22 MarvelRun MVP에서 참가 신청의 계약금액을 계산한다.
@@ -20,13 +21,13 @@ import java.time.LocalDate;
 public class RegistrationPricingService {
 
     /*
-     * 현재 검증용 MarvelRun Event ID.
+     * 어린이 고정가격을 적용할 검증용·운영용 MarvelRun Event ID 목록.
      *
-     * 운영 Event가 생성되면 실제 운영 eventId로 이 값만 교체한다.
+     * 각 환경의 대회 데이터는 분리하고, 명시된 ID에 같은 가격 정책을 적용한다.
      * 다른 Event에는 어린이 고정가격을 적용하지 않는다.
      */
-    private static final String MVP_TARGET_EVENT_ID =
-            "marvelrun2026";
+    private static final List<String> MVP_TARGET_EVENT_IDS =
+            List.of("test-marvelrun", "marvelrun2026");
 
     private static final BigDecimal CHILD_FIXED_PRICE =
             new BigDecimal("40000");
@@ -55,7 +56,7 @@ public class RegistrationPricingService {
         BigDecimal baseAmount =
                 eventCategory.getAmount();
 
-        if (!MVP_TARGET_EVENT_ID.equals(event.getId())) {
+        if (MVP_TARGET_EVENT_IDS.stream().noneMatch(id -> id.equals(event.getId()))) {
             return baseAmount;
         }
 

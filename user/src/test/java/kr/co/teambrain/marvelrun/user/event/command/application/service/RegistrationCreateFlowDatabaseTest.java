@@ -151,9 +151,9 @@ class RegistrationCreateFlowDatabaseTest {
                                 GenderClass.M,
                                 "테스트 주소",
                                 "상세",
-                                "테스트 보호자",
-                                true
-                        )
+                        true, "테스트 보호자", null, null,
+                        true, false, false
+                )
                 );
 
         /*
@@ -425,8 +425,9 @@ class RegistrationCreateFlowDatabaseTest {
                                 "2013-09-11",
                                 GenderClass.M
                         )
-                )
-        );
+                ),
+                        true, false, false
+                );
     }
 
 

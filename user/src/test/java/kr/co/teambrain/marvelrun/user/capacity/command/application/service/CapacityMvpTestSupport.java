@@ -351,8 +351,8 @@ abstract class CapacityMvpTestSupport {
                         GenderClass.M,
                         "테스트 주소",
                         "상세",
-                        "테스트 보호자",
-                        true
+                        true, "테스트 보호자", null, null,
+                        true, false, false
                 )
         );
     }
@@ -392,7 +392,8 @@ abstract class CapacityMvpTestSupport {
                                 "테스트 단체장",
                                 true
                         ),
-                        members
+                        members,
+                        true, false, false
                 )
         );
     }

@@ -355,8 +355,10 @@ class RegistrationModificationAccessValidatorTest {
                 GenderClass.M,
                 "수정 주소",
                 "상세",
+                false,
                 null,
-                false
+                null,
+                null
         );
     }
 }

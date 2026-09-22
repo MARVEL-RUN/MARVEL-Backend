@@ -1083,8 +1083,10 @@ class RegistrationModificationDatabaseTest
                 GenderClass.M,
                 "경합 테스트 주소",
                 "상세",
+                true,
                 "테스트 보호자",
-                true
+                null,
+                null
         );
     }
 
@@ -1158,8 +1160,10 @@ class RegistrationModificationDatabaseTest
                 GenderClass.M,
                 "수정 주소",
                 "수정 상세",
+                true,
                 "테스트 보호자",
-                true
+                null,
+                null
         );
     }
 
@@ -1175,7 +1179,7 @@ class RegistrationModificationDatabaseTest
                 organizationId
         );
 
-        return new OrgRegistrationModificationRequest(
+        return new OrgRegistrationModificationRequest(true, 
                 new OrganizationAccessRequest(loginId, "Test1234!"),
                 List.of(
                         new OrgRegistrationModificationParticipantRequest(
