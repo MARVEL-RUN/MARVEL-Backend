@@ -73,7 +73,7 @@ class AdminRefundPreparationServiceTest {
         reservation = Reservation.builder().id("v").registration(registration).status(ReservationStatus.CONSUMED).version(0L).build();
         Payment payment = Payment.builder().id("p").registration(registration).amount(new BigDecimal("70000"))
                 .processStatus(PaymentProcessStatus.COMPLETED).paymentKey("fixture-key").orderId("fixture-order").build();
-        PaymentAllocation allocation = PaymentAllocation.builder().id("application-admin-refund-test.yml").payment(payment).registration(registration)
+        PaymentAllocation allocation = PaymentAllocation.builder().id("a").payment(payment).registration(registration)
                 .allocatedAmount(new BigDecimal("70000")).build();
         when(access.lock("test-marvelrun", null, List.of("r"))).thenReturn(new AdminRefundLockedScope(
                 "test-marvelrun", null, List.of(new AdminRefundLockedScope.RegistrationRow("r", null, false,
@@ -170,4 +170,20 @@ class AdminRefundPreparationServiceTest {
     }
     /** 관리자 금액 입력 없이 종목·기념품 후보만 제공한다. */
     private AdminPaymentPartialRefundTarget target(Boolean keep) { return new AdminPaymentPartialRefundTarget("r", "c", souvenirs, keep); }
+    /** 같은 생년월일 후보가 정책·가격·어린이 정원·신청 저장에 모두 사용된다. 일반 개인정보는 보존한다. */
+    @Test
+    void birthCandidateFlowsThroughPolicyPriceCapacityAndEntity() {
+        when(category.getAmount()).thenReturn(new BigDecimal("70000"));
+        when(policies.validateAll(eq(event),anyList(),eq(now))).thenAnswer(invocation -> {
+            List<kr.co.teambrain.marvelrun.admin.event.command.application.valid.dto.RegistrationPolicyCandidateRequest> requests = invocation.getArgument(1);
+            assertThat(requests.getFirst().participant().birth()).isEqualTo("2015-01-01");
+            return List.of(new RegistrationPolicyCandidateResult(category,java.time.LocalDate.of(2015,1,1),souvenirs));
+        });
+        service.preparePartial("test-marvelrun",null,List.of(new AdminPaymentPartialRefundTarget("r","c",souvenirs,"2015-01-01",true)),command);
+        verify(pricing).calculateContractAmount(event,category,"2015-01-01");
+        verify(requirements).resolveAll(eq("test-marvelrun"),argThat(inputs -> inputs.size()==1 && inputs.getFirst().child()));
+        assertThat(registration.getBirth()).isEqualTo("2015-01-01");
+        assertThat(registration.getContractAmount()).isEqualByComparingTo("40000");
+        assertThat(registration.getPaidAmount()).isEqualByComparingTo("70000");
+    }
 }

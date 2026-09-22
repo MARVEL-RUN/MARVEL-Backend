@@ -133,6 +133,17 @@ public class Registration extends RegistrationBase<User, Event, EventCategory, O
         this.contractAmount = amount;
     }
 
+
+    /** 검증된 종목·기념품·생년월일 후보를 계약금액과 같은 트랜잭션에 반영한다. */
+    public void applyAdminRefundCandidate(EventCategory category, List<SouvenirJson> souvenirs,
+                                          String birth, BigDecimal amount) {
+        if (birth == null || birth.isBlank()) {
+            throw new CustomException(ErrorCode.INVALID_REGISTRATION_MODIFICATION_ARGUMENT);
+        }
+        applyAdminRefundCandidate(category, souvenirs, amount);
+        this.birth = birth;
+    }
+
     /**
      * 실제 완료된 환불 금액을 신청의 순납부액에서 차감한다.
      *

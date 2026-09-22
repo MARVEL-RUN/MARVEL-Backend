@@ -71,6 +71,10 @@ public class AdminRefundPreparationTransactionService {
         Organization organization = organizationId == null ? null : store.current(Organization.class, organizationId);
         List<Registration> registrations = scope.registrations().stream()
                 .map(row -> store.current(Registration.class, row.id())).toList();
+        if (command.expectedRegistrationVersion() != null
+                && (registrations.size() != 1 || !Objects.equals(registrations.getFirst().getVersion(), command.expectedRegistrationVersion()))) {
+            throw new CustomException(ErrorCode.CONCURRENT_MODIFICATION);
+        }
         List<Reservation> reservations = store.reservations(registrations.stream().map(Registration::getId).toList());
         Map<String, Reservation> byRegistration = new TreeMap<>();
         for (Reservation reservation : reservations) {
@@ -89,15 +93,15 @@ public class AdminRefundPreparationTransactionService {
             }
             List<RegistrationPolicyCandidateRequest> policyInputs = new ArrayList<>();
             for (Registration registration : registrations) {
-                var target = requests.get(registration.getId());
+                AdminPaymentPartialRefundTarget target = requests.get(registration.getId());
                 if (target == null) { throw invalid(); }
                 policyInputs.add(new RegistrationPolicyCandidateRequest(target.eventCategoryId(), target.selectedSouvenirList(),
-                        new RegistrationPolicyInput(registration.getBirth(),
+                        new RegistrationPolicyInput(target.birth() == null ? registration.getBirth() : target.birth(),
                         organization == null ? registration.getGuardianName() : organization.getLeaderName(),
                         organization == null ? registration.isGuardianConsent() : organization.isGuardianConsent())));
             }
             // 같은 종목의 기념품/정책을 묶어서 조회하는 기존 사용자 구현을 재사용한다.
-            var checked = policies.validateAll(event, policyInputs, now);
+            List<RegistrationPolicyCandidateResult> checked = policies.validateAll(event, policyInputs, now);
             if (checked.size() != registrations.size()) { throw invalid(); }
             for (int i = 0; i < registrations.size(); i++) { checkedById.put(registrations.get(i).getId(), checked.get(i)); }
         }
@@ -111,14 +115,14 @@ public class AdminRefundPreparationTransactionService {
                     || registration.getPaidAmount().signum() <= 0
                     || registration.getPaidAmount().compareTo(registration.getContractAmount()) != 0) { throw invalid(); }
             if (targets == null) {
-                candidates.add(new Candidate(registration, registration.getEventCategory(), registration.getSouvenirJson(), BigDecimal.ZERO, true));
+                candidates.add(new Candidate(registration, registration.getEventCategory(), registration.getSouvenirJson(), registration.getBirth(), BigDecimal.ZERO, true));
             } else {
-                var target = requests.get(registration.getId());
+                AdminPaymentPartialRefundTarget target = requests.get(registration.getId());
                 if (target == null) { throw invalid(); }
-                var checked = checkedById.get(registration.getId());
-                BigDecimal amount = pricing.calculateContractAmount(event, checked.eventCategory(), registration.getBirth());
+                RegistrationPolicyCandidateResult checked = checkedById.get(registration.getId());
+                BigDecimal amount = pricing.calculateContractAmount(event, checked.eventCategory(), checked.birth().toString());
                 if (amount == null || amount.signum() < 0 || amount.compareTo(registration.getContractAmount()) >= 0) { throw invalid(); }
-                candidates.add(new Candidate(registration, checked.eventCategory(), checked.souvenirJsons(), amount,
+                candidates.add(new Candidate(registration, checked.eventCategory(), checked.souvenirJsons(), checked.birth().toString(), amount,
                         amount.signum() == 0 && Boolean.FALSE.equals(target.keepParticipationWhenZero())));
             }
         }
@@ -129,7 +133,7 @@ public class AdminRefundPreparationTransactionService {
                 .build()).toList();
         List<RefundPaymentLedger> ledgers = store.ledgers(scope);
         for (RefundPaymentLedger ledger : ledgers) {
-            for (var allocation : ledger.allocations()) {
+            for (kr.co.teambrain.marvelrun.admin.payment.command.application.domain.PaymentAllocation allocation : ledger.allocations()) {
                 Registration owner = allocation.getRegistration();
                 if (owner == null || owner.getEvent() == null || !eventId.equals(owner.getEvent().getId())
                         || !Objects.equals(organizationId, owner.getOrganization() == null ? null : owner.getOrganization().getId())) {
@@ -153,17 +157,19 @@ public class AdminRefundPreparationTransactionService {
         }
         List<RefundPreparationPlan> plans = planner.plan(projected, ledgers);
         if (plans.isEmpty()) { throw invalid(); }
+        // 관리자 배치 단일 대상의 외부 호출 수도 제한한다. 준비 변경 전이므로 전체 롤백된다.
+        if (command.batchId() != null && plans.size() > 10) { throw invalid(); }
 
         List<Candidate> retained = candidates.stream().filter(c -> !c.cancel()).toList();
         if (!retained.isEmpty()) {
-            var inputs = retained.stream().map(c -> CapacityRequirementInput.fromCandidate(c.category().getId(),
-                    c.registration().getBirth(), event.getStartDate().toLocalDate(), c.souvenirs())).toList();
-            var needed = requirements.resolveAll(eventId, inputs);
+            List<CapacityRequirementInput> inputs = retained.stream().map(c -> CapacityRequirementInput.fromCandidate(c.category().getId(),
+                    c.birth(), event.getStartDate().toLocalDate(), c.souvenirs())).toList();
+            List<Map<String, Integer>> needed = requirements.resolveAll(eventId, inputs);
             Map<String, Map<String, Integer>> newRequirements = new TreeMap<>();
             for (int i = 0; i < retained.size(); i++) {
                 newRequirements.put(byRegistration.get(retained.get(i).registration().getId()).getId(), needed.get(i));
             }
-            var selectedReservations = retained.stream().map(c -> byRegistration.get(c.registration().getId())).toList();
+            List<Reservation> selectedReservations = retained.stream().map(c -> byRegistration.get(c.registration().getId())).toList();
             movement.moveAll(eventId, diffs.compareAll(selectedReservations, newRequirements), now);
         }
         List<String> removed = candidates.stream().filter(Candidate::cancel).map(c -> c.registration().getId()).sorted().toList();
@@ -173,8 +179,10 @@ public class AdminRefundPreparationTransactionService {
         for (Candidate candidate : candidates) {
             Registration registration = candidate.registration();
             BigDecimal previous = registration.getContractAmount();
+            if (targets != null) {
+                registration.applyAdminRefundCandidate(candidate.category(), candidate.souvenirs(), candidate.birth(), candidate.amount());
+            }
             if (candidate.cancel()) { registration.cancelParticipation(); }
-            else { registration.applyAdminRefundCandidate(candidate.category(), candidate.souvenirs(), candidate.amount()); }
             Reservation reservation = byRegistration.get(registration.getId());
             registration.reconcileModificationFinancialState(reservation.getStatus());
             members.add(new AdminRefundPrepared.Member(registration.getId(), previous, registration.getContractAmount(),
@@ -191,11 +199,14 @@ public class AdminRefundPreparationTransactionService {
             PaymentCancel saved = store.save(prepared);
             allocationCreator.create(saved, plan.targets());
             Map<String, Object> metadata = new LinkedHashMap<>();
+            // 환불 준비와 동일 트랜잭션에 저장: preparation_json 저장 전 종료에도 기존 시도 추적 가능.
+            metadata.put("batchId", command.batchId()); metadata.put("batchItemNo", command.batchItemNo());
             metadata.put("requestId", command.requestId()); metadata.put("adminId", command.adminId());
             metadata.put("reason", command.reason()); metadata.put("preparedAt", now.toString());
             metadata.put("amount", plan.amount()); metadata.put("allocationCount", plan.targets().size());
             metadata.put("operation", targets == null ? "PAYMENT_REFUND" : "PAYMENT_PARTIAL_REFUND");
             metadata.put("participationCanceledIds", removed);
+            if (targets != null) { metadata.put("requestedChanges", targets); }
             store.log(PaymentProcessLog.builder().paymentId(plan.payment().getId()).paymentCancelId(saved.getId())
                     .orderId(plan.payment().getOrderId()).correlationId(correlationId).idempotencyKey(saved.getIdempotencyKey())
                     .processType(PaymentProcessType.CANCEL_PREPARED).source(PaymentProcessSource.ADMIN).metadata(metadata).build());
@@ -207,6 +218,6 @@ public class AdminRefundPreparationTransactionService {
 
     /** 정책 계산 결과와 참가 취소 분기를 분리한다. 결제 롤백 기능은 여기 포함하지 않는다. */
     private record Candidate(Registration registration, EventCategory category,
-            List<kr.co.teambrain.marvelrun.common.json_object.SouvenirJson> souvenirs, BigDecimal amount, boolean cancel) { }
+            List<kr.co.teambrain.marvelrun.common.json_object.SouvenirJson> souvenirs, String birth, BigDecimal amount, boolean cancel) { }
     private static CustomException invalid() { return new CustomException(ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR); }
 }

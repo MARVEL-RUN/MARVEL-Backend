@@ -70,4 +70,16 @@ class AdminPaymentRefundRequestTest {
         assertThat(request.targets().get(1).keepParticipationWhenZero()).isFalse();
         assertThat(mapper.writeValueAsString(request)).doesNotContain("uniqueRegistrationSelection", "refundAmount", "contractAmount");
     }
+    /** 생년월일은 후보로 받되 생략한 기존 요청은 그대로 유지한다. 실제 날짜 정책은 준비 단계에서 검증한다. */
+    @Test
+    void acceptsBirthCandidateAndRejectsMalformedBirth() throws Exception {
+        AdminPaymentPartialRefundTarget target = mapper.readValue("""
+                {"registrationId":"r","eventCategoryId":"c","birth":"2015-01-01",
+                 "selectedSouvenirList":[{"souvenirId":"s","selectedSize":"M"}]}
+                """, AdminPaymentPartialRefundTarget.class);
+        assertThat(target.birth()).isEqualTo("2015-01-01");
+        assertThat(VALIDATOR.validate(target)).isEmpty();
+        assertThat(VALIDATOR.validate(new AdminPaymentPartialRefundTarget("r","c",target.selectedSouvenirList(),"20150101",true))).isNotEmpty();
+        assertThat(new AdminPaymentPartialRefundTarget("r","c",target.selectedSouvenirList(),true).birth()).isNull();
+    }
 }

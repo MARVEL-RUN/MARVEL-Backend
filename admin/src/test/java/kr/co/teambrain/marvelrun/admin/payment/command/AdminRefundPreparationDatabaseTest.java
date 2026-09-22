@@ -1,6 +1,10 @@
 package kr.co.teambrain.marvelrun.admin.payment.command;
 
 import jakarta.persistence.EntityManager;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import kr.co.teambrain.marvelrun.admin.payment.command.batch.*;
+import kr.co.teambrain.marvelrun.admin.payment.command.batch.AdminRefundBatchModels.*;
+import kr.co.teambrain.marvelrun.admin.payment.command.dto.AdminPaymentRefundRequest;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import jakarta.validation.ValidatorFactory;
@@ -67,11 +71,13 @@ import static org.mockito.Mockito.*;
         RegistrationPricingService.class, CapacityRequirementResolver.class, ReservationCapacityDiffService.class,
         CapacityModificationService.class, ReservationRemovalService.class, ModificationRefundPlanner.class,
         PaymentCancelAllocationCreator.class, RefundExecutionLock.class, RefundExecutionTransactionService.class,
-        ModificationRefundExecutor.class, AdminRefundExecutionService.class, AdminRefundPreparationDatabaseTest.InputValidation.class})
+        ModificationRefundExecutor.class, AdminRefundExecutionService.class,
+        AdminRefundBatchStore.class, AdminRefundBatchSelection.class, AdminRefundBatchService.class, AdminRefundBatchWorker.class, AdminRefundPreparationDatabaseTest.InputValidation.class})
 class AdminRefundPreparationDatabaseTest {
     /** 슬라이스 테스트에서도 실제 Jakarta Validation을 사용한다. */
     @TestConfiguration
     static class InputValidation {
+        @Bean ObjectMapper refundBatchObjectMapper() { return new ObjectMapper().findAndRegisterModules(); }
         @Bean(destroyMethod = "close") ValidatorFactory refundValidatorFactory() { return Validation.buildDefaultValidatorFactory(); }
         @Bean Validator refundValidator(ValidatorFactory factory) { return factory.getValidator(); }
     }
@@ -82,6 +88,10 @@ class AdminRefundPreparationDatabaseTest {
     @MockitoBean AdminRefundTime time;
     @MockitoBean TossPaymentCancelClient toss;
     @Autowired AdminRefundExecutionService execution;
+    @Autowired AdminRefundBatchService batches;
+    @Autowired AdminRefundBatchStore batchStore;
+    @Autowired AdminRefundBatchWorker batchWorker;
+    @Autowired AdminRefundBatchSelection batchSelection;
     @MockitoSpyBean RefundExecutionTransactionService executionTransactions;
     @MockitoSpyBean AdminRefundPreparationStore store;
     private TransactionTemplate tx;
@@ -142,7 +152,9 @@ class AdminRefundPreparationDatabaseTest {
     /** 같은 트랜잭션에 계약·예약 상세·카운터·시도·귀속·로그가 함께 저장된다. */
     @Test
     void partialRefundMovesConfirmedResourcesAndCreatesLedger() {
-        AdminRefundPrepared result = service.preparePartial(eventId,null,List.of(target(true)),command());
+        AdminRefundPrepared result = service.preparePartial(eventId,null,List.of(birthTarget()),command());
+        assertThat(jdbc.queryForObject("select birth from registration where id=?",String.class,registrationId)).isEqualTo("1991-01-01");
+        assertThat(jdbc.queryForObject("select ph_num from registration where id=?",String.class,registrationId)).isEqualTo("010-0000-0000");
         assertThat(result.refunds()).hasSize(1);
         assertThat(result.refunds().getFirst().amount()).isEqualByComparingTo("30000");
         assertThat(amount("contract_amount")).isEqualByComparingTo("40000");
@@ -211,8 +223,9 @@ class AdminRefundPreparationDatabaseTest {
         AdminRefundPreparationStore storeSpy = AopTestUtils.getUltimateTargetObject(store);
         assertThat(mockingDetails(storeSpy).isSpy()).isTrue();
         doThrow(new IllegalStateException("injected log failure")).when(storeSpy).log(any());
-        assertThatThrownBy(() -> service.preparePartial(eventId,null,List.of(target(true)),command()))
+        assertThatThrownBy(() -> service.preparePartial(eventId,null,List.of(birthTarget()),command()))
                 .isInstanceOf(IllegalStateException.class).hasMessage("injected log failure");
+        assertThat(jdbc.queryForObject("select birth from registration where id=?",String.class,registrationId)).isEqualTo("1990-01-01");
         assertThat(amount("contract_amount")).isEqualByComparingTo("70000");
         assertThat(amount("paid_amount")).isEqualByComparingTo("70000");
         assertThat(state()).isEqualTo("CONFIRMED");
@@ -255,6 +268,9 @@ class AdminRefundPreparationDatabaseTest {
             if (mixedReady) { em.persist(PaymentAllocation.create(ready,em.getReference(Registration.class,registrationId),new BigDecimal("10000"))); }
             em.flush(); return second.getId();
         });
+        List<Target> expanded=batchSelection.full(eventId,new AdminPaymentRefundRequest(id(),"중복 선택 확인",List.of(registrationId),List.of(organizationId)));
+        assertThat(expanded).hasSize(2);
+        assertThat(expanded.stream().map(Target::registrationId)).containsExactlyInAnyOrder(registrationId,secondId);
         String readyId = jdbc.queryForObject("select id from payment where organization_id=? and process_status='READY'",String.class,organizationId);
         if (mixedReady) {
             assertThatThrownBy(() -> service.prepareFull(eventId,organizationId,List.of(registrationId),command()))
@@ -443,6 +459,8 @@ class AdminRefundPreparationDatabaseTest {
     void cleanup() {
         if (eventId == null || tx == null) return;
         tx.executeWithoutResult(status -> {
+            jdbc.update("delete i from admin_refund_batch_item i join admin_refund_batch b on b.id=i.batch_id where b.event_id=?",eventId);
+            jdbc.update("delete from admin_refund_batch where event_id=?",eventId);
             List<String> paymentIds = jdbc.queryForList("select p.id from payment p where p.registration_id in(select id from registration where event_id=?) or p.organization_id in(select id from organization where event_id=?)",String.class,eventId,eventId);
             for (String id : paymentIds) {
                 jdbc.update("delete from payment_process_log where payment_id=?",id);
@@ -491,4 +509,96 @@ class AdminRefundPreparationDatabaseTest {
     private int count(String capacity) { return jdbc.queryForObject("select confirmed_count from capacity where id=?",Integer.class,capacity); }
     /** 이번 fixture 원결제의 취소 시도 수를 조회한다. */
     private int cancelCount() { return jdbc.queryForObject("select count(*) from payment_cancel where payment_id=?",Integer.class,paymentId); }
+    /** 생년월일 변경 후보를 기존 성공·롤백 검증에서 재사용한다. */
+    private AdminPaymentPartialRefundTarget birthTarget() {
+        return new AdminPaymentPartialRefundTarget(registrationId,categoryB,List.of(new SouvenirJson(souvenir,"M")),"1991-01-01",true);
+    }
+
+    /** 접수·중복·없는 대상·외부 실행·예외 필터를 실제 DB에서 한 흐름으로 확인한다. */
+    @Test
+    void batchPersistsDeduplicatesAndContinuesPastMissingTarget() {
+        String requestId=id();
+        AdminPaymentRefundRequest request=new AdminPaymentRefundRequest(requestId,"배치 환불",List.of(registrationId,"missing-"+id().substring(0,8)),List.of());
+        doAnswer(invocation -> { TossCancelAttempt attempt=invocation.getArgument(0); assertCommittedStart(attempt); return verifiedOutcome(attempt); }).when(toss).cancel(any());
+        Response response=batches.full(eventId,"fixture-admin",request);
+        Summary accepted=response.summary();
+        assertThat(response.items()).hasSize(2);
+        assertThat(response.resultsTruncated()).isFalse();
+        assertThat(jdbc.queryForObject("select JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.batchId')) from payment_process_log where payment_id=? and process_type='CANCEL_PREPARED'",
+                String.class,paymentId)).isEqualTo(accepted.batchId());
+        assertThat(accepted.total()).isEqualTo(2);
+        assertThat(accepted.counts()).containsEntry("BLOCKED",1L).containsEntry("SUCCEEDED",1L);
+        assertThat(batches.full(eventId,"fixture-admin",request).summary().batchId()).isEqualTo(accepted.batchId());
+        assertThatThrownBy(() -> batches.full(eventId,"fixture-admin",new AdminPaymentRefundRequest(requestId,"다른 사유",request.registrationIds(),List.of())))
+                .isInstanceOf(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class);
+        batchWorker.processOne(accepted.batchId());
+        batchWorker.processOne(accepted.batchId());
+        Summary finished=batchStore.summary(eventId,accepted.batchId());
+        assertThat(finished.status()).isEqualTo("COMPLETED");
+        assertThat(finished.counts()).containsEntry("SUCCEEDED",1L).containsEntry("BLOCKED",1L);
+        assertThat(batchStore.items(eventId,accepted.batchId(),0,20,true).total()).isEqualTo(1);
+        assertThat(amount("paid_amount")).isEqualByComparingTo("0");
+        assertThat(batchStore.items(eventId,accepted.batchId(),0,20,false).items().stream()
+                .filter(item -> item.result()!=null).findFirst().orElseThrow().result().toString()).doesNotContain("transactionKey","paymentKey");
+        assertThatThrownBy(() -> batchStore.items(eventId,accepted.batchId(),0,101,false)).isInstanceOf(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class);
+        verify(toss,times(1)).cancel(any());
+        assertThatThrownBy(() -> batchStore.summary("other-event",accepted.batchId())).isInstanceOf(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class);
+    }
+
+    /** 접수 후 일반 정보 수정 등으로 버전이 바뀌면 예전 후보로 환불하지 않는다. */
+    @Test
+    void batchRejectsChangedRegistrationWithoutCallingToss() {
+        Summary accepted=stageBatch();
+        jdbc.update("update registration set version=version+1 where id=?",registrationId);
+        batchWorker.processOne(accepted.batchId());
+        assertThat(batchStore.summary(eventId,accepted.batchId()).counts()).containsEntry("BLOCKED",1L);
+        assertThat(batchStore.items(eventId,accepted.batchId(),0,20,false).items().getFirst().errorCode()).isEqualTo("CONCURRENT_MODIFICATION");
+        assertThat(cancelCount()).isZero();
+        assertThat(amount("contract_amount")).isEqualByComparingTo("70000");
+        verifyNoInteractions(toss);
+    }
+
+    /** 프로세스 종료처럼 소유권만 남은 경우 두 번째 실행기가 재획득하지 않는다. */
+    @Test
+    void claimedBatchCannotBeClaimedOrExecutedAgain() {
+        Summary accepted=stageBatch();
+        Work first=batchStore.claim(accepted.batchId());
+        assertThat(first).isNotNull();
+        assertThat(batchStore.claim(accepted.batchId())).isNull();
+        batchWorker.processOne(accepted.batchId());
+        assertThat(batchStore.summary(eventId,accepted.batchId()).status()).isEqualTo("RUNNING");
+        verifyNoInteractions(toss);
+        batchStore.finish(first,"NEEDS_REVIEW","TEST_INTERRUPTED",null);
+    }
+    /** DB 경계 검증에서만 실행 전 상태를 구성한다. 운영 진입점은 접수 직후 동기 실행한다. */
+    private Summary stageBatch() {
+        String requestId=id();
+        AdminPaymentRefundRequest request=new AdminPaymentRefundRequest(requestId,"환불",List.of(registrationId),List.of());
+        String batchId=batchStore.create(eventId,requestId,"fixture-admin","환불",Operation.FULL,
+                "0".repeat(64),batchSelection.full(eventId,request));
+        return batchStore.summary(eventId,batchId);
+    }
+
+    /** 한 요청이 RUNNING으로 남아도 다른 요청의 선점을 막지 않는다. */
+    @Test void interruptedBatchDoesNotBlockOtherBatch() {
+        Summary first=stageBatch();
+        Summary second=stageBatch();
+        Work firstWork=batchStore.claim(first.batchId());
+        assertThat(firstWork).isNotNull();
+        Work secondWork=batchStore.claim(second.batchId());
+        assertThat(secondWork).isNotNull();
+        batchStore.finish(secondWork,"BLOCKED","TEST_ONLY",null);
+        batchStore.finish(firstWork,"NEEDS_REVIEW","TEST_INTERRUPTED",null);
+    }
+
+    /** 최초 응답을 받지 못해도 요청 ID로 조회할 수 있으며 조회는 PG를 호출하지 않는다. */
+    @Test void requestIdLookupDoesNotExecutePendingRefund() {
+        Summary accepted=stageBatch();
+        Response response=batchStore.byRequest(eventId,accepted.requestId(),"fixture-admin");
+        assertThat(response.summary().batchId()).isEqualTo(accepted.batchId());
+        assertThat(response.items()).hasSize(1);
+        assertThat(response.items().getFirst().status()).isEqualTo("PENDING");
+        verifyNoInteractions(toss);
+    }
+
 }
