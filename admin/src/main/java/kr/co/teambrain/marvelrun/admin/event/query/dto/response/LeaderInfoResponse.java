@@ -1,4 +1,4 @@
-package kr.co.teambrain.marvelrun.admin.event.query.dto;
+package kr.co.teambrain.marvelrun.admin.event.query.dto.response;
 
 public record LeaderInfoResponse(
         String groupName,

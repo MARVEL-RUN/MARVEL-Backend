@@ -57,6 +57,12 @@ public class OrgRegistrationPersonalInformationService {
 
 
         boolean changed = false;
+
+        if (!Objects.equals(organization.getEmail(), access.request().email())) {
+            organization.updateEmail(access.request().email());
+            changed = true;
+        }
+
         for (OrgRegistrationModificationParticipantRequest request : access.request().registrations()) {
             Registration registration = members.get(request.registrationId());
 

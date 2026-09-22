@@ -18,7 +18,7 @@ public final class RegistrationQueryData {
     private RegistrationQueryData() { }
 
     /** 인증용 저장 비밀번호와 표시·수정에 필요한 현재 값을 포함하는 내부 행이다. */
-    public record Member(String id, String name, String birth, String phNum, String password,
+    public record Member(String id, String name, String email, String birth, String phNum, String password,
             GenderClass gender, String categoryId, String categoryName,
             List<SouvenirJson> souvenirs, String address, String addressDetail,
             GuardianBase guardianBase, boolean guardianConsent, String guardianName, String guardianPhNum, String guardianRelationShip,

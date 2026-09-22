@@ -45,10 +45,14 @@ public enum ErrorCode {
     EVENT_NOT_FOUND(HttpStatus.NOT_FOUND, "대회을 찾을 수 없습니다"),
     NOTICE_CATEGORY_NOT_FOUND(HttpStatus.NOT_FOUND, "공지 카테고리를 찾을 수 없습니다"),
     INVALID_REGISTRATION_MODIFICATION_TARGET(HttpStatus.BAD_REQUEST, "단체 소속 신청건은 개별적으로 비밀번호를 변경할 수 없습니다."),
-    INVALID_PASSWORD_LENGTH(HttpStatus.BAD_REQUEST,"신청 비밀번호는 6자리 이상이어야 합니다.")
+    INVALID_PASSWORD_LENGTH(HttpStatus.BAD_REQUEST,"신청 비밀번호는 6자리 이상이어야 합니다."),
 
 
-
+    AGE_RESTRICTION_VIOLATION(HttpStatus.BAD_REQUEST, "만 12세 이하(2013년 11월 1일 이후 출생자)는 10Km 코스에 참가할 수 없습니다."),
+    GUARDIAN_INFO_REQUIRED(HttpStatus.BAD_REQUEST, "만 12세 이하 참가자로 변경 시 보호자 정보 입력이 필수입니다."),
+    PRICE_TIER_CHANGE_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "생년월일 변경으로 인해 참가비가 변동되는 경우 관리자 임의 수정이 불가합니다. 취소 후 재결제를 안내해 주세요."),
+    DUPLICATE_REGISTRATION(HttpStatus.BAD_REQUEST, "동일한 정보(이름, 연락처, 생년월일)를 가진 다른 활성 참가자가 이미 존재합니다."),
+    DUPLICATE_GROUP_NAME(HttpStatus.BAD_REQUEST, "이미 해당 대회에 동일한 이름의 단체가 존재합니다."),
     ;
 
 
