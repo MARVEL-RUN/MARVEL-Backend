@@ -249,14 +249,14 @@ public class RegistrationQueryService {
     public EventStatisticsResponse getEventStatistics(String eventId) {
         List<RegistrationStatDto> statsData = registrationQueryRepository.findStatsByEventId(eventId);
 
-        // 1. 표 헤더 렌더링용 코스명 추출
+        // 1. 코스 헤더 추출
         List<String> courseNames = statsData.stream()
                 .map(RegistrationStatDto::courseName)
                 .filter(Objects::nonNull)
                 .distinct()
                 .toList();
 
-        // 2. 표 레이아웃용 행(Row) 라벨 정의
+        // 2. 행(Row) 라벨 정의
         List<String> genderLabels = List.of("남", "여", "합계");
         List<String> ageLabels = List.of("10대 이하", "20대", "30대", "40대", "50대", "60대 이상", "합계");
         List<String> childLabels = List.of("일반", "아동", "합계");
@@ -270,33 +270,35 @@ public class RegistrationQueryService {
 
         // 4. 단일 루프 집계
         for (RegistrationStatDto data : statsData) {
-            boolean isConfirmed = data.status() == RegistrationStatus.CONFIRMED;
-            boolean isFree = data.contractAmount() != null && data.contractAmount().compareTo(BigDecimal.ZERO) == 0;
-            boolean isCard = data.paymentMethod() == PaymentMethod.CARD || data.paymentMethod() == PaymentMethod.EASY_PAY;
-            boolean isTransfer = !isFree && !isCard;
+            // 결제 수단 명확화 (paymentMethod가 존재해야 입금자, 없으면 미결제)
+            boolean isCard = data.paymentMethod() == PaymentMethod.CARD;
+            boolean isEasyPay = data.paymentMethod() == PaymentMethod.EASY_PAY;
+            boolean isPaid = isCard || isEasyPay; // 입금자(결제자) 여부
+            boolean isUnpaid = !isPaid;           // null 포함 미결제 여부
+
             boolean isPersonal = data.organizationId() == null;
             boolean isGroup = !isPersonal;
             String course = data.courseName();
 
-            // [성별]
+            // [성별 집계]
             String genderLabel = data.gender() == GenderClass.M ? "남" : "여";
-            addStats(genderBuilders, "합계", course, isConfirmed, isFree, isCard, isTransfer, isPersonal, isGroup);
+            addStats(genderBuilders, "합계", course, isPaid, isCard, isEasyPay, isUnpaid, isPersonal, isGroup);
             if (data.gender() != null) {
-                addStats(genderBuilders, genderLabel, course, isConfirmed, isFree, isCard, isTransfer, isPersonal, isGroup);
+                addStats(genderBuilders, genderLabel, course, isPaid, isCard, isEasyPay, isUnpaid, isPersonal, isGroup);
             }
 
-            // [연령대]
+            // [연령대 집계]
             String ageLabel = getAgeGroup(data.birth(), currentYear);
-            addStats(ageBuilders, "합계", course, isConfirmed, isFree, isCard, isTransfer, isPersonal, isGroup);
+            addStats(ageBuilders, "합계", course, isPaid, isCard, isEasyPay, isUnpaid, isPersonal, isGroup);
             if (ageLabel != null) {
-                addStats(ageBuilders, ageLabel, course, isConfirmed, isFree, isCard, isTransfer, isPersonal, isGroup);
+                addStats(ageBuilders, ageLabel, course, isPaid, isCard, isEasyPay, isUnpaid, isPersonal, isGroup);
             }
 
-            // [아동 여부 (2013-11-01 기준)]
+            // [아동 여부 집계 (2013-11-01 기준)]
             String childLabel = getChildGroup(data.birth());
-            addStats(childBuilders, "합계", course, isConfirmed, isFree, isCard, isTransfer, isPersonal, isGroup);
+            addStats(childBuilders, "합계", course, isPaid, isCard, isEasyPay, isUnpaid, isPersonal, isGroup);
             if (childLabel != null) {
-                addStats(childBuilders, childLabel, course, isConfirmed, isFree, isCard, isTransfer, isPersonal, isGroup);
+                addStats(childBuilders, childLabel, course, isPaid, isCard, isEasyPay, isUnpaid, isPersonal, isGroup);
             }
         }
 
@@ -317,11 +319,14 @@ public class RegistrationQueryService {
     }
 
     private void addStats(Map<String, StatRowBuilder> builders, String label, String course,
-                          boolean isConfirmed, boolean isFree, boolean isCard, boolean isTransfer,
+                          boolean isPaid, boolean isCard, boolean isEasyPay, boolean isUnpaid,
                           boolean isPersonal, boolean isGroup) {
-        builders.get("신청자(" + label + ")").add(course, isCard, isTransfer, isFree, isPersonal, isGroup);
-        if (isConfirmed || isFree) {
-            builders.get("입금자(" + label + ")").add(course, isCard, isTransfer, isFree, isPersonal, isGroup);
+        // 신청자는 무조건 카운트
+        builders.get("신청자(" + label + ")").add(course, isCard, isEasyPay, isUnpaid, isPersonal, isGroup);
+
+        // 입금자는 결제수단이 존재하는(isPaid) 경우에만 카운트하며, 미결제(unpaid) 파라미터는 무조건 false로 고정
+        if (isPaid) {
+            builders.get("입금자(" + label + ")").add(course, isCard, isEasyPay, false, isPersonal, isGroup);
         }
     }
 
@@ -333,54 +338,63 @@ public class RegistrationQueryService {
     }
 
     private String getAgeGroup(String birthStr, int currentYear) {
-        if (birthStr == null || birthStr.length() < 4) return null;
+        if (birthStr == null || birthStr.isBlank()) return null;
         try {
-            int age = currentYear - Integer.parseInt(birthStr.substring(0, 4));
+            String cleanBirth = birthStr.replaceAll("[^0-9]", ""); // 숫자만 추출
+            if (cleanBirth.length() < 4) return null;
+
+            int birthYear = Integer.parseInt(cleanBirth.substring(0, 4));
+            int age = currentYear - birthYear;
+
             if (age < 20) return "10대 이하";
             if (age < 30) return "20대";
             if (age < 40) return "30대";
             if (age < 50) return "40대";
             if (age < 60) return "50대";
             return "60대 이상";
-        } catch (NumberFormatException e) {
+        } catch (Exception e) {
             return null;
         }
     }
 
     private String getChildGroup(String birthStr) {
-        if (birthStr == null || birthStr.length() < 10) return null;
+        if (birthStr == null || birthStr.isBlank()) return "일반"; // 누락 데이터 기본값
         try {
-            LocalDate birthDate = LocalDate.parse(birthStr, DateTimeFormatter.ISO_DATE);
-            return birthDate.isBefore(CHILD_CUTOFF_DATE) ? "일반" : "아동";
+            String cleanBirth = birthStr.replaceAll("[^0-9]", ""); // 하이픈 제거
+            if (cleanBirth.length() != 8) return "일반";
+
+            // 2013년 11월 1일 이후 출생자 비교
+            int birthDateNum = Integer.parseInt(cleanBirth);
+            return birthDateNum >= 20131101 ? "아동" : "일반";
         } catch (Exception e) {
-            return null;
+            return "일반";
         }
     }
 
     private static class StatRowBuilder {
         String classification;
         Map<String, Long> courseCounts = new LinkedHashMap<>();
-        long totalCount, cardCount, transferCount, freeCount, personalCount, groupCount;
+        long totalCount, cardCount, easyPayCount, unpaidCount, personalCount, groupCount;
 
         StatRowBuilder(String classification, List<String> courseNames) {
             this.classification = classification;
             courseNames.forEach(name -> courseCounts.put(name, 0L));
         }
 
-        void add(String course, boolean card, boolean transfer, boolean free, boolean personal, boolean group) {
+        void add(String course, boolean card, boolean easyPay, boolean unpaid, boolean personal, boolean group) {
             if (course != null) {
                 courseCounts.put(course, courseCounts.getOrDefault(course, 0L) + 1);
             }
             totalCount++;
             if (card) cardCount++;
-            if (transfer) transferCount++;
-            if (free) freeCount++;
+            if (easyPay) easyPayCount++;
+            if (unpaid) unpaidCount++;
             if (personal) personalCount++;
             if (group) groupCount++;
         }
 
         EventStatisticsResponse.StatRowDto build() {
-            return new EventStatisticsResponse.StatRowDto(classification, courseCounts, totalCount, cardCount, transferCount, freeCount, personalCount, groupCount);
+            return new EventStatisticsResponse.StatRowDto(classification, courseCounts, totalCount, cardCount, easyPayCount, unpaidCount, personalCount, groupCount);
         }
     }
 }

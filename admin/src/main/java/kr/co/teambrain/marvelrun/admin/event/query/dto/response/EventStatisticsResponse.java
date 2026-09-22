@@ -14,13 +14,13 @@ public record EventStatisticsResponse(
 ) {
     @Builder
     public record StatRowDto(
-            String classification,          // 구분 (예: "신청자(남)", "입금자(20대)")
-            Map<String, Long> courseCounts, // 코스별 인원
-            long totalCount,                // 인원 합계
-            long cardCount,                 // 카드 결제
-            long transferCount,             // 계좌 이체
-            long freeCount,                 // 무료
-            long personalCount,             // 개인
-            long groupCount                 // 단체
+            String classification,
+            Map<String, Long> courseCounts,
+            long totalCount,
+            long cardCount, // 카드
+            long easyPayCount,              // 간편결제 카운트 추가
+            long unpaidCount, // 미결제
+            long personalCount,
+            long groupCount
     ) {}
 }
