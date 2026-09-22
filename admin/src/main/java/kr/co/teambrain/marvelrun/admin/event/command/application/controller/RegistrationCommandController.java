@@ -3,6 +3,7 @@ package kr.co.teambrain.marvelrun.admin.event.command.application.controller;
 
 import jakarta.validation.Valid;
 import kr.co.teambrain.marvelrun.admin.common.dto.request.PasswordResetRequest;
+import kr.co.teambrain.marvelrun.admin.event.command.application.dto.AdminRegistrationModifyRequest;
 import kr.co.teambrain.marvelrun.admin.event.command.application.service.RegistrationCommandService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -20,6 +21,15 @@ public class RegistrationCommandController {
             @Valid @RequestBody PasswordResetRequest request
     ) {
         registrationCommandService.resetPersonalPassword(registrationId, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PatchMapping("/{registrationId}/basic-info")
+    public ResponseEntity<Void> modifyRegistrationBasicInfo(
+            @PathVariable String registrationId,
+            @Valid @RequestBody AdminRegistrationModifyRequest request
+    ) {
+        registrationCommandService.modifyRegistrationBasicInfo(registrationId, request);
         return ResponseEntity.noContent().build();
     }
 }
