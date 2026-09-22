@@ -110,3 +110,11 @@ logging:
 #    org.springframework.data.jpa.repository: DEBUG
 #    org.hibernate.hql.internal.ast: DEBUG
 #    org.hibernate.query: DEBUG
+
+
+toss:
+  payments:
+    base-url: https://api.tosspayments.com
+    connect-timeout: 5s
+    read-timeout: 30s
+    secret-key: ${toss.secret.secret-key}
