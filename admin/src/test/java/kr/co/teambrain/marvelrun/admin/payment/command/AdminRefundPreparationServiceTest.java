@@ -186,4 +186,24 @@ class AdminRefundPreparationServiceTest {
         assertThat(registration.getContractAmount()).isEqualByComparingTo("40000");
         assertThat(registration.getPaidAmount()).isEqualByComparingTo("70000");
     }
+    /** 단일 대상 원결제 계획 11개는 계약·정원·금융 쓰기 전에 차단한다. */
+    @Test void batchRejectsElevenRefundPlansBeforeMutation() {
+        ModificationRefundPlanner planner=mock(ModificationRefundPlanner.class);
+        RefundPreparationPlan plan=mock(RefundPreparationPlan.class);
+        when(planner.plan(anyList(),anyList())).thenReturn(java.util.Collections.nCopies(11,plan));
+        AdminRefundPreparationService limited=new AdminRefundPreparationService(new AdminRefundPreparationTransactionService(
+                access,store,policies,pricing,requirements,diffs,movement,removal,planner,allocations,time,VALIDATION.getValidator()));
+        AdminRefundCommandContext batchCommand=new AdminRefundCommandContext("request","admin","상한 확인",null,"batch",0);
+        assertThatThrownBy(() -> limited.prepareFull("test-marvelrun",null,List.of("r"),batchCommand))
+                .isInstanceOf(CustomException.class);
+        verify(planner).plan(anyList(),anyList());
+        verifyNoInteractions(movement,removal,allocations);
+        verify(store,never()).save(any());
+        verify(store,never()).log(any());
+        assertThat(registration.getContractAmount()).isEqualByComparingTo("70000");
+        assertThat(registration.getPaidAmount()).isEqualByComparingTo("70000");
+        assertThat(registration.getStatus()).isEqualTo(RegistrationStatus.CONFIRMED);
+        assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.CONSUMED);
+    }
+
 }

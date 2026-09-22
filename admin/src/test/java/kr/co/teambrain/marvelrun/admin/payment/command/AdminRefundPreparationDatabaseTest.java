@@ -646,4 +646,118 @@ class AdminRefundPreparationDatabaseTest {
         verifyNoInteractions(toss);
     }
 
+    /** 정확히 100개 오류 대상은 접수·보존하고 101개는 기록/금융 실행 전에 거절한다. */
+    @Test void batchTargetLimitAccepts100AndRejects101BeforeExecution() {
+        List<String> missing=java.util.stream.IntStream.range(0,100).mapToObj(i -> id()).toList();
+        Response accepted=batches.full(eventId,"fixture-admin",new AdminPaymentRefundRequest(id(),"상한 검증",missing,List.of()));
+        assertThat(accepted.items()).hasSize(100);
+        assertThat(accepted.summary().counts()).containsEntry("BLOCKED",100L);
+        assertThat(accepted.resultsTruncated()).isFalse();
+        List<String> over=new java.util.ArrayList<>(missing); over.add(id());
+        String rejectedRequest=id();
+        assertThatThrownBy(() -> batches.full(eventId,"fixture-admin",new AdminPaymentRefundRequest(rejectedRequest,"상한 검증",over,List.of())))
+                .isInstanceOf(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class);
+        assertThat(jdbc.queryForObject("select count(*) from admin_refund_batch where event_id=? and request_id=?",Integer.class,eventId,rejectedRequest)).isZero();
+        assertThat(cancelCount()).isZero();
+        verifyNoInteractions(toss);
+    }
+
+    /** 단체 1개라도 확장 인원이 상한을 넘으면 전부 거절하고 20행 경계에서 누락하지 않는다. */
+    @ParameterizedTest
+    @ValueSource(ints={21,101})
+    void organizationCursorPagesAndExpandedLimit(int members) {
+        String org=selectionOnlyOrganization(members);
+        AdminPaymentRefundRequest request=new AdminPaymentRefundRequest(id(),"단체 조회 상한",List.of(),List.of(org));
+        if(members==21) {
+            List<Target> selected=batchSelection.full(eventId,request);
+            assertThat(selected).hasSize(21);
+            assertThat(selected.stream().map(Target::registrationId).distinct().count()).isEqualTo(21);
+            assertThat(selected).allSatisfy(item -> assertThat(item.organizationId()).isEqualTo(org));
+        } else {
+            assertThatThrownBy(() -> batches.full(eventId,"fixture-admin",request))
+                    .isInstanceOf(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class);
+            assertThat(jdbc.queryForObject("select count(*) from admin_refund_batch where event_id=? and request_id=?",Integer.class,eventId,request.requestId())).isZero();
+        }
+        verifyNoInteractions(toss);
+        assertThat(cancelCount()).isZero();
+    }
+
+    /** 실제 DB 동시 호출에서 동일 요청은 진행 상태만 반환하고 새 요청의 동일 대상은 차단한다. */
+    @ParameterizedTest
+    @ValueSource(booleans={true,false})
+    void concurrentRequestCannotSendSecondRefund(boolean sameRequest) throws Exception {
+        var entered=new java.util.concurrent.CountDownLatch(1);
+        var release=new java.util.concurrent.CountDownLatch(1);
+        var pool=java.util.concurrent.Executors.newFixedThreadPool(2);
+        AdminPaymentRefundRequest first=new AdminPaymentRefundRequest(id(),"동시 요청",List.of(registrationId),List.of());
+        doAnswer(invocation -> {
+            TossCancelAttempt attempt=invocation.getArgument(0);
+            assertCommittedStart(attempt);
+            entered.countDown();
+            if(!release.await(20,java.util.concurrent.TimeUnit.SECONDS)) { throw new IllegalStateException("test release timeout"); }
+            return verifiedOutcome(attempt);
+        }).when(toss).cancel(any());
+        try {
+            java.util.concurrent.Future<Response> running=pool.submit(() -> batches.full(eventId,"fixture-admin",first));
+            assertThat(entered.await(10,java.util.concurrent.TimeUnit.SECONDS)).as("first request reached mock PG").isTrue();
+            AdminPaymentRefundRequest second=sameRequest ? first
+                    : new AdminPaymentRefundRequest(id(),"동시 요청",List.of(registrationId),List.of());
+            Response other=pool.submit(() -> batches.full(eventId,"fixture-admin",second))
+                    .get(10,java.util.concurrent.TimeUnit.SECONDS);
+            if(sameRequest) {
+                assertThat(other.summary().counts()).containsEntry("RUNNING",1L);
+            } else {
+                assertThat(other.summary().counts()).containsEntry("BLOCKED",1L);
+            }
+            release.countDown();
+            Response completed=running.get(10,java.util.concurrent.TimeUnit.SECONDS);
+            assertThat(completed.summary().counts()).containsEntry("SUCCEEDED",1L);
+            assertThat(batchStore.byRequest(eventId,first.requestId(),"fixture-admin").summary().counts()).containsEntry("SUCCEEDED",1L);
+            assertThat(cancelCount()).isEqualTo(1);
+            assertThat(amount("paid_amount")).isEqualByComparingTo("0");
+            verify(toss,times(1)).cancel(any());
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+            if(!pool.awaitTermination(15,java.util.concurrent.TimeUnit.SECONDS)) {
+                throw new IllegalStateException("테스트 작업이 종료되지 않았습니다. fixture 정리 전 DB 실행 상태 확인 필요");
+            }
+        }
+    }
+
+    /** 호출자가 최초 결과를 버려도 재조회/동일 요청 전송은 이미 완료된 환불을 재실행하지 않는다. */
+    @Test void discardedResponseIsRecoveredByRequestIdWithoutResendingRefund() {
+        AdminPaymentRefundRequest request=new AdminPaymentRefundRequest(id(),"응답 유실 모델",List.of(registrationId),List.of());
+        doAnswer(invocation -> verifiedOutcome(invocation.getArgument(0))).when(toss).cancel(any());
+        batches.full(eventId,"fixture-admin",request); // 반환값을 사용하지 않는다. 실제 TCP 단절은 EC2에서 별도 검증한다.
+        Response recovered=batchStore.byRequest(eventId,request.requestId(),"fixture-admin");
+        Response repeated=batches.full(eventId,"fixture-admin",request);
+        assertThat(recovered.summary().counts()).containsEntry("SUCCEEDED",1L);
+        assertThat(repeated.summary().batchId()).isEqualTo(recovered.summary().batchId());
+        verify(toss,times(1)).cancel(any());
+        assertThat(cancelCount()).isEqualTo(1);
+    }
+
+    /** 조회 분할만 검사할 단체 fixture다. 결제/예약을 만들지 않으며 PG 실행 대상으로 사용하지 않는다. */
+    private String selectionOnlyOrganization(int members) {
+        String org=id();
+        tx.executeWithoutResult(status -> {
+            jdbc.update("insert into organization(id,event_id,login_id,password,group_name,leader_name,leader_birth,leader_ph_num,guardian_consent,created_at) values(?,?,?,?,?,?,?,?,true,?)",
+                    org,eventId,"g"+id().substring(0,15),"Test1234!","selection-only","leader","1990-01-01","010-0000-0000",now);
+            for(int i=0;i<members;i++) {
+                Registration member=Registration.builder().event(em.getReference(Event.class,eventId))
+                        .organization(em.getReference(kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization.class,org))
+                        .eventCategory(em.getReference(EventCategory.class,categoryA)).name("selection-"+i)
+                        .phNum("010-0000-0000").birth("1990-01-01").gender(GenderClass.M).password("Test1234!")
+                        .souvenirJson(List.of(new SouvenirJson(souvenir,"M"))).status(RegistrationStatus.PENDING)
+                        .contractAmount(BigDecimal.ZERO).paidAmount(BigDecimal.ZERO)
+                        .termsEssentialAgreed(true).termsMarketingAgreed(false).termsMarketingChannelAgreed(false)
+                        .termsAgreedAt(now.minusDays(2)).build();
+                em.persist(member);
+            }
+            em.flush();
+        });
+        return org;
+    }
+
 }
