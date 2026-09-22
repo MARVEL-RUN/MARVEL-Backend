@@ -1,24 +1,29 @@
 package kr.co.teambrain.marvelrun.admin.event.query.service;
 
+import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
 
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 
+import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationStatDto;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.response.EventStatisticsResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.SouvenirQueryRepository;
 
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Payment;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
-import kr.co.teambrain.marvelrun.admin.event.query.dto.LeaderInfoResponse;
-import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationDetailResponse;
-import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationListResponse;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.response.LeaderInfoResponse;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationDetailResponse;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationListResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationSearchCondition;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.PaymentQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.util.RegistrationSpecification;
 import kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import lombok.RequiredArgsConstructor;
@@ -237,6 +242,76 @@ public class RegistrationQueryService {
                 .termsEssentialAgreed(registration.getTermsEssentialAgreed())
                 .termsMarketingAgreed(registration.getTermsMarketingAgreed())
                 .termsMarketingChannelAgreed(registration.getTermsMarketingChannelAgreed())
+                .build();
+    }
+
+    public EventStatisticsResponse getEventStatistics(String eventId) {
+        List<RegistrationStatDto> statsData = registrationQueryRepository.findStatsByEventId(eventId);
+
+        long totalRegistrations = 0;
+        long totalCompletedPayments = 0;
+        long personalRegistrations = 0;
+        long personalCompletedPayments = 0;
+
+        // UI에서 순서대로 표기되도록 LinkedHashMap 사용
+        Map<String, Long> genderStats = new LinkedHashMap<>();
+        genderStats.put("남성", 0L);
+        genderStats.put("여성", 0L);
+
+        Map<String, Long> ageGroupStats = new LinkedHashMap<>();
+        String[] ageGroups = {"10대 이하", "20대", "30대", "40대", "50대", "60대 이상"};
+        for (String group : ageGroups) {
+            ageGroupStats.put(group, 0L);
+        }
+
+        int currentYear = LocalDate.now().getYear();
+
+        for (RegistrationStatDto data : statsData) {
+            totalRegistrations++;
+
+            boolean isConfirmed = data.status() == RegistrationStatus.CONFIRMED;
+            boolean isPersonal = data.organizationId() == null;
+
+            if (isConfirmed) totalCompletedPayments++;
+            if (isPersonal) {
+                personalRegistrations++;
+                if (isConfirmed) personalCompletedPayments++;
+            }
+
+            // 성별 집계
+            if (data.gender() != null) {
+                String genderStr = data.gender() == GenderClass.M ? "남성" : "여성";
+                genderStats.put(genderStr, genderStats.getOrDefault(genderStr, 0L) + 1);
+            }
+
+            // 나이대 집계 (생년월일 YYYY-MM-DD 형식의 앞 4자리 추출)
+            if (data.birth() != null && data.birth().length() >= 4) {
+                try {
+                    int birthYear = Integer.parseInt(data.birth().substring(0, 4));
+                    int age = currentYear - birthYear;
+                    String ageGroup;
+
+                    if (age < 20) ageGroup = "10대 이하";
+                    else if (age < 30) ageGroup = "20대";
+                    else if (age < 40) ageGroup = "30대";
+                    else if (age < 50) ageGroup = "40대";
+                    else if (age < 60) ageGroup = "50대";
+                    else ageGroup = "60대 이상";
+
+                    ageGroupStats.put(ageGroup, ageGroupStats.get(ageGroup) + 1);
+                } catch (NumberFormatException ignored) {
+                    // 비정상적인 생년월일 포맷 무시
+                }
+            }
+        }
+
+        return EventStatisticsResponse.builder()
+                .totalRegistrations(totalRegistrations)
+                .totalCompletedPayments(totalCompletedPayments)
+                .personalRegistrations(personalRegistrations)
+                .personalCompletedPayments(personalCompletedPayments)
+                .genderStats(genderStats)
+                .ageGroupStats(ageGroupStats)
                 .build();
     }
 }
