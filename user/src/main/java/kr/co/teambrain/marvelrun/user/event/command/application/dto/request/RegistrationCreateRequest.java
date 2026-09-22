@@ -54,7 +54,10 @@ public record RegistrationCreateRequest(
         Boolean termsMarketingAgreed,
 
         @NotNull(message = "전자적 전송매체 수신 동의 여부가 누락되었습니다.")
-        Boolean termsMarketingChannelAgreed
+        Boolean termsMarketingChannelAgreed,
+
+        @Email(message = "이메일 형식이 올바르지 않습니다.")
+        String email
 
 ) {
 }

@@ -114,6 +114,10 @@ public class OrgRegistrationModificationService {
             access.organization().guardianConsentChecked();
         }
 
+        if (!Objects.equals(access.organization().getEmail(), request.email())) {
+            access.organization().updateEmail(request.email());
+        }
+
         OrgRegistrationModificationCandidateContext candidate =
                 candidateValidator.validate(access);
 
@@ -278,7 +282,8 @@ public class OrgRegistrationModificationService {
                                     now,
                                     termsEssential, // DTO 형식 맞춤용 (팩토리 메서드에서 무시되거나 재덮어쓰기됨)
                                     termsMarketing,
-                                    termsChannel
+                                    termsChannel,
+                                    null
                             )
                     );
 

@@ -83,6 +83,8 @@ public class OrganizationQueryService {
         Organization organization = organizationQueryRepository.findById(organizationId)
                 .orElseThrow(() -> new CustomException(ErrorCode.ORGANIZATION_NOT_FOUND));
 
+        String email = organization.getEmail();
+
         // 2. 소속된 신청자 목록 조회 (삭제된 인원 제외)
         List<Registration> registrations = registrationQueryRepository
                 .findByOrganizationIdAndSoftDeletedFalse(organizationId);
@@ -152,9 +154,15 @@ public class OrganizationQueryService {
                 .groupName(organization.getGroupName())
                 .eventName(organization.getEvent().getNameKr())
                 .leaderName(organization.getLeaderName())
+                .leaderBirth(organization.getLeaderBirth())
+                .leaderPhNum(organization.getLeaderPhNum())
+                .address(organization.getAddress())
+                .addressDetail(organization.getAddressDetail())
+                .guardianConsent(organization.isGuardianConsent())
                 .loginId(organization.getLoginId())
                 .createdAt(organization.getCreatedAt())
                 .members(members)
+                .email(email)
                 .build();
     }
 }
