@@ -83,6 +83,7 @@ public class RegistrationCommandService {
         registration.modifyBasicInfoByAdmin(
                 request.name(),
                 request.phNum(),
+                request.email(),
                 request.birth(),
                 request.gender(),
                 request.address(),

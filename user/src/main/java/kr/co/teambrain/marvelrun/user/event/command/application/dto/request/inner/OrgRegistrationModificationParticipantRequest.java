@@ -36,9 +36,6 @@ public record OrgRegistrationModificationParticipantRequest(
         String birth,
 
         @NotNull
-        GenderClass gender,
-
-        @Email(message = "이메일 형식이 올바르지 않습니다.")
-        String email
+        GenderClass gender
 ) {
 }

@@ -263,8 +263,7 @@ public class OrgRegistrationModificationService {
                             request.name(),
                             request.phNum(),
                             request.birth(),
-                            request.gender(),
-                            request.email()
+                            request.gender()
                     );
 
             Registration registration =
@@ -280,7 +279,7 @@ public class OrgRegistrationModificationService {
                                     termsEssential, // DTO 형식 맞춤용 (팩토리 메서드에서 무시되거나 재덮어쓰기됨)
                                     termsMarketing,
                                     termsChannel,
-                                    request.email()
+                                    null
                             )
                     );
 

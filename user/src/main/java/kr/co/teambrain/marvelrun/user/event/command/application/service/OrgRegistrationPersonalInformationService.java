@@ -61,7 +61,6 @@ public class OrgRegistrationPersonalInformationService {
             Registration registration = members.get(request.registrationId());
 
             if (!Objects.equals(registration.getName(), request.name())
-                    || !Objects.equals(registration.getEmail(), request.email())
                     || !Objects.equals(registration.getPhNum(), request.phNum())
                     || registration.getGender() != request.gender()) {
 

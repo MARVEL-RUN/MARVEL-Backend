@@ -133,6 +133,7 @@ public class OrganizationQueryService {
                     .listNumber(listNumber++) // 페이징 번호 할당
                     .registrationId(reg.getId())
                     .name(reg.getName())
+                    .email(reg.getEmail() != null ? reg.getEmail() : "-")
                     .birth(reg.getBirth())
                     .gender(genderStr)
                     .courseName(reg.getEventCategory().getName())

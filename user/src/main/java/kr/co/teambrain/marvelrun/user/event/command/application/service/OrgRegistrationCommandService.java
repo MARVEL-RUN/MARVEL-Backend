@@ -493,8 +493,8 @@ public class OrgRegistrationCommandService {
                             now,
                             termsEssential,          // 일괄 적용
                             termsMarketing,          // 일괄 적용
-                            termsMarketingChannel,    // 일괄 적용
-                            participantContext.request().email()
+                            termsMarketingChannel,   // 일괄 적용
+                            null
                     );
 
             registrations.add(

@@ -26,13 +26,14 @@ public class Registration extends RegistrationBase<User, Event, EventCategory, O
      * 관리자에 의한 참가자 기본 정보 강제 수정 및 메모 이력 기록
      */
     public void modifyBasicInfoByAdmin(
-            String name, String phNum, String birth, GenderClass gender,
+            String name, String phNum, String email, String birth, GenderClass gender,
             String address, String addressDetail,
             String guardianName, String guardianPhNum, String guardianRelationship,
             LocalDateTime now
     ) {
         this.name = name;
         this.phNum = phNum;
+        this.email = email;
         this.birth = birth;
         this.gender = gender;
         this.address = address;

@@ -140,8 +140,12 @@ public class RegistrationExcelService {
             int rowNumber = 1;
             for (Registration registration : registrations) {
                 Organization organization = registration.getOrganization();
-                String email = organization != null ? organization.getEmail()
-                        : registration.getUser() == null ? "" : registration.getUser().getEmail();
+                // 참가자 개별 이메일을 먼저 확인하고, 없으면 단체장 또는 유저 이메일로
+                String email = registration.getEmail();
+                if (!StringUtils.hasText(email)) {
+                    email = organization != null ? organization.getEmail()
+                            : registration.getUser() == null ? "" : registration.getUser().getEmail();
+                }
                 String address = registration.getAddress();
                 String addressDetail = registration.getAddressDetail();
                 if (!StringUtils.hasText(address) && organization != null) {

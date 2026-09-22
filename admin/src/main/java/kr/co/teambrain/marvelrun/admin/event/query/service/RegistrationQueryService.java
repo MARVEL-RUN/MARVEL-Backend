@@ -146,7 +146,8 @@ public class RegistrationQueryService {
         boolean isOrganization = registration.getOrganization() != null;
 
         // 이메일 추출: 단체면 단체 대표 이메일, 개인이면 유저 이메일
-        String email = null;
+        // ✅ Registration의 이메일을 최우선으로 확인
+        String email = registration.getEmail();
         String organizationId = null;
 
         LeaderInfoResponse leaderInfoResponse = null;
@@ -165,7 +166,9 @@ public class RegistrationQueryService {
                     targetOrganization.getAddressDetail()
             );
         } else if (registration.getUser() != null) {
-            email = registration.getUser().getEmail();
+            if (email == null || email.isBlank()) {
+                email = registration.getUser().getEmail();
+            }
         }
 
         // 단체명 처리
@@ -215,7 +218,7 @@ public class RegistrationQueryService {
                 .gender(registration.getGender() == GenderClass.M ? "남성" : "여성")
                 .birth(registration.getBirth())
                 .phoneNumber(registration.getPhNum())
-                .email(email != null ? email : "-")
+                .email(email != null ? email : "-") // 변환된 이메일 삽입
                 .guardianConsent(registration.isGuardianConsent())
                 .guardianName(guardianName)
                 .guardianPhoneNumber(guardianPhone)
