@@ -557,5 +557,8 @@ public class Registration extends RegistrationBase<
         }
     }
 
+    public void updateEmail(String email) {
+        this.email = email;
+    }
 
 }

@@ -99,6 +99,9 @@ public class RegistrationModificationClassifier {
         Set<String> requestedIds = new HashSet<>();
         boolean full = false;
         boolean changed = false;
+        if (!currentMembers.isEmpty() && currentMembers.getFirst().getOrganization() != null) {
+            changed = !Objects.equals(currentMembers.getFirst().getOrganization().getEmail(), request.email());
+        }
         for (OrgRegistrationModificationParticipantRequest participant : request.registrations()) {
             if (participant == null) {
                 throw invalidArgument();

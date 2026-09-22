@@ -114,6 +114,10 @@ public class OrgRegistrationModificationService {
             access.organization().guardianConsentChecked();
         }
 
+        if (!Objects.equals(access.organization().getEmail(), request.email())) {
+            access.organization().updateEmail(request.email());
+        }
+
         OrgRegistrationModificationCandidateContext candidate =
                 candidateValidator.validate(access);
 

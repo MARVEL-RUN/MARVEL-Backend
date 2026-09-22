@@ -22,4 +22,8 @@ public class Organization
         this.guardianConsent = true; //해당 값은 ture -> false로 바뀔 수 없음
     }
 
+    public void updateEmail(String email) {
+        this.email = email;
+    }
+
 }

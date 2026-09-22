@@ -1,6 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.dto.request;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -23,6 +24,9 @@ import java.util.List;
 public record OrgRegistrationModificationRequest(
 
         boolean guardianConsent,
+
+        @Email(message = "이메일 형식이 올바르지 않습니다.")
+        String email,
 
         @NotNull
         @Valid
