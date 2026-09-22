@@ -91,6 +91,7 @@ class RegistrationRefundExecutionDatabaseTest extends CapacityMvpTestSupport {
         assertThat(s("select toss_status from payment where id = ?", original.paymentId())).isEqualTo("PARTIAL_CANCELED");
         assertThat(result.orders()).isEmpty();
         verify(cancelClient, times(1)).cancel(any());
+        assertThat(s("select JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.resultComparison.status')) from payment_process_log where payment_cancel_id=? and process_type='CANCEL_SUCCEEDED'", result.refunds().get(0).paymentCancelId())).isEqualTo("SUCCESS");
     }
 
     /** 참가비가 0원으로 바뀌면 원결제를 전액 환불하고 참가 신청 자체는 확정 상태로 유지한다. */
@@ -129,6 +130,8 @@ class RegistrationRefundExecutionDatabaseTest extends CapacityMvpTestSupport {
                     original.registrationId(), personalRequest(original.registrationId(), categoryA)));
         }
         verify(cancelClient, times(1)).cancel(any());
+        assertThat(s("select JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.resultComparison.status')) from payment_process_log where payment_cancel_id=? and process_type=?", result.refunds().get(0).paymentCancelId(), status.equals("FAILED") ? "CANCEL_FAILED" : "CANCEL_UNKNOWN"))
+                .isEqualTo(status.equals("FAILED") ? "FAILED" : "UNVERIFIED");
     }
 
     /** 같은 외부 성공 결과를 두 번 적용해도 신청 금액과 완료 로그는 한 번만 변경된다. */
@@ -169,6 +172,7 @@ class RegistrationRefundExecutionDatabaseTest extends CapacityMvpTestSupport {
         assertThat(n("select count(*) from payment_process_log where payment_cancel_id = ? and process_type = 'CANCEL_SUCCEEDED'", cancelId)).isZero();
         assertThat(n("select count(*) from payment_process_log where payment_cancel_id = ? and process_type = 'CANCEL_UNKNOWN' and transaction_key is not null", cancelId)).isEqualTo(1);
         verify(cancelClient, times(1)).cancel(any());
+        assertThat(s("select JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.resultComparison.status')) from payment_process_log where payment_cancel_id=? and process_type='CANCEL_UNKNOWN'", result.refunds().get(0).paymentCancelId())).isEqualTo("MISMATCH");
     }
 
     /** 외부 응답을 기다리는 동안 동일 시도가 재진입해도 두 번째 외부 호출은 발생하지 않는다. */
@@ -213,7 +217,13 @@ class RegistrationRefundExecutionDatabaseTest extends CapacityMvpTestSupport {
         mockCancelSuccess();
         String retained = original.registrationIds().get(0);
         String removed = original.registrationIds().get(1);
-        OrgRegistrationModificationRequest request = new OrgRegistrationModificationRequest(
+        OrgRegistrationModificationRequest request = new OrgRegistrationModificationRequest(true,
+                "test@example.com",
+                "테스트 주소",
+                "상세",
+                "테스트 단체장",
+                java.time.LocalDate.of(1990, 1, 1),
+                "010-0000-0000",
                 new OrganizationAccessRequest(s("select login_id from organization where id = ?", original.organizationId()), "Test1234!"),
                 List.of(new OrgRegistrationModificationParticipantRequest(retained, categoryB,
                         List.of(new SouvenirJson(souvenirId, "M")),
@@ -323,7 +333,15 @@ class RegistrationRefundExecutionDatabaseTest extends CapacityMvpTestSupport {
         MixedModificationFixture fixture = mixedModificationFixture(true);
         String oldId = fixture.result().orders().get(0).paymentId();
         RegistrationModificationSettlementResult changed = commands.modifyOrganization(eventId, fixture.organizationId(),
-                new OrgRegistrationModificationRequest(mixedOrganizationAccess(fixture.organizationId()), List.of(
+                new OrgRegistrationModificationRequest(true,
+                "test@example.com",
+                "테스트 주소",
+                "상세",
+                "테스트 단체장",
+                java.time.LocalDate.of(1990, 1, 1),
+                "010-0000-0000",
+                mixedOrganizationAccess(fixture.organizationId()),
+                List.of(
                         mixedStoredParticipant(fixture.retainedId(), categoryA, "S"),
                         mixedStoredParticipant(fixture.addedId(), categoryA, "S"))));
         assertThat(s("select process_status from payment where id = ?", oldId)).isEqualTo("INVALIDATED");
@@ -342,7 +360,15 @@ class RegistrationRefundExecutionDatabaseTest extends CapacityMvpTestSupport {
                 () -> payments.confirm(confirmRequest(fixture.result().orders().get(0).paymentId())));
         expectError(ErrorCode.PAYMENT_CANCEL_CONFLICT,
                 () -> commands.modifyOrganization(eventId, fixture.organizationId(),
-                        new OrgRegistrationModificationRequest(mixedOrganizationAccess(fixture.organizationId()), List.of(
+                        new OrgRegistrationModificationRequest(true,
+                "test@example.com",
+                "테스트 주소",
+                "상세",
+                "테스트 단체장",
+                java.time.LocalDate.of(1990, 1, 1),
+                "010-0000-0000",
+                mixedOrganizationAccess(fixture.organizationId()),
+                List.of(
                                 mixedStoredParticipant(fixture.retainedId(), categoryA, "S"),
                                 mixedStoredParticipant(fixture.addedId(), categoryA, "S")))));
         verifyNoInteractions(toss);
@@ -358,13 +384,27 @@ class RegistrationRefundExecutionDatabaseTest extends CapacityMvpTestSupport {
         int paymentsBefore = n("select count(*) from payment where organization_id = ?", first.organizationId());
         expectError(ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET,
                 () -> commands.modifyOrganization(eventId, first.organizationId(),
-                        new OrgRegistrationModificationRequest(mixedOrganizationAccess(first.organizationId()),
-                                List.of(mixedStoredParticipant(foreign, categoryA, "S")))));
+                        new OrgRegistrationModificationRequest(true,
+                "test@example.com",
+                "테스트 주소",
+                "상세",
+                "테스트 단체장",
+                java.time.LocalDate.of(1990, 1, 1),
+                "010-0000-0000",
+                mixedOrganizationAccess(first.organizationId()),
+                List.of(mixedStoredParticipant(foreign, categoryA, "S")))));
         String own = first.registrationIds().get(0);
         expectError(ErrorCode.DUPLICATE_REGISTRATION_MODIFICATION_TARGET,
                 () -> commands.modifyOrganization(eventId, first.organizationId(),
-                        new OrgRegistrationModificationRequest(mixedOrganizationAccess(first.organizationId()),
-                                List.of(mixedStoredParticipant(own, categoryA, "S"), mixedStoredParticipant(own, categoryA, "S")))));
+                        new OrgRegistrationModificationRequest(true,
+                "test@example.com",
+                "테스트 주소",
+                "상세",
+                "테스트 단체장",
+                java.time.LocalDate.of(1990, 1, 1),
+                "010-0000-0000",
+                mixedOrganizationAccess(first.organizationId()),
+                List.of(mixedStoredParticipant(own, categoryA, "S"), mixedStoredParticipant(own, categoryA, "S")))));
         assertThat(n("select count(*) from payment where organization_id = ?", first.organizationId())).isEqualTo(paymentsBefore);
         verifyNoInteractions(toss, cancelClient);
     }
@@ -384,8 +424,19 @@ class RegistrationRefundExecutionDatabaseTest extends CapacityMvpTestSupport {
         String phone = s("select ph_num from registration where id = ?", id);
         String birth = s("select birth from registration where id = ?", id);
         return new RegistrationModificationRequest(new RegistrationAccessRequest(name, birth, phone, "Test1234!"),
-                category, List.of(new SouvenirJson(souvenirId, "M")), name, phone, birth,
-                GenderClass.M, "수정 주소", "수정 상세", "테스트 보호자", true);
+                category,
+                List.of(new SouvenirJson(souvenirId, "M")),
+                name,
+                phone,
+                birth,
+                GenderClass.M,
+                "수정 주소",
+                "수정 상세",
+                true,
+                "테스트 보호자",
+                null,
+                null,
+                null);
     }
 
     /** HTTP를 대신하면서 시작 기록이 먼저 커밋됐고 활성 트랜잭션이 없는지 확인한다. */
@@ -435,8 +486,15 @@ class RegistrationRefundExecutionDatabaseTest extends CapacityMvpTestSupport {
         }
         String retained = original.registrationIds().get(0);
         String removed = original.registrationIds().get(1);
-        OrgRegistrationModificationRequest request = new OrgRegistrationModificationRequest(
-                mixedOrganizationAccess(original.organizationId()), List.of(
+        OrgRegistrationModificationRequest request = new OrgRegistrationModificationRequest(true,
+                "test@example.com",
+                "테스트 주소",
+                "상세",
+                "테스트 단체장",
+                java.time.LocalDate.of(1990, 1, 1),
+                "010-0000-0000",
+                mixedOrganizationAccess(original.organizationId()),
+                List.of(
                 mixedStoredParticipant(retained, categoryB, "M"),
                 new OrgRegistrationModificationParticipantRequest(null, categoryA,
                         List.of(new SouvenirJson(souvenirId, "S")), "신규" + UUID.randomUUID().toString().substring(0, 8),

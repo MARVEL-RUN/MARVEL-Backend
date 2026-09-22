@@ -1,0 +1,6 @@
+toss:
+  payments:
+    base-url: http://127.0.0.1:1
+    secret-key: test-placeholder
+    connect-timeout: 1s
+    read-timeout: 1s

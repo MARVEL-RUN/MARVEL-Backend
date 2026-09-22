@@ -577,10 +577,10 @@ public abstract class AbstractRegistrationApplyValidator {
     }
 
     /**
-     * 단체장은 대회 당일 기준 만 19세 이상이어야 한다.
+     * 단체장은 대회 당일 기준 만 14세 이상이어야 한다.
      *
-     * 대회 당일과 단체장의 19번째 생일을 비교하며,
-     * 19번째 생일 당일부터 단체 신청을 허용한다.
+     * 대회 당일과 단체장의 14번째 생일을 비교하며,
+     * 14번째 생일 당일부터 단체 신청을 허용한다.
      *
      * eventDate를 인자로 받아
      * 날짜 경계 테스트에서 기준일을 고정할 수 있도록 한다.
@@ -595,10 +595,10 @@ public abstract class AbstractRegistrationApplyValidator {
             );
         }
 
-        LocalDate nineteenthBirthday =
+        LocalDate fourteenthBirthday =
                 leaderBirth.plusYears(14);
 
-        if (eventDate.isBefore(nineteenthBirthday)) {
+        if (eventDate.isBefore(fourteenthBirthday)) {
             throw new CustomException(
                     ErrorCode.ORGANIZATION_LEADER_MUST_BE_ADULT
             );

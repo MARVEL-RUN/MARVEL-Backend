@@ -163,7 +163,7 @@ public class RegistrationPolicyCandidateValidator
     }
 
     /**
-     * 단체장은 대회 당일 기준 만 19세 이상이어야 한다.
+     * 단체장은 대회 당일 기준 만 14세 이상이어야 한다.
      *
      * 최초 단체 신청과 단체 수정에서 동일한 기준을 사용한다.
      */
@@ -177,7 +177,7 @@ public class RegistrationPolicyCandidateValidator
             );
         }
 
-        if (eventDate.isBefore(leaderBirth.plusYears(19))) {
+        if (eventDate.isBefore(leaderBirth.plusYears(14))) {
             throw new CustomException(
                     ErrorCode.ORGANIZATION_LEADER_MUST_BE_ADULT
             );

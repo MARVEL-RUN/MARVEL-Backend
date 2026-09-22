@@ -497,9 +497,14 @@ class OrgRegistrationModificationAccessValidatorTest {
             List<OrgRegistrationModificationParticipantRequest> registrations
     ) {
 
-        return new OrgRegistrationModificationRequest(
+        return new OrgRegistrationModificationRequest(false,
+                "test@example.com",
+                "테스트 주소",
+                "상세",
+                "테스트 단체장",
+                java.time.LocalDate.of(1990, 1, 1),
+                "010-0000-0000",
                 access,
-                registrations
-        );
+                registrations);
     }
 }

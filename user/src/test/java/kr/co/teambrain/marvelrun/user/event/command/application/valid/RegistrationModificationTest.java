@@ -522,7 +522,7 @@ class RegistrationModificationTest {
     }
 
     /**
-     * 저장된 단체장 문자열 생년월일을 파싱하고 19번째 생일 경계를 적용한다.
+     * 저장된 단체장 문자열 생년월일을 파싱하고 14번째 생일 경계를 적용한다.
      */
     @Test
     void storedLeaderBirthUsesEventDateBoundary() {
@@ -533,7 +533,7 @@ class RegistrationModificationTest {
         assertThatCode(
                 () -> groupModify.validate(
                         groupContext(
-                                organization("2007-11-01", true),
+                                organization("2012-11-01", true),
                                 List.of(),
                                 requests
                         )
@@ -544,7 +544,7 @@ class RegistrationModificationTest {
                 ErrorCode.ORGANIZATION_LEADER_MUST_BE_ADULT,
                 () -> groupModify.validate(
                         groupContext(
-                                organization("2007-11-02", true),
+                                organization("2012-11-02", true),
                                 List.of(),
                                 requests
                         )
@@ -613,7 +613,8 @@ class RegistrationModificationTest {
                                         "뒤참가자", PHONE,
                                         "1990-01-01", GenderClass.M
                                 )
-                        )
+                        ),
+                        true, false, false
                 );
 
         expectError(
@@ -642,8 +643,7 @@ class RegistrationModificationTest {
             String guardian,
             Boolean consent
     ) {
-        return new RegistrationModificationRequest(
-                new RegistrationAccessRequest(
+        return new RegistrationModificationRequest(new RegistrationAccessRequest(
                         "기존이름", "1990-01-01", PHONE, "password"
                 ),
                 CATEGORY_ID,
@@ -654,9 +654,11 @@ class RegistrationModificationTest {
                 GenderClass.M,
                 "변경주소",
                 "변경상세",
+                consent,
                 guardian,
-                consent
-        );
+                null,
+                null,
+                null);
     }
 
     /**
@@ -665,8 +667,7 @@ class RegistrationModificationTest {
     private RegistrationCreateRequest creationRequest(
             RegistrationModificationRequest request
     ) {
-        return new RegistrationCreateRequest(
-                request.eventCategoryId(),
+        return new RegistrationCreateRequest(request.eventCategoryId(),
                 request.selectedSouvenirList(),
                 "password",
                 request.name(),
@@ -675,9 +676,14 @@ class RegistrationModificationTest {
                 request.gender(),
                 request.address(),
                 request.addressDetail(),
+                request.guardianConsent(),
                 request.guardianName(),
-                request.guardianConsent()
-        );
+                request.guardianPhNum(),
+                request.guardianRelationship(),
+                true,
+                false,
+                false,
+                null);
     }
 
     /**
@@ -719,10 +725,15 @@ class RegistrationModificationTest {
                 event,
                 organization,
                 current,
-                new OrgRegistrationModificationRequest(
-                        new OrganizationAccessRequest("group-login", "password"),
-                        participants
-                ),
+                new OrgRegistrationModificationRequest(organization.isGuardianConsent(),
+                "test@example.com",
+                "테스트 주소",
+                "상세",
+                "테스트 단체장",
+                java.time.LocalDate.of(1990, 1, 1),
+                "010-0000-0000",
+                new OrganizationAccessRequest("group-login", "password"),
+                participants),
                 NOW
         );
     }

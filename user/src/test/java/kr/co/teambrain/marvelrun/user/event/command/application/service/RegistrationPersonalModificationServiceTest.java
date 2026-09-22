@@ -138,8 +138,7 @@ class RegistrationPersonalModificationServiceTest {
                 .version(3L)
                 .build();
 
-        request = new RegistrationModificationRequest(
-                new RegistrationAccessRequest(
+        request = new RegistrationModificationRequest(new RegistrationAccessRequest(
                         "기존이름",
                         "1990-01-01",
                         "01011112222",
@@ -153,9 +152,11 @@ class RegistrationPersonalModificationServiceTest {
                 GenderClass.F,
                 "새 주소",
                 "새 상세주소",
+                true,
                 " 보호자 ",
-                true
-        );
+                null,
+                null,
+                null);
 
         normalizedSouvenirs =
                 List.of(new SouvenirJson("shirt", "130"));

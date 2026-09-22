@@ -243,7 +243,8 @@ public class PaymentConfirmService {
             markUnknownSafely(
                     context,
                     "LOCAL_CONFIRM_COMMIT_FAILED",
-                    "결제 승인 이후 로컬 확정 처리를 완료하지 못했습니다."
+                    "결제 승인 이후 로컬 확정 처리를 완료하지 못했습니다.",
+                    tossResponse
             );
 
             throw new CustomException(
@@ -278,6 +279,16 @@ public class PaymentConfirmService {
                     context.correlationId(),
                     exception
             );
+        }
+    }
+    /** 외부 응답을 잃지 않고 UNKNOWN 기록 트랜잭션에 전달한다. 자동 조회나 재승인은 하지 않는다. */
+    private void markUnknownSafely(PaymentConfirmContext context, String errorCode,
+            String errorMessage, TossPaymentConfirmResponse response) {
+        try {
+            paymentConfirmTransactionService.markConfirmUnknown(context, errorCode, errorMessage, response);
+        } catch (RuntimeException exception) {
+            log.error("결제 UNKNOWN 증거 기록 실패. paymentId={}, correlationId={}",
+                    context.paymentId(), context.correlationId(), exception);
         }
     }
 }

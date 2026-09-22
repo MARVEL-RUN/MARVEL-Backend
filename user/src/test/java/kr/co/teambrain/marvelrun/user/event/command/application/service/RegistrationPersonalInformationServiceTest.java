@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import kr.co.teambrain.marvelrun.user.event.command.repository.EventRegistrationPolicyRepository;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.policy.EventRegistrationPolicy;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import jakarta.validation.Validation;
@@ -45,13 +47,15 @@ class RegistrationPersonalInformationServiceTest {
     private static final ValidatorFactory INPUTS = Validation.buildDefaultValidatorFactory();
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 9, 20, 12, 0);
     private final RegistrationCommandRepository repository = mock(RegistrationCommandRepository.class);
+    private final EventRegistrationPolicyRepository guardianPolicies = mock(EventRegistrationPolicyRepository.class);
     private final EntityManager entityManager = mock(EntityManager.class);
     private final RegistrationPersonalModificationService full = mock(RegistrationPersonalModificationService.class);
     private final OrgRegistrationModificationService organization = mock(OrgRegistrationModificationService.class);
     private final RegistrationModificationSettlementService settlement = mock(RegistrationModificationSettlementService.class);
     private final ServerTimeProvider time = mock(ServerTimeProvider.class);
     private final RegistrationPersonalInformationValidator validator = new RegistrationPersonalInformationValidator(
-            INPUTS.getValidator(), new RegistrationInformationPolicyValidator(new RegistrationPolicyValidator()), new RegistrationUniqueInfoValidator(repository));
+            INPUTS.getValidator(), new RegistrationInformationPolicyValidator(new RegistrationPolicyValidator()), new RegistrationUniqueInfoValidator(repository),
+            guardianPolicies, new RegistrationPolicyValidator());
     private final RegistrationModificationTransactionService commands = new RegistrationModificationTransactionService(
             full, organization, settlement, time, new RegistrationModificationAccessValidator(repository), validator,
             new RegistrationModificationClassifier(), new RegistrationPersonalInformationService(validator, repository, entityManager),
@@ -77,7 +81,7 @@ class RegistrationPersonalInformationServiceTest {
         assertThat(result.orders()).isEmpty();
         assertThat(result.members().getFirst().balance()).isEqualByComparingTo("5000");
         verify(repository).flush();
-        verifyNoInteractions(full, organization, settlement, entityManager);
+        verifyNoInteractions(full, organization, settlement, entityManager, guardianPolicies);
     }
 
     /** 변경 없음은 flush나 정산 없이 낙관적 읽기 보호만 등록한다. */
@@ -139,15 +143,71 @@ class RegistrationPersonalInformationServiceTest {
         Registration current = fixture(RegistrationStatus.CONFIRMED, NOW.minusDays(1), NOW.plusDays(1), EventStatus.OPEN);
         expect(ErrorCode.INVALID_REGISTRATION_MODIFICATION_ARGUMENT, request(" ", "c", "1990-01-01"));
         RegistrationModificationRequest original = request("새 이름", "c", "1990-01-01");
-        RegistrationModificationRequest denied = new RegistrationModificationRequest(
-                new RegistrationAccessRequest("다른 인증", "1990-01-01", "010-1111-2222", "test-only"),
-                original.eventCategoryId(), original.selectedSouvenirList(), original.name(), original.phNum(), original.birth(),
-                original.gender(), original.address(), original.addressDetail(), original.guardianName(), original.guardianConsent());
+        RegistrationModificationRequest denied = new RegistrationModificationRequest(new RegistrationAccessRequest("다른 인증", "1990-01-01", "010-1111-2222", "test-only"),
+                original.eventCategoryId(),
+                original.selectedSouvenirList(),
+                original.name(),
+                original.phNum(),
+                original.birth(),
+                original.gender(),
+                original.address(),
+                original.addressDetail(),
+                original.guardianConsent(),
+                original.guardianName(),
+                original.guardianPhNum(),
+                original.guardianRelationship(),
+                original.email());
         expect(ErrorCode.REGISTRATION_ACCESS_DENIED, denied);
         when(repository.existsOtherActiveByEventIdAndUniqueInfo("e", "r", "새 이름", "010-1111-2222", "1990-01-01"))
                 .thenReturn(true);
         expect(ErrorCode.REGISTRATION_ALREADY_EXISTS, original);
         assertThat(current.getName()).isEqualTo("기존 이름");
+    }
+
+    /** 보호자 이름 변경은 실제 정책 검증을 거치며 거절 시 금융 요약과 개인정보를 보존한다. */
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void guardianNameChangeValidatesPolicyBeforeWriting(boolean consent) {
+        Registration current = fixture(RegistrationStatus.CONFIRMED, NOW.minusDays(1), NOW.plusDays(1), EventStatus.OPEN);
+        EventRegistrationPolicy policy = mock(EventRegistrationPolicy.class);
+        when(policy.getEvent()).thenReturn(current.getEvent());
+        when(policy.getGuardianRequiredBirthFrom()).thenReturn(java.time.LocalDate.of(1990, 1, 1));
+        when(guardianPolicies.findByEventId("e")).thenReturn(Optional.of(policy));
+        RegistrationModificationRequest original = request("기존 이름", "c", "1990-01-01");
+        RegistrationModificationRequest changed = new RegistrationModificationRequest(original.access(),
+                original.eventCategoryId(),
+                original.selectedSouvenirList(),
+                original.name(),
+                original.phNum(),
+                original.birth(),
+                original.gender(),
+                original.address(),
+                original.addressDetail(),
+                consent,
+                "보호자",
+                "010-3333-4444",
+                "부",
+                original.email());
+        if (consent) {
+            assertThat(commands.modifyPersonal("e", "r", changed).orders()).isEmpty();
+            assertThat(current.getGuardianName()).isEqualTo("보호자");
+            assertThat(current.getGuardianPhNum()).isEqualTo("010-3333-4444");
+            assertThat(current.getGuardianRelationship()).isEqualTo("부");
+            assertThat(current.isGuardianConsent()).isTrue();
+            verify(repository).flush();
+        } else {
+            expect(ErrorCode.GUARDIAN_CONSENT_REQUIRED, changed);
+            assertThat(current.getGuardianName()).isNull();
+            assertThat(current.getGuardianPhNum()).isNull();
+            assertThat(current.getGuardianRelationship()).isNull();
+            assertThat(current.isGuardianConsent()).isFalse();
+        }
+        verify(guardianPolicies, atLeastOnce()).findByEventId("e");
+        assertThat(current.getName()).isEqualTo("기존 이름");
+        assertThat(current.getContractAmount()).isEqualByComparingTo("10000");
+        assertThat(current.getPaidAmount()).isEqualByComparingTo("5000");
+        assertThat(current.getStatus()).isEqualTo(RegistrationStatus.CONFIRMED);
+        verifyNoInteractions(full, organization, settlement, entityManager);
     }
 
     /** DB 없이 접근·분류에 필요한 저장 snapshot만 구성한다. */
@@ -166,8 +226,19 @@ class RegistrationPersonalInformationServiceTest {
     /** 변경할 업무값과 현재 인증값을 분리하여 요청을 만든다. */
     private RegistrationModificationRequest request(String name, String category, String birth) {
         return new RegistrationModificationRequest(new RegistrationAccessRequest("기존 이름", "1990-01-01", "010-1111-2222", "test-only"),
-                category, List.of(new SouvenirJson("s", "M")), name, "010-1111-2222", birth, GenderClass.M,
-                "정정 주소", "상세", null, false);
+                category,
+                List.of(new SouvenirJson("s", "M")),
+                name,
+                "010-1111-2222",
+                birth,
+                GenderClass.M,
+                "정정 주소",
+                "상세",
+                false,
+                null,
+                null,
+                null,
+                null);
     }
 
     /** 업무 오류와 저장·전체 경로 미호출을 함께 확인한다. */

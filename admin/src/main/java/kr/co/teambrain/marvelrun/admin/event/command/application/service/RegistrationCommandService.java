@@ -3,15 +3,10 @@ package kr.co.teambrain.marvelrun.admin.event.command.application.service;
 import kr.co.teambrain.marvelrun.admin.common.dto.request.PasswordResetRequest;
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
-import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Payment;
-import kr.co.teambrain.marvelrun.admin.event.command.application.domain.PaymentAllocation;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
-import kr.co.teambrain.marvelrun.admin.event.command.application.domain.ReservationItem;
 import kr.co.teambrain.marvelrun.admin.event.command.application.dto.AdminRegistrationModifyRequest;
 import kr.co.teambrain.marvelrun.admin.event.command.application.dto.RegistrationDeleteResponse;
-import kr.co.teambrain.marvelrun.admin.event.command.repository.*;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
+import kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationCommandRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -20,8 +15,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
 
 @Slf4j
 @Service
@@ -30,12 +23,7 @@ import java.util.List;
 public class RegistrationCommandService {
 
     private final RegistrationCommandRepository registrationCommandRepository;
-    private final ReservationCommandRepository reservationCommandRepository;
-    private final ReservationItemCommandRepository reservationItemCommandRepository;
-    private final PaymentCommandRepository paymentCommandRepository;
-    private final PaymentAllocationCommandRepository paymentAllocationCommandRepository;
-    private final CapacityCommandRepository capacityCommandRepository;
-    private final SouvenirCommandRepository souvenirCommandRepository;
+    private final AdminUnpaidRegistrationCancellationService unpaidCancellation;
 
     /**
      * 개인 신청 비밀번호 초기화
@@ -109,64 +97,9 @@ public class RegistrationCommandService {
         );
     }
 
+    /** 미결제 취소의 금융 잠금·주문 무효화·자원 반환을 하나의 트랜잭션으로 위임한다. */
     @Transactional
     public RegistrationDeleteResponse deletePaymentPendingRegistration(String registrationId) {
-        Registration registration = registrationCommandRepository.findById(registrationId)
-                .orElseThrow(() -> new CustomException(ErrorCode.REGISTRATION_NOT_FOUND));
-
-        // 1. 상태 검증: '결제 대기(PAYMENT_PENDING)' 상태만 삭제 허용
-        if (registration.getStatus() != RegistrationStatus.PAYMENT_PENDING) {
-            throw new CustomException(ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET);
-        }
-
-        String courseName = registration.getEventCategory().getName();
-        List<String> souvenirDetails = new ArrayList<>();
-
-        if (registration.getSouvenirJson() != null) {
-            for (kr.co.teambrain.marvelrun.common.json_object.SouvenirJson sJson : registration.getSouvenirJson()) {
-                souvenirCommandRepository.findById(sJson.souvenirId()).ifPresent(souvenir -> {
-                    String sizeText = sJson.selectedSize() != null && !sJson.selectedSize().isBlank()
-                            ? "(" + sJson.selectedSize() + ")" : "";
-                    souvenirDetails.add(souvenir.getName() + sizeText);
-                });
-            }
-        }
-
-        String souvenirMessage = souvenirDetails.isEmpty() ? "선택된 기념품 없음" : String.join(", ", souvenirDetails);
-        String resultMessage = String.format("삭제 완료: [%s] 코스 및 [%s] 정원이 확보되었습니다.", courseName, souvenirMessage);
-
-        // 2. Registration 소프트 삭제 및 EXPIRED 상태 처리
-        registration.expireByAdmin(LocalDateTime.now());
-
-        // 3. Reservation 상태 RELEASED 변경 및 Capacity 자원 복구
-        reservationCommandRepository.findByRegistration_Id(registrationId).ifPresent(reservation -> {
-            if (reservation.getStatus() != ReservationStatus.RELEASED) {
-                reservation.releaseByAdmin();
-
-                List<ReservationItem> items = reservationItemCommandRepository.findAllByReservation_Id(reservation.getId());
-                for (ReservationItem item : items) {
-                    // Capacity의 heldCount(임시 점유) 수량 반환
-                    capacityCommandRepository.decreaseHeldCount(item.getCapacity().getId(), item.getQuantity());
-                }
-            }
-        });
-
-        // 4. PaymentAllocation (결제 귀속) 내역 삭제
-        List<PaymentAllocation> allocations = paymentAllocationCommandRepository.findAllByRegistration_Id(registrationId);
-        if (!allocations.isEmpty()) {
-            paymentAllocationCommandRepository.deleteAll(allocations);
-        }
-
-        // 5. Payment (결제 원본) 삭제
-        List<Payment> payments = paymentCommandRepository.findAllByRegistration_Id(registrationId);
-        for (Payment payment : payments) {
-            // 단체 결제 등의 이유로 동일 Payment에 다른 사람의 Allocation이 얽혀있다면 Payment 자체는 지우지 않음
-            boolean hasOtherAllocations = paymentAllocationCommandRepository.existsByPayment_Id(payment.getId());
-            if (!hasOtherAllocations) {
-                paymentCommandRepository.delete(payment);
-            }
-        }
-
-        return new RegistrationDeleteResponse(resultMessage);
+        return unpaidCancellation.cancel(registrationId);
     }
 }

@@ -82,7 +82,8 @@ public class RegistrationModificationClassifier {
     /**
      * 접근 검증된 활성 구성원 전체와 요청을 비교한다. 순서는 무시하되 중복 ID는 거부한다.
      * 추가·삭제 또는 한 명의 정책 영향 변경만 있어도 요청 전체를 FULL로 분류한다.
-     * 단체 DTO에는 단체 자체의 변경 필드가 없으며 access는 인증에만 사용한다.
+     * 단체장·연락처·주소·이메일·보호자 동의 변경은 개인정보 수정으로 분류한다.
+     * access는 인증에만 사용한다.
      */
     public Change classifyOrganization(List<Registration> currentMembers,
                                        OrgRegistrationModificationRequest request) {
@@ -102,6 +103,7 @@ public class RegistrationModificationClassifier {
         boolean changed = false;
 
         if (!currentMembers.isEmpty() && currentMembers.getFirst().getOrganization() != null) {
+            if (request.leaderBirth() == null) { throw invalidArgument(); }
             Organization org = currentMembers.getFirst().getOrganization();
             changed |= !Objects.equals(org.getEmail(), request.email())
                     || !Objects.equals(org.getLeaderName(), request.leaderName())
@@ -112,9 +114,6 @@ public class RegistrationModificationClassifier {
                     || org.isGuardianConsent() != request.guardianConsent();
         }
 
-        if (!currentMembers.isEmpty() && currentMembers.getFirst().getOrganization() != null) {
-            changed = !Objects.equals(currentMembers.getFirst().getOrganization().getEmail(), request.email());
-        }
         for (OrgRegistrationModificationParticipantRequest participant : request.registrations()) {
             if (participant == null) {
                 throw invalidArgument();

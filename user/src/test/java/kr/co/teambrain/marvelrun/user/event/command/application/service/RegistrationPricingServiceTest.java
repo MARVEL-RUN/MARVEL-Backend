@@ -3,6 +3,8 @@ package kr.co.teambrain.marvelrun.user.event.command.application.service;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -33,9 +35,6 @@ import static org.mockito.Mockito.when;
  */
 class RegistrationPricingServiceTest {
 
-    private static final String TARGET_EVENT_ID =
-            "test-marvelrun";
-
     private static final LocalDateTime EVENT_START_DATE =
             LocalDateTime.of(2026, 9, 10, 11, 0);
 
@@ -46,12 +45,13 @@ class RegistrationPricingServiceTest {
     /**
      * 대상 Event에서 대회일 기준 어린이면 40,000원을 반환하는지 검증한다.
      */
-    @Test
-    void targetEventChildUsesFixedPrice() {
+    @ParameterizedTest
+    @ValueSource(strings = {"test-marvelrun", "marvelrun2026"})
+    void targetEventChildUsesFixedPrice(String targetEventId) {
 
         Event event =
                 createEvent(
-                        TARGET_EVENT_ID,
+                        targetEventId,
                         EVENT_START_DATE
                 );
 
@@ -76,12 +76,13 @@ class RegistrationPricingServiceTest {
      * 어린이 경계 바로 전날 출생자는 대회일에 이미 만 13세이므로
      * Category 기본 참가비를 사용하는지 검증한다.
      */
-    @Test
-    void thirteenthBirthdayOnEventDateUsesBasePrice() {
+    @ParameterizedTest
+    @ValueSource(strings = {"test-marvelrun", "marvelrun2026"})
+    void thirteenthBirthdayOnEventDateUsesBasePrice(String targetEventId) {
 
         Event event =
                 createEvent(
-                        TARGET_EVENT_ID,
+                        targetEventId,
                         EVENT_START_DATE
                 );
 
@@ -106,12 +107,13 @@ class RegistrationPricingServiceTest {
      * 어린이 경계보다 더 어린 참가자에게도 동일한 40,000원
      * 고정가격이 적용되는지 검증한다.
      */
-    @Test
-    void youngerChildUsesFixedPrice() {
+    @ParameterizedTest
+    @ValueSource(strings = {"test-marvelrun", "marvelrun2026"})
+    void youngerChildUsesFixedPrice(String targetEventId) {
 
         Event event =
                 createEvent(
-                        TARGET_EVENT_ID,
+                        targetEventId,
                         EVENT_START_DATE
                 );
 
@@ -136,12 +138,13 @@ class RegistrationPricingServiceTest {
      * 대상 Event의 성인 참가자는 임시 어린이 가격정책의 영향을 받지 않고
      * Category 기본 참가비를 그대로 사용하는지 검증한다.
      */
-    @Test
-    void targetEventAdultUsesBasePrice() {
+    @ParameterizedTest
+    @ValueSource(strings = {"test-marvelrun", "marvelrun2026"})
+    void targetEventAdultUsesBasePrice(String targetEventId) {
 
         Event event =
                 createEvent(
-                        TARGET_EVENT_ID,
+                        targetEventId,
                         EVENT_START_DATE
                 );
 
