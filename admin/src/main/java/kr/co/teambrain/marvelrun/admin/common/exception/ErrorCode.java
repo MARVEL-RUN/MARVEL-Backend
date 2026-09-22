@@ -6,6 +6,12 @@ import org.springframework.http.HttpStatus;
 @Getter
 public enum ErrorCode {
 
+    // 사용자 금융 경로와 동일한 오류 식별자. 결제 상태 enum 추가가 아니다.
+    CONCURRENT_MODIFICATION(HttpStatus.CONFLICT, "다른 요청이 처리 중입니다."),
+    REGISTRATION_MODIFICATION_PAYMENT_CONFLICT(HttpStatus.CONFLICT, "관련 결제 처리가 완료되지 않았습니다."),
+    PAYMENT_CANCEL_CONFLICT(HttpStatus.CONFLICT, "관련 환불 처리가 완료되지 않았습니다."),
+    PAYMENT_CANCEL_INTEGRITY_ERROR(HttpStatus.CONFLICT, "환불 원장 정합성을 확인해야 합니다."),
+
     QUESTION_NOT_FOUND(
             HttpStatus.NOT_FOUND,
             "문의글을 찾을 수 없습니다."
