@@ -88,7 +88,7 @@ public class PaymentRetryPreparationService {
             throw new CustomException(ErrorCode.PAYMENT_NOT_CONFIRMABLE);
         }
         LocalDateTime now = time.currentDateTime();
-        policyValidator.validateNewPayment(event, now);
+        policyValidator.validateForPurpose(event, now, original.getPurpose());
         List<PaymentAllocation> originalAllocations = allocationRepository.findAllForPaymentUpdate(original.getId());
         List<String> initialIds = support.validateForPreparation(original, originalAllocations);
         Map<String, Share> expected = shares(originalAllocations);

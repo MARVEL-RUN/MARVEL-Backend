@@ -35,8 +35,8 @@ public class AdminRefundBatchController {
                 .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).readValue(body.toString());
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.full(eventId,adminId,request));
     }
-    /** 임의 환불액이나 일반 개인정보 필드를 무시하지 않고 잘못된 요청으로 거절한다. */
-    @PostMapping("/payment-partial-refunds")
+    /** 신청 정보 변경을 환불·추가 납부·동일 금액으로 처리한다. 기존 부분환불 URL도 같은 계약으로 유지한다. */
+    @PostMapping({"/payment-partial-refunds", "/registration-adjustments"})
     public ResponseEntity<Response> partial(@PathVariable("eventId") String eventId,@RequestBody JsonNode body) throws JsonProcessingException {
         String adminId=adminId();
         AdminPaymentPartialRefundRequest request=mapper.readerFor(AdminPaymentPartialRefundRequest.class)

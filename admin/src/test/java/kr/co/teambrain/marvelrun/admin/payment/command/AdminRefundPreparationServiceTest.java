@@ -78,12 +78,13 @@ class AdminRefundPreparationServiceTest {
         when(access.lock("test-marvelrun", null, List.of("r"))).thenReturn(new AdminRefundLockedScope(
                 "test-marvelrun", null, List.of(new AdminRefundLockedScope.RegistrationRow("r", null, false,
                 RegistrationStatus.CONFIRMED, new BigDecimal("70000"), new BigDecimal("70000"))), List.of(), List.of()));
+        when(access.lockAdjustment("test-marvelrun", null, List.of("r"))).thenAnswer(invocation -> access.lock("test-marvelrun", null, List.of("r")));
         when(store.current(Event.class, "test-marvelrun")).thenReturn(event);
         when(store.current(Registration.class, "r")).thenReturn(registration);
         when(store.reservations(List.of("r"))).thenReturn(List.of(reservation));
         when(store.ledgers(any())).thenReturn(List.of(new RefundPaymentLedger(payment, List.of(allocation), List.of(), List.of())));
         when(time.now()).thenReturn(now);
-        when(policies.validateAll(eq(event), anyList(), eq(now))).thenReturn(List.of(new RegistrationPolicyCandidateResult(category,
+        when(policies.validateAdminAdjustment(eq(event), anyList(), eq(now))).thenReturn(List.of(new RegistrationPolicyCandidateResult(category,
                 java.time.LocalDate.of(1990, 1, 1), souvenirs)));
         when(requirements.resolveAll(eq("test-marvelrun"), anyList())).thenReturn(List.of(Map.of("capacity", 1)));
         when(store.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -135,15 +136,46 @@ class AdminRefundPreparationServiceTest {
         assertThat(registration.getStatus()).isEqualTo(keep ? RegistrationStatus.PARTIAL_REFUND_REQUIRED : RegistrationStatus.CANCELLATION_PENDING);
     }
 
-    /** 금액이 줄지 않는 후보는 일반 변경 API처럼 처리하지 않고 거절한다. */
+    /** 증가/동일 금액도 변경을 완료하고 주문·환불 시도는 만들지 않는다. */
     @ParameterizedTest
     @ValueSource(strings = {"70000", "80000"})
-    void rejectsNonRefundCandidateBeforeWrites(String amount) {
+    void acceptsAdditionalAndSamePriceWithoutRefund(String amount) {
         doReturn(new BigDecimal(amount)).when(pricing).calculateContractAmount(any(), any(), anyString());
-        assertThatThrownBy(() -> service.preparePartial("test-marvelrun", null, List.of(target(true)), command)).isInstanceOfSatisfying(CustomException.class, error -> assertThat(error.getErrorCode()).isEqualTo(ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR));
-        verifyNoInteractions(movement, removal, allocations);
+        var prepared = service.preparePartial("test-marvelrun", null, List.of(target(true)), command);
+        var member = prepared.members().getFirst();
+        assertThat(prepared.refunds()).isEmpty();
+        assertThat(member.additionalPaymentAmount()).isEqualByComparingTo(new BigDecimal(amount).subtract(new BigDecimal("70000")));
+        assertThat(member.paymentOrder()).isNull();
+        assertThat(registration.getPaidAmount()).isEqualByComparingTo("70000");
+        assertThat(registration.getStatus()).isEqualTo(amount.equals("80000")
+                ? RegistrationStatus.ADDITIONAL_PAYMENT_REQUIRED : RegistrationStatus.CONFIRMED);
+        assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.CONSUMED);
+        verifyNoInteractions(allocations);
         verify(store, never()).save(any());
-        assertThat(registration.getContractAmount()).isEqualByComparingTo("70000");
+        verify(store, never()).log(any());
+    }
+
+    /** 어린이→성인도 서버 가격으로 추가금이 계산된다. */
+    @Test
+    void childToAdultLeavesAdditionalDue() {
+        registration = Registration.builder().id("r").event(event).eventCategory(category).birth("2015-01-01")
+                .souvenirJson(souvenirs).contractAmount(new BigDecimal("40000")).paidAmount(new BigDecimal("40000"))
+                .status(RegistrationStatus.CONFIRMED).build();
+        when(store.current(Registration.class, "r")).thenReturn(registration);
+        when(category.getAmount()).thenReturn(new BigDecimal("70000"));
+        Payment payment = Payment.builder().id("p").registration(registration).amount(new BigDecimal("40000"))
+                .processStatus(PaymentProcessStatus.COMPLETED).paymentKey("fixture-key").build();
+        PaymentAllocation allocation = PaymentAllocation.builder().id("a").payment(payment).registration(registration)
+                .allocatedAmount(new BigDecimal("40000")).build();
+        when(store.ledgers(any())).thenReturn(List.of(new RefundPaymentLedger(payment,List.of(allocation),List.of(),List.of())));
+        var prepared = service.preparePartial("test-marvelrun",null,
+                List.of(new AdminPaymentPartialRefundTarget("r","c",souvenirs,"1990-01-01",true)),command);
+        assertThat(prepared.refunds()).isEmpty();
+        assertThat(prepared.members().getFirst().additionalPaymentAmount()).isEqualByComparingTo("30000");
+        assertThat(registration.getBirth()).isEqualTo("1990-01-01");
+        assertThat(registration.getPaidAmount()).isEqualByComparingTo("40000");
+        assertThat(registration.getStatus()).isEqualTo(RegistrationStatus.ADDITIONAL_PAYMENT_REQUIRED);
+        verify(requirements).resolveAll(eq("test-marvelrun"),argThat(inputs -> !inputs.getFirst().child()));
     }
 
     /** 원장이 부족하면 실제 계약·자원 변경 전에 거절한다. */
@@ -174,7 +206,7 @@ class AdminRefundPreparationServiceTest {
     @Test
     void birthCandidateFlowsThroughPolicyPriceCapacityAndEntity() {
         when(category.getAmount()).thenReturn(new BigDecimal("70000"));
-        when(policies.validateAll(eq(event),anyList(),eq(now))).thenAnswer(invocation -> {
+        when(policies.validateAdminAdjustment(eq(event),anyList(),eq(now))).thenAnswer(invocation -> {
             List<kr.co.teambrain.marvelrun.admin.event.command.application.valid.dto.RegistrationPolicyCandidateRequest> requests = invocation.getArgument(1);
             assertThat(requests.getFirst().participant().birth()).isEqualTo("2015-01-01");
             return List.of(new RegistrationPolicyCandidateResult(category,java.time.LocalDate.of(2015,1,1),souvenirs));

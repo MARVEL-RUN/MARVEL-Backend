@@ -58,6 +58,19 @@ public class CapacityModificationService {
             List<CapacityRequirementDiff> diffs,
             LocalDateTime now
     ) {
+        move(eventId, diffs, now, false);
+    }
+
+    /** 관리자 정보 변경은 확정 점유만 이동하며 비활성 자원도 정원 한도 안에서 사용한다. */
+    public void moveAllForAdminAdjustment(String eventId, List<CapacityRequirementDiff> diffs, LocalDateTime now) {
+        if (diffs == null || diffs.stream().anyMatch(d -> d == null || d.reservationStatus() != ReservationStatus.CONSUMED)) {
+            throw stateConflict(" 관리자 정보 변경은 확정된 예약만 처리할 수 있습니다.");
+        }
+        move(eventId, diffs, now, true);
+    }
+
+    /** 공통 이동 절차를 유지하고 관리자 경로의 확정 증가분 확보 규칙만 분리한다. */
+    private void move(String eventId, List<CapacityRequirementDiff> diffs, LocalDateTime now, boolean adminAdjustment) {
         if (eventId == null || eventId.isBlank()
                 || diffs == null || now == null) {
             throw invalidArgument(" 자원 이동 요청의 필수 값이 없습니다.");
@@ -193,7 +206,7 @@ public class CapacityModificationService {
                     eventId,
                     entry.getKey(),
                     entry.getValue(),
-                    now
+                    now, adminAdjustment
             );
         }
 
@@ -293,7 +306,7 @@ public class CapacityModificationService {
             String eventId,
             String capacityId,
             CounterDelta delta,
-            LocalDateTime now
+            LocalDateTime now, boolean adminAdjustment
     ) {
         if (delta.heldIncrease > 0
                 && capacityRepository.acquireHeld(
@@ -302,11 +315,18 @@ public class CapacityModificationService {
             throw new CustomException(ErrorCode.CAPACITY_ACQUIRE_FAILED);
         }
 
-        if (delta.confirmedIncrease > 0
-                && capacityRepository.acquireConfirmed(
-                eventId, capacityId, delta.confirmedIncrease, now
-        ) != 1) {
-            throw new CustomException(ErrorCode.CAPACITY_ACQUIRE_FAILED);
+        if (delta.confirmedIncrease > 0) {
+            int changed = adminAdjustment
+                    ? capacityRepository.acquireConfirmedByAdmin(eventId, capacityId, delta.confirmedIncrease, now)
+                    : capacityRepository.acquireConfirmed(eventId, capacityId, delta.confirmedIncrease, now);
+            if (changed != 1) {
+                if (!adminAdjustment) { throw new CustomException(ErrorCode.CAPACITY_ACQUIRE_FAILED); }
+                List<Object[]> counters = capacityRepository.describeCounter(eventId, capacityId);
+                String detail = counters.isEmpty() ? " 정원 설정이 없습니다. capacityId=" + capacityId
+                        : String.format(" [%s] 한도=%s, 임시점유=%s, 확정점유=%s, 추가필요=%s. 정원/재고를 확인한 뒤 다시 요청해 주세요.",
+                                counters.getFirst()[0], counters.getFirst()[1], counters.getFirst()[2], counters.getFirst()[3], delta.confirmedIncrease);
+                throw new CustomException(ErrorCode.CAPACITY_ACQUIRE_FAILED, detail);
+            }
         }
     }
 

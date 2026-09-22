@@ -1044,4 +1044,97 @@ class AdminRefundPreparationDatabaseTest {
         }
     }
 
+    /** 추가금은 주문/취소를 만들지 않고 응답·배치 증거로 전달하며 requestId 재조회는 실행하지 않는다. */
+    @Test
+    void adjustmentAdditionalDuePersistsWithoutPaymentAndReplays() {
+        jdbc.update("update event_category set amount=90000 where id=?",categoryB);
+        String requestId = id();
+        var request = new kr.co.teambrain.marvelrun.admin.payment.command.dto.AdminPaymentPartialRefundRequest(
+                requestId,"성인 요금 정정",List.of(birthTarget()));
+        var result = batches.partial(eventId,"fixture-admin",request);
+        assertThat(result.items()).hasSize(1);
+        var item = result.items().getFirst();
+        assertThat(item.status()).isEqualTo("SUCCEEDED");
+        assertThat(item.preparation().path("members").get(0).path("additionalPaymentAmount").decimalValue()).isEqualByComparingTo("20000");
+        assertThat(item.preparation().path("members").get(0).path("paymentOrder").isNull()).isTrue();
+        assertThat(item.message()).contains("추가 납부");
+        assertThat(amount("contract_amount")).isEqualByComparingTo("90000");
+        assertThat(amount("paid_amount")).isEqualByComparingTo("70000");
+        assertThat(state()).isEqualTo("ADDITIONAL_PAYMENT_REQUIRED");
+        assertThat(count(total)).isEqualTo(1);
+        assertThat(count(capacityA)).isZero(); assertThat(count(capacityB)).isEqualTo(1);
+        assertThat(held(total)).isZero(); assertThat(held(capacityB)).isZero();
+        assertThat(jdbc.queryForObject("select status from reservation where id=?",String.class,reservationId)).isEqualTo("CONSUMED");
+        assertThat(jdbc.queryForObject("select count(*) from payment where registration_id=?",Integer.class,registrationId)).isEqualTo(1);
+        assertThat(cancelCount()).isZero();
+        Long version = jdbc.queryForObject("select version from registration where id=?",Long.class,registrationId);
+        assertThat(batches.partial(eventId,"fixture-admin",request).summary().batchId()).isEqualTo(result.summary().batchId());
+        assertThat(jdbc.queryForObject("select version from registration where id=?",Long.class,registrationId)).isEqualTo(version);
+        verifyNoInteractions(toss);
+    }
+
+    /** 정책 연령·보호자와 종목/기념품/정원 비활성은 관리자 변경을 막지 않는다. 실제 재고는 유지한다. */
+    @Test
+    void adjustmentBypassesParticipantPoliciesAndInactiveFlags() {
+        jdbc.update("update event_category set amount=70000,is_active=false where id=?",categoryB);
+        jdbc.update("update event_category_registration_policy set allowed_birth_to='2000-01-01' where event_category_id=?",categoryB);
+        jdbc.update("update souvenir set is_active=false where id=?",souvenir);
+        jdbc.update("update capacity set active=false where id=?",capacityB);
+        var candidate = new AdminPaymentPartialRefundTarget(registrationId,categoryB,
+                List.of(new SouvenirJson(souvenir,"M")),"2015-01-01",true);
+        var prepared = service.preparePartial(eventId,null,List.of(candidate),command());
+        assertThat(prepared.refunds()).isEmpty();
+        assertThat(state()).isEqualTo("CONFIRMED");
+        assertThat(jdbc.queryForObject("select birth from registration where id=?",String.class,registrationId)).isEqualTo("2015-01-01");
+        assertThat(count(capacityB)).isEqualTo(1); assertThat(count(capacityA)).isZero();
+        assertThat(held(capacityB)).isZero();
+        verifyNoInteractions(toss);
+    }
+
+    /** 한도 부족은 항목 응답에 원인/수량을 노출하고 정보·계약·정원을 모두 보존한다. */
+    @Test
+    void adjustmentCapacityFailureExplainsAndRollsBack() {
+        jdbc.update("update event_category set amount=90000 where id=?",categoryB);
+        jdbc.update("update capacity set limit_count=0,active=false where id=?",capacityB);
+        var result = batches.partial(eventId,"fixture-admin",
+                new kr.co.teambrain.marvelrun.admin.payment.command.dto.AdminPaymentPartialRefundRequest(id(),"정원 부족",List.of(target(true))));
+        assertThat(result.items().getFirst().status()).isEqualTo("BLOCKED");
+        assertThat(result.items().getFirst().errorCode()).isEqualTo("CAPACITY_ACQUIRE_FAILED");
+        assertThat(result.items().getFirst().message()).contains("한도");
+        assertThat(amount("contract_amount")).isEqualByComparingTo("70000");
+        assertThat(state()).isEqualTo("CONFIRMED");
+        assertThat(count(capacityA)).isEqualTo(1); assertThat(count(capacityB)).isZero();
+        assertThat(cancelCount()).isZero(); verifyNoInteractions(toss);
+    }
+
+    /** 추가금 대기 중 다시 정정할 수 있으며 차액은 직전 계약이 아닌 실제 납부액 기준이다. */
+    @Test
+    void adjustmentCanReviseOutstandingAdditionalDue() {
+        jdbc.update("update event_category set amount=90000 where id=?",categoryB);
+        service.preparePartial(eventId,null,List.of(target(true)),command());
+        jdbc.update("update event_category set amount=80000 where id=?",categoryB);
+        var prepared = service.preparePartial(eventId,null,List.of(target(true)),command());
+        var member = prepared.members().getFirst();
+        assertThat(member.contractAmountChange()).isEqualByComparingTo("-10000");
+        assertThat(member.additionalPaymentAmount()).isEqualByComparingTo("10000");
+        assertThat(prepared.refunds()).isEmpty();
+        assertThat(state()).isEqualTo("ADDITIONAL_PAYMENT_REQUIRED");
+        assertThat(count(capacityB)).isEqualTo(1);
+        assertThat(cancelCount()).isZero(); verifyNoInteractions(toss);
+    }
+
+    /** 결제 시도가 없는 변경도 배치 증거 저장에 실패하면 함께 롤백되어 유실되지 않는다. */
+    @Test
+    void adjustmentEvidenceFailureRollsBackBusinessChange() {
+        jdbc.update("update event_category set amount=90000 where id=?",categoryB);
+        doThrow(new IllegalStateException("fixture evidence failure")).when(store).recordAdjustmentPrepared(any(),any());
+        var result = batches.partial(eventId,"fixture-admin",
+                new kr.co.teambrain.marvelrun.admin.payment.command.dto.AdminPaymentPartialRefundRequest(id(),"원자성",List.of(target(true))));
+        assertThat(result.items().getFirst().status()).isEqualTo("NEEDS_REVIEW");
+        assertThat(amount("contract_amount")).isEqualByComparingTo("70000");
+        assertThat(state()).isEqualTo("CONFIRMED");
+        assertThat(count(capacityA)).isEqualTo(1); assertThat(count(capacityB)).isZero();
+        assertThat(cancelCount()).isZero(); verifyNoInteractions(toss);
+    }
+
 }

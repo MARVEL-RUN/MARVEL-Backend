@@ -24,7 +24,16 @@ public final class AdminRefundBatchModels {
     /** 준비 스냅샷을 완료 후 잔액으로 표시하지 않는다. 실제 잔액은 기존 결제 조회를 사용한다. */
     public record Item(int itemNo, String registrationId, String organizationId, String status,
             String errorCode, LocalDateTime startedAt, LocalDateTime finishedAt,
-            JsonNode preparation, JsonNode result) { }
+            JsonNode preparation, JsonNode result) {
+        /** 업무 오류의 상세 원인도 결과 조회/응답에 표시한다. */
+        @com.fasterxml.jackson.annotation.JsonProperty("message")
+        public String message() {
+            if (result != null && result.hasNonNull("message")) { return result.get("message").asText(); }
+            if (errorCode == null) { return null; }
+            try { return kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode.valueOf(errorCode).getMessage(); }
+            catch (IllegalArgumentException error) { return "처리 결과 확인이 필요합니다. (" + errorCode + ")"; }
+        }
+    }
     /** 신규 접수는 전체 대상 결과를 반환하며, 과거 대량 기록은 잘림 여부를 표시한다. */
     public record Response(Summary summary, List<Item> items, boolean resultsTruncated) { }
     /** 대상 조회는 페이지 크기를 제한한다. */
