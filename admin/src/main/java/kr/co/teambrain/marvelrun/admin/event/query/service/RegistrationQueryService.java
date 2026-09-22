@@ -160,8 +160,8 @@ public class RegistrationQueryService {
             leaderInfoResponse = new LeaderInfoResponse(
                     targetOrganization.getGroupName(),
                     targetOrganization.getLeaderName(),
-                    targetOrganization.getLeaderBirth(),
                     targetOrganization.getLeaderPhNum(),
+                    targetOrganization.getLeaderBirth(),
                     targetOrganization.getAddress(),
                     targetOrganization.getAddressDetail()
             );
