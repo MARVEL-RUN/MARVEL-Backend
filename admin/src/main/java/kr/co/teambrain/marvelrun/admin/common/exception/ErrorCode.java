@@ -52,6 +52,7 @@ public enum ErrorCode {
     GUARDIAN_INFO_REQUIRED(HttpStatus.BAD_REQUEST, "만 12세 이하 참가자로 변경 시 보호자 정보 입력이 필수입니다."),
     PRICE_TIER_CHANGE_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "생년월일 변경으로 인해 참가비가 변동되는 경우 관리자 임의 수정이 불가합니다. 취소 후 재결제를 안내해 주세요."),
     DUPLICATE_REGISTRATION(HttpStatus.BAD_REQUEST, "동일한 정보(이름, 연락처, 생년월일)를 가진 다른 활성 참가자가 이미 존재합니다."),
+    DUPLICATE_GROUP_NAME(HttpStatus.BAD_REQUEST, "이미 해당 대회에 동일한 이름의 단체가 존재합니다."),
     ;
 
 
