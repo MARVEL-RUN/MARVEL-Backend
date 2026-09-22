@@ -1,6 +1,15 @@
 package kr.co.teambrain.marvelrun.admin.payment.command.batch;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import kr.co.teambrain.marvelrun.admin.payment.command.evidence.*;
+import kr.co.teambrain.marvelrun.admin.payment.command.evidence.AdminRefundEvidenceModels;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestClient;
+import org.springframework.http.HttpMethod;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import jakarta.validation.Validation;
 import jakarta.validation.ValidatorFactory;
 import java.math.BigDecimal;
@@ -187,6 +196,132 @@ class AdminRefundBatchTest {
     @Test void requiresOsivDisabled() {
         assertThatThrownBy(() -> new AdminRefundBatchConfiguration(true)).isInstanceOf(IllegalStateException.class);
         assertThatCode(() -> new AdminRefundBatchConfiguration(false)).doesNotThrowAnyException();
+    }
+
+    /** 저장된 취소 거래 키로만 해당 환불의 외부 완료를 확정한다. */
+    @Test void evidenceMatchesExactTransactionAndAmount() {
+        AdminRefundEvidenceModels.Decision decision=new AdminRefundEvidenceMatcher().compare(
+                evidenceSnapshot(List.of("tx-1")),evidenceLookup("tx-1",new BigDecimal("10000")));
+        assertThat(decision.verdict()).isEqualTo(AdminRefundEvidenceModels.Verdict.EXTERNAL_CANCEL_CONFIRMED);
+        assertThat(decision.observation().cancels().getFirst().transactionKeyHash()).hasSize(64).isNotEqualTo("tx-1");
+    }
+
+    /** 금액만 일치하거나 키가 충돌하는 경우 확인 필요로 남긴다. */
+    @Test void evidenceNeverIdentifiesCancellationByAmountOnly() {
+        AdminRefundEvidenceMatcher matcher=new AdminRefundEvidenceMatcher();
+        assertThat(matcher.compare(evidenceSnapshot(List.of()),evidenceLookup("tx-1",new BigDecimal("10000"))).verdict())
+                .isEqualTo(AdminRefundEvidenceModels.Verdict.NOT_IDENTIFIABLE);
+        assertThat(matcher.compare(evidenceSnapshot(List.of("tx-1","tx-2")),evidenceLookup("tx-1",new BigDecimal("10000"))).verdict())
+                .isEqualTo(AdminRefundEvidenceModels.Verdict.NOT_IDENTIFIABLE);
+        assertThat(matcher.compare(evidenceSnapshot(List.of("tx-2")),evidenceLookup("tx-1",new BigDecimal("10000"))).verdict())
+                .isEqualTo(AdminRefundEvidenceModels.Verdict.KNOWN_CANCEL_NOT_OBSERVED);
+        assertThat(matcher.compare(evidenceSnapshot(List.of("tx-1")),evidenceLookup("tx-1",new BigDecimal("9999"))).verdict())
+                .isEqualTo(AdminRefundEvidenceModels.Verdict.RESPONSE_MISMATCH);
+    }
+
+    /** 다른 원결제 응답·중복 거래 키·조회 실패를 성공으로 판단하지 않는다. */
+    @Test void evidenceRejectsWrongPaymentAndDuplicateTransaction() {
+        AdminRefundEvidenceMatcher matcher=new AdminRefundEvidenceMatcher();
+        TossCancelResponse good=evidenceLookup("tx-1",new BigDecimal("10000")).payment();
+        TossCancelResponse wrong=new TossCancelResponse("other-key",good.orderId(),good.currency(),good.method(),
+                good.status(),good.totalAmount(),good.balanceAmount(),good.lastTransactionKey(),good.cancels());
+        assertThat(matcher.compare(evidenceSnapshot(List.of("tx-1")),new AdminRefundEvidenceModels.Lookup(200,null,wrong)).verdict())
+                .isEqualTo(AdminRefundEvidenceModels.Verdict.RESPONSE_MISMATCH);
+        TossCancelResponse duplicate=new TossCancelResponse(good.paymentKey(),good.orderId(),good.currency(),good.method(),
+                good.status(),good.totalAmount(),good.balanceAmount(),good.lastTransactionKey(),List.of(good.cancels().getFirst(),good.cancels().getFirst()));
+        assertThat(matcher.compare(evidenceSnapshot(List.of("tx-1")),new AdminRefundEvidenceModels.Lookup(200,null,duplicate)).verdict())
+                .isEqualTo(AdminRefundEvidenceModels.Verdict.RESPONSE_MISMATCH);
+        assertThat(matcher.compare(evidenceSnapshot(List.of("tx-1")),new AdminRefundEvidenceModels.Lookup(404,"TOSS_LOOKUP_HTTP_ERROR",null)).verdict())
+                .isEqualTo(AdminRefundEvidenceModels.Verdict.LOOKUP_UNAVAILABLE);
+    }
+
+    /** 외부 호출은 GET 1회이며 취소 POST나 자동 재시도를 하지 않는다. */
+    @Test void evidenceClientUsesOnlyGetAndSanitizesHttpErrors() {
+        RestClient.Builder builder=RestClient.builder().baseUrl("https://example.test");
+        MockRestServiceServer server=MockRestServiceServer.bindTo(builder).build();
+        AdminRefundEvidenceClient client=new AdminRefundEvidenceClient(builder.build());
+        server.expect(requestTo("https://example.test/v1/payments/key"))
+                .andExpect(method(HttpMethod.GET)).andRespond(withStatus(org.springframework.http.HttpStatus.UNAUTHORIZED)
+                        .contentType(MediaType.APPLICATION_JSON).body("{\"secretKey\":\"do-not-store\"}"));
+        AdminRefundEvidenceModels.Lookup result=client.lookup("key");
+        assertThat(result.httpStatus()).isEqualTo(401);
+        assertThat(result.errorCode()).isEqualTo("TOSS_LOOKUP_HTTP_ERROR");
+        assertThat(result.payment()).isNull();
+        server.verify();
+    }
+
+    /** 성공 GET의 불필요한 개인정보 필드는 증거 DTO에 포함하지 않는다. */
+    @Test void evidenceClientReadsPaymentAndIgnoresCustomerFields() {
+        RestClient.Builder builder=RestClient.builder().baseUrl("https://example.test");
+        MockRestServiceServer server=MockRestServiceServer.bindTo(builder).build();
+        AdminRefundEvidenceClient client=new AdminRefundEvidenceClient(builder.build());
+        server.expect(requestTo("https://example.test/v1/payments/key")).andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("""
+                        {"paymentKey":"key","orderId":"order","currency":"KRW","status":"DONE",
+                         "totalAmount":70000,"balanceAmount":70000,"customerName":"private","cancels":null}
+                        """,MediaType.APPLICATION_JSON));
+        assertThat(client.lookup("key").payment().orderId()).isEqualTo("order");
+        server.verify();
+    }
+
+    /** 조회 도중 서버 상태 변경을 감지하면 외부 완료 단정 대신 시점 불일치를 저장한다. */
+    @Test void evidencePersistsLocalChangeWithoutCallingRefundExecutor() {
+        AdminRefundEvidenceStore evidenceStore=mock(AdminRefundEvidenceStore.class);
+        AdminRefundEvidenceClient client=mock(AdminRefundEvidenceClient.class);
+        AdminRefundTime clock=mock(AdminRefundTime.class);
+        when(clock.now()).thenReturn(now);
+        AdminRefundEvidenceModels.Snapshot before=evidenceSnapshot(List.of("tx-1"));
+        AdminRefundEvidenceModels.Snapshot after=new AdminRefundEvidenceModels.Snapshot(before.paymentCancelId(),before.paymentId(),
+                before.paymentKey(),before.orderId(),before.totalAmount(),before.cancelAmount(),"SUCCEEDED",before.transactionKeys());
+        when(evidenceStore.snapshot("event","cancel")).thenReturn(before,after);
+        when(client.lookup("key")).thenReturn(evidenceLookup("tx-1",new BigDecimal("10000")));
+        when(evidenceStore.append(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        AdminRefundEvidenceService service=new AdminRefundEvidenceService(evidenceStore,client,new AdminRefundEvidenceMatcher(),clock);
+        AdminRefundEvidenceModels.Evidence evidence=service.check("event","cancel","admin");
+        assertThat(evidence.verdict()).isEqualTo(AdminRefundEvidenceModels.Verdict.LOCAL_CHANGED);
+        assertThat(evidence.financialStateChanged()).isFalse();
+        assertThat(evidence.retryAllowed()).isFalse();
+        verify(evidenceStore).append(evidence);
+        verifyNoInteractions(execution,preparation);
+    }
+
+    /** 잘못된 소속은 외부 요청 전에 차단하고 증거 저장 실패는 성공으로 숨기지 않는다. */
+    @Test void evidenceStopsOnScopeFailureAndPropagatesJournalFailure() {
+        AdminRefundEvidenceStore evidenceStore=mock(AdminRefundEvidenceStore.class);
+        AdminRefundEvidenceClient client=mock(AdminRefundEvidenceClient.class);
+        AdminRefundTime clock=mock(AdminRefundTime.class);
+        AdminRefundEvidenceService service=new AdminRefundEvidenceService(evidenceStore,client,new AdminRefundEvidenceMatcher(),clock);
+        when(evidenceStore.snapshot("wrong","cancel")).thenThrow(new IllegalArgumentException("scope"));
+        assertThatThrownBy(() -> service.check("wrong","cancel","admin")).isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(client);
+        when(evidenceStore.snapshot("event","cancel")).thenReturn(evidenceSnapshot(List.of()));
+        when(clock.now()).thenReturn(now);
+        when(client.lookup("key")).thenReturn(new AdminRefundEvidenceModels.Lookup(null,"TIMEOUT",null));
+        when(evidenceStore.append(any())).thenThrow(new IllegalStateException("journal unavailable"));
+        assertThatThrownBy(() -> service.check("event","cancel","admin")).isInstanceOf(IllegalStateException.class);
+        verify(client,times(1)).lookup("key");
+    }
+
+    /** 일반 사용자 principal로 외부 증거 수집을 실행할 수 없다. */
+    @Test void evidenceControllerRequiresAdmin() {
+        AdminRefundEvidenceService service=mock(AdminRefundEvidenceService.class);
+        AdminRefundEvidenceStore evidenceStore=mock(AdminRefundEvidenceStore.class);
+        AdminRefundEvidenceController controller=new AdminRefundEvidenceController(service,evidenceStore);
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken("user",null,List.of()));
+        assertThatThrownBy(() -> controller.check("event","cancel")).isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+        verifyNoInteractions(service,evidenceStore);
+    }
+
+    /** 민감한 키는 내부 스냅샷에만 들어간다. */
+    private AdminRefundEvidenceModels.Snapshot evidenceSnapshot(List<String> keys) {
+        return new AdminRefundEvidenceModels.Snapshot("cancel","payment","key","order",new BigDecimal("70000"),
+                new BigDecimal("10000"),"UNKNOWN",keys);
+    }
+    /** 취소 배열의 정확한 거래 키 대조를 위한 제한된 외부 응답이다. */
+    private AdminRefundEvidenceModels.Lookup evidenceLookup(String transactionKey,BigDecimal amount) {
+        return new AdminRefundEvidenceModels.Lookup(200,null,new TossCancelResponse("key","order","KRW","카드",
+                "PARTIAL_CANCELED",new BigDecimal("70000"),new BigDecimal("60000"),transactionKey,
+                List.of(new TossCancelResponse.Cancel(transactionKey,amount,new BigDecimal("60000"),"DONE",OffsetDateTime.parse("2026-09-23T12:00:00+09:00")))));
     }
 
 }

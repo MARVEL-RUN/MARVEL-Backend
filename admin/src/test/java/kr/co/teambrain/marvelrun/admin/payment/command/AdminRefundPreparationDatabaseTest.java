@@ -4,6 +4,9 @@ import jakarta.persistence.EntityManager;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import kr.co.teambrain.marvelrun.admin.payment.command.batch.*;
 import kr.co.teambrain.marvelrun.admin.payment.command.batch.AdminRefundBatchModels.*;
+import kr.co.teambrain.marvelrun.admin.payment.command.evidence.*;
+import kr.co.teambrain.marvelrun.admin.payment.command.evidence.AdminRefundEvidenceModels;
+import kr.co.teambrain.marvelrun.admin.payment.query.AdminPaymentQueryRepository;
 import kr.co.teambrain.marvelrun.admin.payment.command.dto.AdminPaymentRefundRequest;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
@@ -65,7 +68,7 @@ import static org.mockito.Mockito.*;
         "spring.datasource.hikari.maximum-pool-size=4"})
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@Import({AdminRefundPreparationService.class, AdminRefundPreparationTransactionService.class, AdminRefundPreparationStore.class,
+@Import({AdminRefundEvidenceStore.class, AdminRefundEvidenceService.class, AdminRefundEvidenceMatcher.class, AdminPaymentQueryRepository.class, AdminRefundPreparationService.class, AdminRefundPreparationTransactionService.class, AdminRefundPreparationStore.class,
         AdminRefundAccessService.class, AdminRefundLockRepository.class, AdminRefundTime.class,
         RegistrationPolicyCandidateValidator.class, RegistrationPolicyValidator.class, RegistrationPolicyLoader.class,
         RegistrationPricingService.class, CapacityRequirementResolver.class, ReservationCapacityDiffService.class,
@@ -89,6 +92,9 @@ class AdminRefundPreparationDatabaseTest {
     @MockitoBean TossPaymentCancelClient toss;
     @Autowired AdminRefundExecutionService execution;
     @Autowired AdminRefundBatchService batches;
+    @Autowired AdminRefundEvidenceStore evidenceStore;
+    @Autowired AdminRefundEvidenceService evidenceService;
+    @MockitoBean AdminRefundEvidenceClient evidenceClient;
     @Autowired AdminRefundBatchStore batchStore;
     @Autowired AdminRefundBatchWorker batchWorker;
     @Autowired AdminRefundBatchSelection batchSelection;
@@ -459,6 +465,7 @@ class AdminRefundPreparationDatabaseTest {
     void cleanup() {
         if (eventId == null || tx == null) return;
         tx.executeWithoutResult(status -> {
+            jdbc.update("delete from admin_refund_evidence where event_id=?",eventId);
             jdbc.update("delete i from admin_refund_batch_item i join admin_refund_batch b on b.id=i.batch_id where b.event_id=?",eventId);
             jdbc.update("delete from admin_refund_batch where event_id=?",eventId);
             List<String> paymentIds = jdbc.queryForList("select p.id from payment p where p.registration_id in(select id from registration where event_id=?) or p.organization_id in(select id from organization where event_id=?)",String.class,eventId,eventId);
@@ -598,6 +605,44 @@ class AdminRefundPreparationDatabaseTest {
         assertThat(response.summary().batchId()).isEqualTo(accepted.batchId());
         assertThat(response.items()).hasSize(1);
         assertThat(response.items().getFirst().status()).isEqualTo("PENDING");
+        verifyNoInteractions(toss);
+    }
+
+    /** 토스 조회 실패도 증거를 저장하지만 금융 금액·상태·정원은 그대로 둔다. */
+    @Test void evidencePersistsAndListsWithoutFinancialMutation() {
+        AdminRefundPrepared prepared=service.prepareFull(eventId,null,List.of(registrationId),command());
+        String cancelId=prepared.refunds().getFirst().paymentCancelId();
+        String cancelStatus=jdbc.queryForObject("select status from payment_cancel where id=?",String.class,cancelId);
+        BigDecimal contract=amount("contract_amount"),paid=amount("paid_amount");
+        String registrationStatus=state();
+        int totalCount=count(total),categoryCount=count(capacityA),shirtCount=count(shirt),cancels=cancelCount();
+        when(evidenceClient.lookup(anyString())).thenAnswer(invocation -> {
+            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            return new AdminRefundEvidenceModels.Lookup(401,"TOSS_LOOKUP_HTTP_ERROR",null);
+        });
+        AdminRefundEvidenceModels.Evidence result=evidenceService.check(eventId,cancelId,"fixture-admin");
+        assertThat(result.verdict()).isEqualTo(AdminRefundEvidenceModels.Verdict.LOOKUP_UNAVAILABLE);
+        assertThat(result.retryAllowed()).isFalse();
+        assertThat(result.financialStateChanged()).isFalse();
+        // JSON 왕복 시 금액의 scale은 바뀔 수 있으므로 수치로 비교하고 나머지 필드는 모두 검증한다.
+        List<AdminRefundEvidenceModels.Evidence> savedEvidence = evidenceStore.list(eventId,cancelId,0,20).items();
+        assertThat(savedEvidence).hasSize(1);
+        assertThat(savedEvidence.getFirst())
+                .usingRecursiveComparison()
+                .ignoringAllOverriddenEquals()
+                .withComparatorForType(BigDecimal::compareTo, BigDecimal.class)
+                .isEqualTo(result);
+        assertThat(amount("contract_amount")).isEqualByComparingTo(contract);
+        assertThat(amount("paid_amount")).isEqualByComparingTo(paid);
+        assertThat(state()).isEqualTo(registrationStatus);
+        assertThat(count(total)).isEqualTo(totalCount);
+        assertThat(count(capacityA)).isEqualTo(categoryCount);
+        assertThat(count(shirt)).isEqualTo(shirtCount);
+        assertThat(cancelCount()).isEqualTo(cancels);
+        assertThat(jdbc.queryForObject("select status from payment_cancel where id=?",String.class,cancelId)).isEqualTo(cancelStatus);
+        assertThatThrownBy(() -> evidenceStore.snapshot("other-event",cancelId)).isInstanceOf(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class);
+        assertThatThrownBy(() -> evidenceStore.list(eventId,cancelId,0,101)).isInstanceOf(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class);
+        verify(evidenceClient,times(1)).lookup(anyString());
         verifyNoInteractions(toss);
     }
 
