@@ -25,7 +25,7 @@ public class RegistrationQueryRepository {
     private final EntityManager entityManager;
 
     private static final String MEMBER_SELECT = """
-            select r.id as id, r.name as name, r.birth as birth, r.phNum as phNum,
+            select r.id as id, r.name as name, r.email, r.birth as birth, r.phNum as phNum,
                    r.password as password, r.gender as gender,
                    c.id as categoryId, c.name as categoryName, r.souvenirJson as souvenirs,
                    r.address as address, r.addressDetail as addressDetail,
@@ -148,7 +148,7 @@ public class RegistrationQueryRepository {
     private RegistrationQueryData.Member member(Tuple t) {
         List<SouvenirJson> selections = (List<SouvenirJson>) t.get("souvenirs");
         return new RegistrationQueryData.Member(
-                t.get("id", String.class), t.get("name", String.class), t.get("birth", String.class),
+                t.get("id", String.class), t.get("name", String.class), t.get("email", String.class), t.get("birth", String.class),
                 t.get("phNum", String.class), t.get("password", String.class), t.get("gender", GenderClass.class),
                 t.get("categoryId", String.class), t.get("categoryName", String.class),
                 selections == null ? List.of() : selections,

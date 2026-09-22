@@ -53,6 +53,7 @@ public class RegistrationModificationClassifier {
 
         boolean changed =
                 !Objects.equals(current.getName(), request.name())
+                        || !Objects.equals(current.getEmail(), request.email()) // 추가됨
                         || !Objects.equals(current.getPhNum(), request.phNum())
                         || current.getGender() != request.gender()
                         || !Objects.equals(current.getAddress(), request.address())
@@ -119,6 +120,7 @@ public class RegistrationModificationClassifier {
             full |= policyFieldsChanged(current, participant.eventCategoryId(), participant.birth(),
                     participant.selectedSouvenirList());
             changed |= !Objects.equals(current.getName(), participant.name())
+                    || !Objects.equals(current.getEmail(), participant.email()) // 추가됨
                     || !Objects.equals(current.getPhNum(), participant.phNum())
                     || current.getGender() != participant.gender();
         }

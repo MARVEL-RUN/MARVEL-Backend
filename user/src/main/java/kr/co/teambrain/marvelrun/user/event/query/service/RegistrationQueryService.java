@@ -62,7 +62,7 @@ public class RegistrationQueryService {
                     .flatMap(p -> byPayment.getOrDefault(p.id(), List.of()).stream()).toList();
             RegistrationPaymentQueryResolver.Result payment = paymentResolver.resolve(List.of(row), own, shares,
                     refunds.stream().filter(r -> ownIds.contains(r.paymentId())).toList(), row.paymentDeadline(), now);
-            result.add(new RegistrationQueryResponse(row.id(), row.name(), row.birth(), row.phNum(), row.gender(),
+            result.add(new RegistrationQueryResponse(row.id(), row.name(), row.email(), row.birth(), row.phNum(), row.gender(),
                     row.categoryId(), row.categoryName(), selections(row, names), row.address(), row.addressDetail(),
                     row.guardianConsent(), row.guardianName(), row.guardianPhNum(), row.guardianRelationShip(), row.status(), row.contractAmount(), row.paidAmount(),
                     payment.status(), payment.refundStatus(), payment.action(), payment.warning(), payment.paymentId(), payment.orderId()));
@@ -88,7 +88,7 @@ public class RegistrationQueryService {
             RegistrationPaymentQueryResolver.Result payment = paymentResolver.resolve(members, payments,
                     repository.allocations(ids), repository.refunds(ids), org.paymentDeadline(), now);
             List<OrgRegistrationParticipantResponse> participants = members.stream().map(row ->
-                    new OrgRegistrationParticipantResponse(row.id(), row.name(), row.birth(), row.phNum(), row.gender(),
+                    new OrgRegistrationParticipantResponse(row.id(), row.name(), row.email(), row.birth(), row.phNum(), row.gender(),
                             row.categoryId(), row.categoryName(), selections(row, names),
                             row.address() == null ? org.address() : row.address(),
                             row.address() == null ? org.addressDetail() : row.addressDetail(),

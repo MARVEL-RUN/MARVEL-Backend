@@ -83,6 +83,7 @@ public class Registration extends RegistrationBase<
         this.guardianName = normalizedGuardianName;
         this.guardianPhNum = request.guardianPhNum();
         this.guardianRelationship = request.guardianRelationship();
+        this.email = request.email();
 
         // 최초 동의 반영: 트랜잭션 커밋 시 저장
         if (!this.guardianConsent && requestedConsent) {
@@ -134,6 +135,7 @@ public class Registration extends RegistrationBase<
                 .termsMarketingAgreed(request.termsMarketingAgreed()) // 추가됨
                 .termsMarketingChannelAgreed(request.termsMarketingChannelAgreed()) // 추가됨
                 .termsAgreedAt(now) // 추가됨
+                .email(request.email())
                 .build();
     }
 
@@ -150,7 +152,8 @@ public class Registration extends RegistrationBase<
             LocalDateTime now,                  // 추가됨: 약관 동의 일시
             boolean termsEssentialAgreed,       // 추가됨: 필수 약관 동의
             boolean termsMarketingAgreed,       // 추가됨: 마케팅 동의
-            boolean termsMarketingChannelAgreed // 추가됨: 전자적 매체 수신 동의
+            boolean termsMarketingChannelAgreed, // 추가됨: 전자적 매체 수신 동의
+            String email
     ) {
 
         return Registration.builder()
@@ -243,6 +246,9 @@ public class Registration extends RegistrationBase<
                 )
                 .termsAgreedAt(
                         now
+                ).
+                email(
+                        email
                 )
                 .build();
     }
@@ -391,6 +397,7 @@ public class Registration extends RegistrationBase<
         this.gender = request.gender();
 
         this.contractAmount = newContractAmount;
+        this.email = request.email();
     }
 
     /** 기존 단체 신청의 개인정보만 정정하며 정책·금융·귀속 필드는 요청값으로 덮어쓰지 않는다. */
@@ -402,6 +409,7 @@ public class Registration extends RegistrationBase<
         this.name = request.name();
         this.phNum = request.phNum();
         this.gender = request.gender();
+        this.email = request.email();
     }
 
     /** 단체 일부 제거의 기존 호출 계약을 유지하며 공통 참가 취소 상태 전이를 사용한다. */
