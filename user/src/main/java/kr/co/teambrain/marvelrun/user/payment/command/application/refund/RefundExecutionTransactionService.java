@@ -1,6 +1,7 @@
 package kr.co.teambrain.marvelrun.user.payment.command.application.refund;
 
 import jakarta.persistence.EntityManager;
+import kr.co.teambrain.marvelrun.user.payment.command.application.PaymentResultLogMetadata;
 import jakarta.persistence.LockModeType;
 import java.math.BigDecimal;
 import java.time.ZoneId;
@@ -239,7 +240,7 @@ public class RefundExecutionTransactionService {
                 .transactionKey(evidence == null ? cancel.getTransactionKey() : evidence.transactionKey())
                 .httpStatus(outcome == null ? null : outcome.httpStatus())
                 .errorCode(cancel.getErrorCode()).errorMessage(cancel.getErrorMessage())
-                .metadata(Map.of("amount", cancel.getCancelAmount(), "status", cancel.getStatus().name()))
+                .metadata(PaymentResultLogMetadata.refund(Map.of("amount", cancel.getCancelAmount(), "status", cancel.getStatus().name()), cancel.getStatus(), outcome))
                 .build());
     }
 

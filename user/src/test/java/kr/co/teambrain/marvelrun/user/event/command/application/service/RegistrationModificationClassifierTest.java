@@ -42,12 +42,17 @@ class RegistrationModificationClassifierTest {
     static Stream<Arguments> personalChanges() {
         return Stream.of(
                 Arguments.of("name", "정정 이름"),
+                Arguments.of("email", "changed@example.com"),
                 Arguments.of("phNum", "010-2222-3333"),
                 Arguments.of("gender", GenderClass.F),
                 Arguments.of("address", "정정 주소"),
                 Arguments.of("addressDetail", "정정 상세주소"),
                 Arguments.of("address", null),
-                Arguments.of("addressDetail", null));
+                Arguments.of("addressDetail", null),
+                Arguments.of("guardianName", "다른 보호자"),
+                Arguments.of("guardianConsent", false),
+                Arguments.of("guardianPhNum", "010-3333-4444"),
+                Arguments.of("guardianRelationship", "부"));
     }
 
     /** 결과 나이·가격을 조회하지 않고 영향 입력 변경 자체로 전체 수정을 판정한다. */
@@ -63,9 +68,6 @@ class RegistrationModificationClassifierTest {
         return Stream.of(
                 Arguments.of("birth", "1990-01-02"),
                 Arguments.of("eventCategoryId", "c2"),
-                Arguments.of("guardianName", "다른 보호자"),
-                Arguments.of("guardianConsent", false),
-                Arguments.of("guardianConsent", null),
                 Arguments.of("selectedSouvenirList", List.of(new SouvenirJson("s3", "M"))),
                 Arguments.of("selectedSouvenirList", List.of(new SouvenirJson("s1", "L"), new SouvenirJson("s2", "FREE"))),
                 Arguments.of("selectedSouvenirList", List.of(new SouvenirJson("s1", "M"))),
@@ -106,14 +108,21 @@ class RegistrationModificationClassifierTest {
                 .isEqualTo(PERSONAL_INFORMATION);
     }
 
-    /** 보호자 미지정의 기존 저장 의미인 null과 false를 그대로 따른다. */
+    /** 보호자 이름 미지정은 null, primitive 동의값은 false로 표현한다. */
     @Test
     void omittedGuardianValuesFollowExistingApplication() throws Exception {
         Registration current = Registration.builder().id("r1").eventCategory(EventCategory.builder().id("c1").build())
                 .souvenirJson(souvenirs()).name("이름").phNum("010-1111-2222").birth("1990-01-01")
                 .gender(GenderClass.M).address("주소").addressDetail("상세주소").guardianConsent(false).build();
-        RegistrationModificationRequest changed = replace(replace(request(), "guardianName", "  "), "guardianConsent", null);
+        RegistrationModificationRequest changed = replace(replace(request(), "guardianName", "  "), "guardianConsent", false);
         assertThat(classifier.classifyPersonal(current, changed)).isEqualTo(NONE);
+    }
+
+    /** primitive boolean에는 null을 전달할 수 없으며 업무 분류에 도달하지 않는다. */
+    @Test
+    void nullGuardianConsentCannotConstructRequest() {
+        assertThatThrownBy(() -> replace(request(), "guardianConsent", null))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     /** 동일 ID의 서로 다른 사이즈도 중복 선택으로 거부한다. */
@@ -197,10 +206,10 @@ class RegistrationModificationClassifierTest {
     void requestFieldInventoryRequiresExplicitReview() {
         assertThat(fieldNames(RegistrationModificationRequest.class)).containsExactlyInAnyOrder(
                 "access", "eventCategoryId", "selectedSouvenirList", "name", "phNum", "birth", "gender",
-                "address", "addressDetail", "guardianName", "guardianConsent");
+                "address", "addressDetail", "guardianName", "guardianConsent", "guardianPhNum", "guardianRelationship", "email");
         assertThat(fieldNames(OrgRegistrationModificationParticipantRequest.class)).containsExactlyInAnyOrder(
                 "registrationId", "eventCategoryId", "selectedSouvenirList", "name", "phNum", "birth", "gender");
-        assertThat(fieldNames(OrgRegistrationModificationRequest.class)).containsExactlyInAnyOrder("access", "registrations");
+        assertThat(fieldNames(OrgRegistrationModificationRequest.class)).containsExactlyInAnyOrder("guardianConsent", "email", "address", "addressDetail", "leaderName", "leaderBirth", "leaderPhNum", "access", "registrations");
         assertThat(fieldNames(SouvenirJson.class)).containsExactlyInAnyOrder("souvenirId", "selectedSize");
     }
 
@@ -216,8 +225,20 @@ class RegistrationModificationClassifierTest {
 
     /** 현재 저장값과 일치하는 개인 요청을 만든다. 인증은 판정 외부의 책임이다. */
     private RegistrationModificationRequest request() {
-        return new RegistrationModificationRequest(null, "c1", souvenirs(), "이름", "010-1111-2222",
-                "1990-01-01", GenderClass.M, "주소", "상세주소", "보호자", true);
+        return new RegistrationModificationRequest(null,
+                "c1",
+                souvenirs(),
+                "이름",
+                "010-1111-2222",
+                "1990-01-01",
+                GenderClass.M,
+                "주소",
+                "상세주소",
+                true,
+                "보호자",
+                null,
+                null,
+                null);
     }
 
     /** 순서와 사이즈 비교에 사용할 저장 기념품을 구성한다. */
@@ -233,7 +254,41 @@ class RegistrationModificationClassifierTest {
 
     /** 최종 구성원 목록을 단체 요청으로 감싼다. */
     private OrgRegistrationModificationRequest organization(OrgRegistrationModificationParticipantRequest... members) {
-        return new OrgRegistrationModificationRequest(null, List.of(members));
+        return new OrgRegistrationModificationRequest(false,
+                "test@example.com",
+                "테스트 주소",
+                "상세",
+                "테스트 단체장",
+                java.time.LocalDate.of(1990, 1, 1),
+                "010-0000-0000",
+                null,
+                List.of(members));
+    }
+
+    /** 이메일이 같아도 단체장·주소·보호자 동의 변경 판정을 덮어쓰지 않는다. */
+    @ParameterizedTest
+    @MethodSource("organizationProfileChanges")
+    void organizationProfileChangesAreInformation(String field, Object value) throws Exception {
+        var org = kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization.builder()
+                .id("o").guardianConsent(false).email("test@example.com")
+                .address("테스트 주소").addressDetail("상세").leaderName("테스트 단체장")
+                .leaderBirth("1990-01-01").leaderPhNum("010-0000-0000").build();
+        Registration row = Registration.builder().id("r1").organization(org)
+                .eventCategory(EventCategory.builder().id("c1").build()).souvenirJson(souvenirs())
+                .name("이름").phNum("010-1111-2222").birth("1990-01-01").gender(GenderClass.M).build();
+        var original = organization(member("r1"));
+        assertThat(classifier.classifyOrganization(List.of(row), original)).isEqualTo(NONE);
+        assertThat(classifier.classifyOrganization(List.of(row), replace(original, field, value)))
+                .isEqualTo(PERSONAL_INFORMATION);
+    }
+
+    /** 단체 프로필의 각 변경은 참가 정책 입력 변경과 구분한다. */
+    static Stream<Arguments> organizationProfileChanges() {
+        return Stream.of(Arguments.of("email", "changed@example.com"),
+                Arguments.of("address", "새 주소"), Arguments.of("addressDetail", "새 상세"),
+                Arguments.of("leaderName", "새 단체장"),
+                Arguments.of("leaderBirth", java.time.LocalDate.of(1991, 1, 1)),
+                Arguments.of("leaderPhNum", "010-2222-3333"), Arguments.of("guardianConsent", true));
     }
 
     /** DTO 필드 추가를 감지하기 위한 이름 목록을 추출한다. */

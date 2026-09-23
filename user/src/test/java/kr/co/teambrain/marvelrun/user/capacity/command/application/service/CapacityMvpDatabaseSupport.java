@@ -319,19 +319,23 @@ abstract class CapacityMvpDatabaseSupport {
     ) {
         return registrations.register(
                 eventId,
-                new RegistrationCreateRequest(
-                        categoryId,
-                        List.of(new SouvenirJson(souvenirId, size)),
-                        "Test123!",
-                        "참가" + UUID.randomUUID().toString().substring(0, 8),
-                        "010-0000-0000",
-                        birth,
-                        GenderClass.M,
-                        "테스트 주소",
-                        "상세",
-                        "테스트 보호자",
-                        true
-                )
+                new RegistrationCreateRequest(categoryId,
+                List.of(new SouvenirJson(souvenirId, size)),
+                "Test123!",
+                "참가" + UUID.randomUUID().toString().substring(0, 8),
+                "010-0000-0000",
+                birth,
+                GenderClass.M,
+                "테스트 주소",
+                "상세",
+                true,
+                "테스트 보호자",
+                null,
+                null,
+                true,
+                false,
+                false,
+                null)
         );
     }
 
@@ -372,7 +376,8 @@ abstract class CapacityMvpDatabaseSupport {
                                 "테스트 단체장",
                                 true
                         ),
-                        members
+                        members,
+                        true, false, false
                 )
         );
     }

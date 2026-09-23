@@ -345,8 +345,7 @@ class RegistrationModificationAccessValidatorTest {
             RegistrationAccessRequest access
     ) {
 
-        return new RegistrationModificationRequest(
-                access,
+        return new RegistrationModificationRequest(access,
                 "category-1",
                 List.of(),
                 "수정후이름",
@@ -355,8 +354,10 @@ class RegistrationModificationAccessValidatorTest {
                 GenderClass.M,
                 "수정 주소",
                 "상세",
+                false,
                 null,
-                false
-        );
+                null,
+                null,
+                null);
     }
 }

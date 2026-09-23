@@ -50,11 +50,17 @@ public class RegistrationPaymentQueryResolver {
         if (unpaid.isEmpty()) {
             return new Result(status, refundStatus, RegistrationPaymentAction.NONE, null, null, orderId);
         }
-        if (deadline == null) {
+        Set<String> additionalIds = unpaid.stream().filter(id -> {
+            var row = current.get(id);
+            return row.status() == RegistrationStatus.ADDITIONAL_PAYMENT_REQUIRED
+                    && row.reservationStatus() == ReservationStatus.CONSUMED;
+        }).collect(java.util.stream.Collectors.toSet());
+        boolean paymentWindowOpen = deadline != null && now.isBefore(deadline);
+        if (deadline == null && additionalIds.isEmpty()) {
             return new Result(status, refundStatus, RegistrationPaymentAction.CONTACT_SUPPORT,
                     "결제 기한 설정 확인이 필요합니다.", null, orderId);
         }
-        if (!now.isBefore(deadline)) {
+        if (!paymentWindowOpen && additionalIds.isEmpty()) {
             return new Result(status, refundStatus, RegistrationPaymentAction.PAYMENT_CLOSED,
                     "미납 금액이 있으나 결제 기한이 지났습니다.", null, orderId);
         }
@@ -63,23 +69,33 @@ public class RegistrationPaymentQueryResolver {
         List<RegistrationQueryData.Payment> ready = payments.stream()
                 .filter(p -> p.status() == PaymentProcessStatus.READY).toList();
         RegistrationQueryData.Payment candidate = null;
-        if (ready.size() == 1 && eligible(ready.get(0), byPayment.getOrDefault(ready.get(0).id(), List.of()), current, unpaid)) {
+        if (ready.size() == 1 && (paymentWindowOpen || ready.getFirst().purpose() == PaymentPurpose.ADDITIONAL_PAYMENT)
+                && eligible(ready.get(0), byPayment.getOrDefault(ready.get(0).id(), List.of()), current,
+                        ready.getFirst().purpose() == PaymentPurpose.ADDITIONAL_PAYMENT ? additionalIds : unpaid)) {
             candidate = ready.get(0);
         } else if (ready.isEmpty()) {
             for (RegistrationQueryData.Payment payment : payments) {
                 if ((payment.status() == PaymentProcessStatus.FAILED || payment.status() == PaymentProcessStatus.INVALIDATED)
-                        && eligible(payment, byPayment.getOrDefault(payment.id(), List.of()), current, unpaid)) {
+                        && (paymentWindowOpen || payment.purpose() == PaymentPurpose.ADDITIONAL_PAYMENT)
+                        && eligible(payment, byPayment.getOrDefault(payment.id(), List.of()), current,
+                            payment.purpose() == PaymentPurpose.ADDITIONAL_PAYMENT ? additionalIds : unpaid)) {
                     candidate = payment;
                     break;
                 }
             }
+        }
+        if (candidate == null && ready.isEmpty() && !additionalIds.isEmpty()) {
+            return new Result(status, refundStatus, RegistrationPaymentAction.PREPARE_ADDITIONAL_PAYMENT,
+                    "신청 정보 변경으로 추가 납부가 필요합니다. 추가 결제를 준비해 주세요. 최초 미결제 인원은 별도 처리됩니다.", null, null);
         }
         if (candidate == null) {
             return new Result(status, refundStatus, RegistrationPaymentAction.CONTACT_SUPPORT,
                     "미납 내역에 맞는 주문을 확인할 수 없습니다. 문의해 주세요.", null, orderId);
         }
         return new Result(candidate.status(), refundStatus, RegistrationPaymentAction.PREPARE_PAYMENT,
-                "미납 금액이 있습니다. 결제 기한 내 결제를 완료해 주세요.", candidate.id(), candidate.orderId());
+                candidate.purpose() == PaymentPurpose.ADDITIONAL_PAYMENT
+                        ? "확정 신청의 추가 납부가 필요합니다. 추가 결제를 완료해 주세요."
+                        : "미납 금액이 있습니다. 결제 기한 내 결제를 완료해 주세요.", candidate.id(), candidate.orderId());
     }
 
     /** 귀속과 현재 값의 대응만 확인한다. 가격 재계산·재고 확보·정산은 하지 않는다. */

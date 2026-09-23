@@ -4,6 +4,8 @@ import lombok.Builder;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
+import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 
 /**
  * 관리자 서버 신청 상세 조회 응답 DTO
@@ -35,7 +37,13 @@ public record RegistrationDetailResponse(
 
         boolean termsEssentialAgreed, // 필수동의여부
         boolean termsMarketingAgreed, // 마케팅동의여부
-        boolean termsMarketingChannelAgreed // 전송매체기반마케팅동의여부
+        boolean termsMarketingChannelAgreed, // 전송매체기반마케팅동의여부
+
+        /** 현재 종목 식별자. 관리자 정보·금액 조정 폼의 초기값이다. */
+        String eventCategoryId,
+
+        /** 저장된 전체 기념품 선택 ID·사이즈. 표시명에서 ID를 추정하지 않는다. */
+        List<SouvenirJson> selectedSouvenirList
         
 ) {
 }

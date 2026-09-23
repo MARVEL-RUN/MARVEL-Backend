@@ -1068,8 +1068,7 @@ class RegistrationModificationDatabaseTest
                 registrationId
         );
 
-        return new RegistrationModificationRequest(
-                new RegistrationAccessRequest(
+        return new RegistrationModificationRequest(new RegistrationAccessRequest(
                         name,
                         birth,
                         phNum,
@@ -1083,9 +1082,11 @@ class RegistrationModificationDatabaseTest
                 GenderClass.M,
                 "경합 테스트 주소",
                 "상세",
+                true,
                 "테스트 보호자",
-                true
-        );
+                null,
+                null,
+                null);
     }
 
     /**
@@ -1143,8 +1144,7 @@ class RegistrationModificationDatabaseTest
                 registrationId
         );
 
-        return new RegistrationModificationRequest(
-                new RegistrationAccessRequest(
+        return new RegistrationModificationRequest(new RegistrationAccessRequest(
                         name,
                         birth,
                         phone,
@@ -1158,9 +1158,11 @@ class RegistrationModificationDatabaseTest
                 GenderClass.M,
                 "수정 주소",
                 "수정 상세",
+                true,
                 "테스트 보호자",
-                true
-        );
+                null,
+                null,
+                null);
     }
 
     /**
@@ -1175,7 +1177,13 @@ class RegistrationModificationDatabaseTest
                 organizationId
         );
 
-        return new OrgRegistrationModificationRequest(
+        return new OrgRegistrationModificationRequest(true,
+                "test@example.com",
+                "테스트 주소",
+                "상세",
+                "테스트 단체장",
+                java.time.LocalDate.of(1990, 1, 1),
+                "010-0000-0000",
                 new OrganizationAccessRequest(loginId, "Test1234!"),
                 List.of(
                         new OrgRegistrationModificationParticipantRequest(
@@ -1200,8 +1208,7 @@ class RegistrationModificationDatabaseTest
                                 "1990-01-01",
                                 GenderClass.M
                         )
-                )
-        );
+                ));
     }
 
     /**

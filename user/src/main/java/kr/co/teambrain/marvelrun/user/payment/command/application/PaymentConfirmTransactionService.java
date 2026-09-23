@@ -125,10 +125,7 @@ public class PaymentConfirmTransactionService {
         Event event =
                 resolvePaymentEvent(payment);
 
-        eventPaymentPolicyValidator.validateNewPayment(
-                event,
-                now
-        );
+        eventPaymentPolicyValidator.validateForPurpose(event, now, payment.getPurpose());
 
         String registrationId =
                 resolveRegistrationId(
@@ -383,7 +380,8 @@ public class PaymentConfirmTransactionService {
 
         saveConfirmSucceededLog(
                 context,
-                payment
+                payment,
+                tossResponse
         );
 
         if (payment.isRegistrationPayment()) {
@@ -519,6 +517,9 @@ public class PaymentConfirmTransactionService {
                         .errorMessage(
                                 exception.getTossErrorMessage()
                         )
+                        .metadata(PaymentResultLogMetadata.append(null, "CONFIRM", false, false,
+                                payment.getProcessStatus().name(), "ERROR_RESPONSE", null,
+                                java.util.Map.of("httpStatus", exception.getHttpStatus())))
                         .build();
 
         paymentProcessLogCommandRepository.save(
@@ -539,6 +540,17 @@ public class PaymentConfirmTransactionService {
             PaymentConfirmContext context,
             String errorCode,
             String errorMessage
+    ) {
+        markConfirmUnknown(context, errorCode, errorMessage, null);
+    }
+
+    /** 기존 UNKNOWN 전이를 유지하면서 수신했던 승인 응답의 검증 증거를 함께 기록한다. */
+    @Transactional
+    public void markConfirmUnknown(
+            PaymentConfirmContext context,
+            String errorCode,
+            String errorMessage,
+            TossPaymentConfirmResponse response
     ) {
 
         Payment payment =
@@ -603,6 +615,7 @@ public class PaymentConfirmTransactionService {
                         .errorMessage(
                                 errorMessage
                         )
+                        .metadata(confirmComparison(context, response, payment.getProcessStatus().name(), false))
                         .build();
 
         paymentProcessLogCommandRepository.save(
@@ -766,7 +779,8 @@ public class PaymentConfirmTransactionService {
      */
     private void saveConfirmSucceededLog(
             PaymentConfirmContext context,
-            Payment payment
+            Payment payment,
+            TossPaymentConfirmResponse response
     ) {
 
         PaymentProcessLog processLog =
@@ -804,6 +818,7 @@ public class PaymentConfirmTransactionService {
                                 PaymentProcessSource.API
                         )
 
+                        .metadata(confirmComparison(context, response, payment.getProcessStatus().name(), true))
                         .build();
 
         paymentProcessLogCommandRepository.save(
@@ -815,10 +830,11 @@ public class PaymentConfirmTransactionService {
      * Toss confirm 성공 응답이
      * Tx1에서 확정한 Payment와 동일한 결제인지 검증한다.
      */
-    private void validateSuccessResponse(
+    private static void validateSuccessResponse(
             PaymentConfirmContext context,
             TossPaymentConfirmResponse response
     ) {
+        if (context == null || response == null) { throw new InvalidTossSuccessResponseException(); }
 
         if (
                 !context.paymentKey()
@@ -928,5 +944,21 @@ public class PaymentConfirmTransactionService {
                 throw new CustomException(ErrorCode.PAYMENT_ALLOCATION_INTEGRITY_ERROR, " 할당 금액 합계가 결제 금액과 일치하지 않습니다.");
             }
         }
+    }
+    /** 성공 확정과 동일한 응답 검증을 사용하되 불일치 응답을 외부 성공으로 기록하지 않는다. */
+    private static java.util.Map<String, Object> confirmComparison(PaymentConfirmContext context,
+            TossPaymentConfirmResponse response, String localState, boolean localTargetReached) {
+        Boolean external = null;
+        if (response != null) {
+            try { validateSuccessResponse(context, response); external = true; }
+            catch (InvalidTossSuccessResponseException ignored) { /* 응답 수신만으로 성공을 단정하지 않는다. */ }
+        }
+        java.util.Map<String, Object> evidence = new java.util.LinkedHashMap<>();
+        if (response != null) {
+            evidence.put("amount", response.totalAmount());
+            evidence.put("approvedAt", response.approvedAt() == null ? null : response.approvedAt().toString());
+        }
+        return PaymentResultLogMetadata.append(null, "CONFIRM", external, localTargetReached, localState,
+                response == null ? "UNAVAILABLE" : "CONFIRM_RESPONSE", response == null ? null : response.status(), evidence);
     }
 }

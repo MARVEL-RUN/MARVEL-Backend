@@ -470,15 +470,15 @@ class RegistrationPolicyTestDatabaseTest {
     @Test
     void leaderMustBeAdultOnEventDateNotApplicationDate() {
         /*
-         * 2007-09-11 출생자는 신청 기준시각에는 만 19세지만,
-         * 대회일 2026-09-10에는 아직 만 18세이다.
+         * 2012-09-11 출생자는 신청 기준시각에는 만 14세지만,
+         * 대회일 2026-09-10에는 아직 만 13세이다.
          */
         expectError(
                 ErrorCode.ORGANIZATION_LEADER_MUST_BE_ADULT,
                 () -> orgRegistrationApplyValidator.validate(
                         EVENT_ID,
                         organizationRequest(
-                                "2007-09-11",
+                                "2012-09-11",
                                 true,
                                 List.of(
                                         participant(
@@ -497,7 +497,7 @@ class RegistrationPolicyTestDatabaseTest {
         var context = orgRegistrationApplyValidator.validate(
                 EVENT_ID,
                 organizationRequest(
-                        "2007-09-10",
+                        "2012-09-10",
                         true,
                         List.of(
                                 participant(
@@ -519,7 +519,7 @@ class RegistrationPolicyTestDatabaseTest {
                 () -> orgRegistrationApplyValidator.validate(
                         EVENT_ID,
                         organizationRequest(
-                                "2007-09-10",
+                                "2012-09-10",
                                 false,
                                 List.of(
                                         participant(
@@ -550,7 +550,7 @@ class RegistrationPolicyTestDatabaseTest {
                 () -> orgRegistrationApplyValidator.validate(
                         EVENT_ID,
                         organizationRequest(
-                                "2007-09-10",
+                                "2012-09-10",
                                 true,
                                 List.of(
                                         participant(

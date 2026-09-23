@@ -47,4 +47,17 @@ public class EventPaymentPolicyValidator {
             );
         }
     }
+    /**
+     * 확정 참가의 추가금은 신규 접수 결제 기한 이후에도 납부할 수 있다.
+     * 호출자는 실제 Payment의 목적을 전달하고 귀속·CONSUMED 예약·부족액을 같은 Tx에서 검증한다.
+     * 최초/혼합 주문은 기존 결제 기한을 그대로 적용한다.
+     */
+    public void validateForPurpose(Event event, LocalDateTime now,
+            kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose purpose) {
+        if (event == null || now == null || purpose == null) {
+            throw new CustomException(ErrorCode.PAYMENT_POLICY_CONFIGURATION_ERROR);
+        }
+        if (purpose == kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose.ADDITIONAL_PAYMENT) { return; }
+        validateNewPayment(event, now);
+    }
 }

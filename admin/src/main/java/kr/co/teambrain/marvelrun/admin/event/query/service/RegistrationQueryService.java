@@ -219,6 +219,9 @@ public class RegistrationQueryService {
                 .name(registration.getName())
                 .orgName(orgName)
                 .courseName(registration.getEventCategory().getName())
+                /** 수정 요청에 필요한 현재 종목 및 전체 기념품 선택값을 함께 제공한다. */
+                .eventCategoryId(registration.getEventCategory().getId())
+                .selectedSouvenirList(registration.getSouvenirJson())
                 .souvenirName(souvenirName)
                 .souvenirSize(souvenirSize)
                 .gender(registration.getGender() == GenderClass.M ? "남성" : "여성")
@@ -247,7 +250,11 @@ public class RegistrationQueryService {
     }
 
     public EventStatisticsResponse getEventStatistics(String eventId) {
-        List<RegistrationStatDto> statsData = registrationQueryRepository.findStatsByEventId(eventId);
+        /** 현재 참가 집계에서 취소완료·만료 신청은 제외한다. 취소 진행 중은 완료 전까지 유지한다. */
+        List<RegistrationStatDto> statsData = registrationQueryRepository.findStatsByEventId(eventId).stream()
+                .filter(data -> data.status() != RegistrationStatus.CANCELED
+                        && data.status() != RegistrationStatus.EXPIRED)
+                .toList();
 
         // 1. 코스 헤더 추출
         List<String> courseNames = statsData.stream()
@@ -270,11 +277,11 @@ public class RegistrationQueryService {
 
         // 4. 단일 루프 집계
         for (RegistrationStatDto data : statsData) {
-            // 결제 수단 명확화 (paymentMethod가 존재해야 입금자, 없으면 미결제)
-            boolean isCard = data.paymentMethod() == PaymentMethod.CARD;
-            boolean isEasyPay = data.paymentMethod() == PaymentMethod.EASY_PAY;
-            boolean isPaid = isCard || isEasyPay; // 입금자(결제자) 여부
-            boolean isUnpaid = !isPaid;           // null 포함 미결제 여부
+            /** 환불 반영 후 현재 순납부액으로 판정한다. 과거 승인 성공이나 수단은 입금 여부가 아니다. */
+            boolean isPaid = data.paidAmount() != null && data.paidAmount().signum() > 0;
+            boolean isCard = isPaid && data.paymentMethod() == PaymentMethod.CARD;
+            boolean isEasyPay = isPaid && data.paymentMethod() == PaymentMethod.EASY_PAY;
+            boolean isUnpaid = !isPaid;
 
             boolean isPersonal = data.organizationId() == null;
             boolean isGroup = !isPersonal;
@@ -324,7 +331,7 @@ public class RegistrationQueryService {
         // 신청자는 무조건 카운트
         builders.get("신청자(" + label + ")").add(course, isCard, isEasyPay, isUnpaid, isPersonal, isGroup);
 
-        // 입금자는 결제수단이 존재하는(isPaid) 경우에만 카운트하며, 미결제(unpaid) 파라미터는 무조건 false로 고정
+        // 입금자는 현재 순납부액이 양수인 경우에만 카운트한다. 결제수단 미확인도 인원에는 포함한다.
         if (isPaid) {
             builders.get("입금자(" + label + ")").add(course, isCard, isEasyPay, false, isPersonal, isGroup);
         }

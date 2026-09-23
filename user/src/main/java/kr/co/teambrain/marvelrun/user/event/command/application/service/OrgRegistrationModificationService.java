@@ -114,12 +114,13 @@ public class OrgRegistrationModificationService {
             access.organization().guardianConsentChecked();
         }
 
-        if (!Objects.equals(access.organization().getEmail(), request.email())) {
-            access.organization().updateEmail(request.email());
-        }
-
         OrgRegistrationModificationCandidateContext candidate =
                 candidateValidator.validate(access);
+
+        /** 전체 수정에서도 검증된 단체 프로필을 동일 트랜잭션에 반영한다. */
+        access.organization().applyProfileModification(
+                request.leaderName(), request.leaderBirth().toString(), request.leaderPhNum(),
+                request.email(), request.address(), request.addressDetail());
 
         List<OrgRegistrationParticipantPricing> priced =
                 pricingService.repriceOrganization(candidate);
