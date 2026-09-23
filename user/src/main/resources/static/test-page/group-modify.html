@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MARVEL RUN · group-modify.html</title>
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body data-page="group-modify"><main>
+<div id="shell"></div>
+
+<section><h2>1. 단체 신청 수정</h2><div class="grid"><label>organizationId<input id="organizationId"></label><div><span class="note">최근 단체 조회에서 선택한 ID가 자동 반영됩니다.</span></div></div><code id="endpoint" class="endpoint"></code>
+<div class="row-actions"><button id="fromLookup" class="secondary">최근 조회값으로 현재 전체 명단 구성</button><button id="format" class="secondary">JSON 정렬</button></div>
+<label>수정 JSON<textarea id="body" spellcheck="false"></textarea></label>
+<label class="inline-check"><input id="rosterAck" type="checkbox"><span>이 registrations가 수정 완료 후 남아 있어야 할 <b>최종 전체 명단</b>임을 확인했습니다. 누락된 기존 구성원은 제거/환불 후보가 됩니다.</span></label>
+<button id="send" data-api>단체 수정 실행</button><a id="goPay" class="button hidden" href="payment.html">반환된 추가 주문 결제하기</a>
+<div class="warn">기존 구성원은 registrationId를 유지하고, 신규 구성원만 registrationId를 null로 넣으세요. 빈 문자열은 신규로 인정되지 않습니다.</div></section>
+
+<section><h2>실행 상태</h2><div id="status" class="status">요청 대기</div><details open><summary>최근 응답</summary><pre id="response">-</pre></details><details><summary>호출 기록 · 비밀번호/키 마스킹</summary><pre id="log">-</pre></details></section>
+
+</main>
+<script src="assets/common.js"></script>
+<script src="assets/pages.js"></script>
+</body></html>

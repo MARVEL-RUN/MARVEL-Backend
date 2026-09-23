@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MARVEL RUN · personal-create.html</title>
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body data-page="personal-create"><main>
+<div id="shell"></div>
+
+<section><h2>1. 개인 신청 생성</h2><code id="endpoint" class="endpoint"></code>
+<div class="row-actions"><button id="newTemplate" class="secondary">새 테스트 참가자 값 생성</button><button id="loadOptions" data-api class="secondary">종목·기념품 조회</button><button id="format" class="secondary">JSON 정렬</button></div>
+<label>요청 JSON<textarea id="body" spellcheck="false"></textarea></label>
+<button id="send" data-api>개인 신청 생성</button><a id="goPay" class="button hidden" href="payment.html">생성 주문 결제하기</a>
+<details><summary>선택지 조회 결과</summary><pre id="catalog">-</pre></details>
+<p class="note">기본 예시는 test-000000 / tc1 / test-souvenir / FREE를 사용합니다. 실제 DB와 다르면 선택지 조회 결과로 수정하세요.</p></section>
+
+<section><h2>실행 상태</h2><div id="status" class="status">요청 대기</div><details open><summary>최근 응답</summary><pre id="response">-</pre></details><details><summary>호출 기록 · 비밀번호/키 마스킹</summary><pre id="log">-</pre></details></section>
+
+</main>
+<script src="assets/common.js"></script>
+<script src="assets/pages.js"></script>
+</body></html>

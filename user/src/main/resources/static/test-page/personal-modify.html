@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MARVEL RUN · personal-modify.html</title>
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body data-page="personal-modify"><main>
+<div id="shell"></div>
+
+<section><h2>1. 개인 신청 수정</h2><div class="grid"><label>registrationId<input id="registrationId"></label><div><span class="note">최근 개인 조회에서 현재 대상으로 선택한 ID가 자동 반영됩니다.</span></div></div><code id="endpoint" class="endpoint"></code>
+<div class="row-actions"><button id="fromLookup" class="secondary">최근 조회값으로 수정 본문 구성</button><button id="format" class="secondary">JSON 정렬</button></div>
+<label>수정 JSON<textarea id="body" spellcheck="false"></textarea></label><button id="send" data-api>개인 수정 실행</button><a id="goPay" class="button hidden" href="payment.html">반환된 추가 주문 결제하기</a>
+<div class="warn">가격 하락은 refunds에 환불 결과가, 가격 상승은 orders에 추가결제 주문이 올 수 있습니다. 둘을 임의 상계하지 마세요.</div></section>
+
+<section><h2>실행 상태</h2><div id="status" class="status">요청 대기</div><details open><summary>최근 응답</summary><pre id="response">-</pre></details><details><summary>호출 기록 · 비밀번호/키 마스킹</summary><pre id="log">-</pre></details></section>
+
+</main>
+<script src="assets/common.js"></script>
+<script src="assets/pages.js"></script>
+</body></html>

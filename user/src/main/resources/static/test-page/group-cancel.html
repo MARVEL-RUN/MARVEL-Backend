@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MARVEL RUN · group-cancel.html</title>
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body data-page="group-cancel"><main>
+<div id="shell"></div>
+
+<section><h2>1. 단체 전체 취소 / 환불</h2><div class="grid"><label>organizationId<input id="organizationId"></label><div><span class="note">현재 활성 구성원 전체가 취소 대상입니다. 일부 제거는 단체 수정 페이지를 사용하세요.</span></div></div><code id="endpoint" class="endpoint"></code>
+<div class="row-actions"><button id="useStored" class="secondary">최근 단체 인증값 불러오기</button><button id="format" class="secondary">JSON 정렬</button></div><label>단체 본인확인 JSON<textarea id="body"></textarea></label><button id="send" data-api class="danger">단체 전체 취소</button>
+</section>
+
+<section><h2>실행 상태</h2><div id="status" class="status">요청 대기</div><details open><summary>최근 응답</summary><pre id="response">-</pre></details><details><summary>호출 기록 · 비밀번호/키 마스킹</summary><pre id="log">-</pre></details></section>
+
+</main>
+<script src="assets/common.js"></script>
+<script src="assets/pages.js"></script>
+</body></html>

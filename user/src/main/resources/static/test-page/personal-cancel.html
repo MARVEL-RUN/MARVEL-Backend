@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MARVEL RUN · personal-cancel.html</title>
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body data-page="personal-cancel"><main>
+<div id="shell"></div>
+
+<section><h2>1. 개인 전체 취소 / 환불</h2><div class="grid"><label>registrationId<input id="registrationId"></label><div><span class="note">납부 완료 개인을 취소하면 서버가 환불 준비/실행 결과를 반환합니다.</span></div></div><code id="endpoint" class="endpoint"></code>
+<div class="row-actions"><button id="useStored" class="secondary">최근 개인 인증값 불러오기</button><button id="format" class="secondary">JSON 정렬</button></div><label>본인확인 JSON<textarea id="body"></textarea></label><button id="send" data-api class="danger">개인 신청 취소</button>
+</section>
+
+<section><h2>실행 상태</h2><div id="status" class="status">요청 대기</div><details open><summary>최근 응답</summary><pre id="response">-</pre></details><details><summary>호출 기록 · 비밀번호/키 마스킹</summary><pre id="log">-</pre></details></section>
+
+</main>
+<script src="assets/common.js"></script>
+<script src="assets/pages.js"></script>
+</body></html>

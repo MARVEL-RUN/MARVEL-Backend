@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MARVEL RUN · payment.html</title>
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body data-page="payment"><main>
+<div id="shell"></div>
+
+<section><h2>1. 서버 주문 확인</h2><pre id="orderView">-</pre><div class="row-actions"><button id="clearOrder" class="danger">이 도구의 현재 주문 기록 지우기</button></div><p class="note">DB Payment는 삭제되지 않습니다. 주문을 임의 수정하지 않고 서버 응답값 그대로 사용합니다.</p></section>
+<section><h2>2. Toss 결제위젯</h2><code id="endpoint" class="endpoint"></code><div class="grid"><label>테스트 클라이언트 키<input id="clientKey" type="password" autocomplete="off" placeholder="test_gck_..."></label><label>결제 UI variant<input id="paymentVariant" value="DEFAULT"></label><label>약관 UI variant<input id="agreementVariant" value="AGREEMENT"></label><div><button id="saveVariants" class="secondary">variant 저장</button></div></div>
+<button id="mount" data-api>결제수단·약관 표시</button><button id="pay" data-api>선택한 수단으로 Toss 인증</button><div id="payment-methods"></div><div id="agreement"></div>
+<div class="warn">이 페이지는 실제 Toss 테스트 서버를 호출합니다. 운영 키가 아니라 테스트 위젯 키를 사용하세요.</div></section>
+<section><h2>3. Toss 복귀 및 백엔드 승인</h2><div id="callback" class="status">Toss 성공/실패 복귀 전입니다.</div><button id="confirm" data-api disabled>POST /v1/public/payments/confirm 승인</button><pre id="confirmResult">-</pre><p class="note">Toss 인증 성공 URL 도착만으로 결제 완료가 아닙니다. 백엔드 승인 응답의 processStatus와 tossStatus를 확인하세요.</p></section>
+
+<section><h2>실행 상태</h2><div id="status" class="status">요청 대기</div><details open><summary>최근 응답</summary><pre id="response">-</pre></details><details><summary>호출 기록 · 비밀번호/키 마스킹</summary><pre id="log">-</pre></details></section>
+
+</main>
+<script src="https://js.tosspayments.com/v2/standard"></script>
+<script src="assets/common.js"></script>
+<script src="assets/pages.js"></script>
+</body></html>

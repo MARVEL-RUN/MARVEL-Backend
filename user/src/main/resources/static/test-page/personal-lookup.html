@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MARVEL RUN · personal-lookup.html</title>
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body data-page="personal-lookup"><main>
+<div id="shell"></div>
+
+<section><h2>1. 개인 신청 확인</h2><code id="endpoint" class="endpoint"></code>
+<div class="row-actions"><button id="useStored" class="secondary">최근 개인 인증값 불러오기</button><button id="format" class="secondary">JSON 정렬</button></div>
+<label>본인확인 JSON<textarea id="body" spellcheck="false"></textarea></label><button id="send" data-api>개인 신청 조회</button>
+<h3>조회 항목</h3><div id="lookupRows" class="result-list"></div>
+<p class="note">취소·재신청 이력이 있으면 여러 건이 반환될 수 있습니다. 수정/취소할 항목을 현재 대상으로 선택하세요.</p></section>
+
+<section><h2>실행 상태</h2><div id="status" class="status">요청 대기</div><details open><summary>최근 응답</summary><pre id="response">-</pre></details><details><summary>호출 기록 · 비밀번호/키 마스킹</summary><pre id="log">-</pre></details></section>
+
+</main>
+<script src="assets/common.js"></script>
+<script src="assets/pages.js"></script>
+</body></html>

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MARVEL RUN · group-additional-payment.html</title>
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body data-page="group-additional-payment"><main>
+<div id="shell"></div>
+
+<section><h2>1. 단체 추가결제 주문 준비</h2><div class="grid"><label>organizationId<input id="organizationId"></label><div><span class="note">관리자 수정으로 추가 납부가 필요한 확정 구성원들의 부족액만 한 주문으로 준비합니다.</span></div></div><code id="endpoint" class="endpoint"></code>
+<div class="row-actions"><button id="useStored" class="secondary">최근 단체 인증값 불러오기</button><button id="format" class="secondary">JSON 정렬</button></div><label>단체 본인확인 JSON<textarea id="body"></textarea></label><button id="send" data-api>단체 추가결제 주문 준비</button><a id="goPay" class="button hidden" href="payment.html">추가금 Toss 결제하기</a>
+</section>
+
+<section><h2>실행 상태</h2><div id="status" class="status">요청 대기</div><details open><summary>최근 응답</summary><pre id="response">-</pre></details><details><summary>호출 기록 · 비밀번호/키 마스킹</summary><pre id="log">-</pre></details></section>
+
+</main>
+<script src="assets/common.js"></script>
+<script src="assets/pages.js"></script>
+</body></html>

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MARVEL RUN · index.html</title>
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body data-page="index"><main>
+<div id="shell"></div>
+
+<section>
+<h2>목적</h2>
+<div class="warn">이 도구는 관리자 기능을 검증하기 위한 <b>정상 사용자 결제 데이터 생성</b>에 초점을 둡니다. 신청/수정/추가결제에서 서버가 반환한 주문만 Toss 테스트 결제로 승인합니다. DB에 임의 Payment를 직접 만들지 않습니다.</div>
+<div class="cards">
+<a class="card" href="personal-create.html"><strong>개인 신청 + 최초 결제</strong><span>Registration 1건과 최초 Payment READY 생성</span></a>
+<a class="card" href="group-create.html"><strong>단체 신청 + 최초 결제</strong><span>Organization + N명 + 단체 Payment 생성</span></a>
+<a class="card" href="personal-additional-payment.html"><strong>개인 추가결제</strong><span>관리자 상향 수정 후 부족액 주문 준비</span></a>
+<a class="card" href="group-additional-payment.html"><strong>단체 추가결제</strong><span>관리자 상향 수정 후 단체 부족액 주문 준비</span></a>
+<a class="card" href="personal-lookup.html"><strong>개인 상태 확인</strong><span>현재 계약/납부/환불/후속 액션 확인</span></a>
+<a class="card" href="group-lookup.html"><strong>단체 상태 확인</strong><span>현재 활성 구성원과 단체 금융 상태 확인</span></a>
+</div>
+</section>
+<section><h2>종목·기념품 선택지</h2><button id="loadOptions" data-api class="secondary">최신 선택지 조회</button><pre id="catalog">아직 조회하지 않았습니다.</pre></section>
+<section><h2>현재 테스트 컨텍스트</h2><pre id="state">-</pre><p class="note">페이지 간 연결은 이 탭의 sessionStorage만 사용합니다. 서버 데이터에는 영향을 주지 않습니다.</p></section>
+
+<section><h2>실행 상태</h2><div id="status" class="status">요청 대기</div><details open><summary>최근 응답</summary><pre id="response">-</pre></details><details><summary>호출 기록 · 비밀번호/키 마스킹</summary><pre id="log">-</pre></details></section>
+
+</main>
+<script src="assets/common.js"></script>
+<script src="assets/pages.js"></script>
+</body></html>
