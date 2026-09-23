@@ -62,17 +62,39 @@ public class RegistrationDailyReportService {
         LocalDate yesterday = generatedAt.toLocalDate().minusDays(1);
         LocalDate start = requestedStart == null ? openedAt.toLocalDate() : requestedStart;
         LocalDate end = requestedEnd == null ? yesterday : requestedEnd;
-        if (start.isBefore(openedAt.toLocalDate()) || start.isAfter(end) || end.isAfter(yesterday)
-                || ChronoUnit.DAYS.between(start,end) >= 366) {
-            throw new CustomException(ErrorCode.REPORT_EXCEL_DATE_RANGE_INVALID);
+
+
+        /** 조회 시작일이 접수 시작일보다 빠르면 접수 시작일로 보정한다. */
+        if (start.isBefore(openedAt.toLocalDate())) {
+            start = openedAt.toLocalDate();
         }
+
+        /** 오늘 이후의 조회 종료일은 별도 오류로 안내한다. */
+        if (end.isAfter(start)) {
+            throw new CustomException(
+                    ErrorCode.REPORT_END_DATE_AFTER_TODAY
+            );
+        }
+
+        /** 시작일과 종료일을 포함하여 최대 366일까지만 조회한다. */
+        if (ChronoUnit.DAYS.between(start, end) >= 366) {
+            throw new CustomException(
+                    ErrorCode.REPORT_DATE_RANGE_INVALID
+            );
+        }
+
+        // 코스 목록 도출
         List<EventCategory> entities = categories.findAllByEvent_IdOrderByOrderAsc(eventId);
         List<RegistrationDailyReport.Course> courses = entities.stream()
                 .map(category -> new RegistrationDailyReport.Course(category.getId(), category.getName())).toList();
+
+
         Map<String,Integer> courseIndexes = new HashMap<>();
         for (int index=0; index<courses.size(); index++) {
             courseIndexes.put(courses.get(index).id(),index);
         }
+
+
         List<RegistrationDailyReportRepository.Aggregate> rows = repository.aggregate(
                 eventId,openedAt,end.plusDays(1).atStartOfDay(),offsetMinutes);
         long[][] cumulative = new long[courses.size()][4];
