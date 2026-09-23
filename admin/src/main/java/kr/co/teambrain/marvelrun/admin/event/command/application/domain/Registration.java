@@ -147,6 +147,19 @@ public class Registration extends RegistrationBase<User, Event, EventCategory, O
         this.birth = birth;
     }
 
+    /** 관리자 정보 변경은 계약금액 증가·감소·동일 금액을 허용하고 실제 납부액은 유지한다. */
+    public void applyAdminAdjustmentCandidate(EventCategory category, List<SouvenirJson> souvenirs,
+            String birth, BigDecimal amount) {
+        if (softDeleted || category == null || souvenirs == null || souvenirs.stream().anyMatch(Objects::isNull)
+                || birth == null || birth.isBlank() || amount == null || amount.signum() < 0) {
+            throw new CustomException(ErrorCode.INVALID_REGISTRATION_MODIFICATION_ARGUMENT);
+        }
+        this.eventCategory = category;
+        this.souvenirJson = List.copyOf(souvenirs);
+        this.birth = birth;
+        this.contractAmount = amount;
+    }
+
     /**
      * 실제 완료된 환불 금액을 신청의 순납부액에서 차감한다.
      *

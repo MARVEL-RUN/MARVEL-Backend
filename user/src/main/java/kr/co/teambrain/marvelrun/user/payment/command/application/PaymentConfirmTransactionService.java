@@ -125,10 +125,7 @@ public class PaymentConfirmTransactionService {
         Event event =
                 resolvePaymentEvent(payment);
 
-        eventPaymentPolicyValidator.validateNewPayment(
-                event,
-                now
-        );
+        eventPaymentPolicyValidator.validateForPurpose(event, now, payment.getPurpose());
 
         String registrationId =
                 resolveRegistrationId(

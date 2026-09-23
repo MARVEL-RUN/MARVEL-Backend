@@ -42,7 +42,6 @@ public class ModificationRefundPlanner {
             } else if (registration.getStatus() != RegistrationStatus.PARTIAL_REFUND_REQUIRED) { throw invalid(); }
             needs.put(registration.getId(), excess);
         }
-        if (needs.isEmpty()) { return List.of(); }
         List<RefundPaymentLedger> ordered = new ArrayList<>(ledgers);
         for (RefundPaymentLedger ledger : ordered) {
             if (ledger == null || ledger.payment() == null || ledger.payment().getId() == null) { throw invalid(); }
@@ -64,7 +63,7 @@ public class ModificationRefundPlanner {
             validateLedger(ledger, allocationRemaining, netPaid, paymentBudgets);
         }
         // 현재 순납부액과 원장의 순납부 합계를 대조하여 누락 원장으로 임의 환불하지 않는다.
-        for (String registrationId : needs.keySet()) {
+        for (String registrationId : targets.keySet()) {
             if (netPaid.getOrDefault(registrationId, BigDecimal.ZERO)
                     .compareTo(targets.get(registrationId).getPaidAmount()) != 0) { throw invalid(); }
         }

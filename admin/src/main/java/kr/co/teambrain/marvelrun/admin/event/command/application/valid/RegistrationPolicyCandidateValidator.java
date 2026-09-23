@@ -5,6 +5,7 @@ import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.event.command.application.context.RegistrationPolicyContext;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCategory;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCategorySouvenir;
 import kr.co.teambrain.marvelrun.admin.event.command.application.valid.dto.RegistrationPolicyCandidateRequest;
 import kr.co.teambrain.marvelrun.admin.event.command.application.valid.dto.RegistrationPolicyCandidateResult;
 import kr.co.teambrain.marvelrun.admin.event.command.application.valid.loader.RegistrationPolicyLoader;
@@ -35,6 +36,8 @@ import java.util.Set;
 @Component
 public class RegistrationPolicyCandidateValidator
         extends AbstractRegistrationApplyValidator {
+    private final EventCategoryCommandRepository adminCategories;
+    private final EventCategorySouvenirCommandRepository adminMappings;
 
     /**
      * 기존 공통 조회 및 정책검증 의존성을 연결한다.
@@ -55,6 +58,58 @@ public class RegistrationPolicyCandidateValidator
                 registrationPolicyLoader,
                 registrationPolicyValidator
         );
+        this.adminCategories = eventCategoryCommandRepository;
+        this.adminMappings = eventCategorySouvenirCommandRepository;
+    }
+
+    /**
+     * 관리자 변경은 연령·보호자·출생일별 기념품·활성/접수기간 정책을 적용하지 않는다.
+     * 실제 날짜, 대회 소속, 종목-기념품 매핑, 중복 선택, 존재하는 사이즈는 반드시 검증한다.
+     * 정원 실수량 및 금융 검증은 같은 트랜잭션의 후속 단계에서 수행한다.
+     */
+    public List<RegistrationPolicyCandidateResult> validateAdminAdjustment(Event event,
+            List<RegistrationPolicyCandidateRequest> candidates, LocalDateTime now) {
+        if (event == null || event.getId() == null || event.getStartDate() == null || now == null
+                || candidates == null || candidates.isEmpty()) {
+            throw new CustomException(ErrorCode.REGISTRATION_POLICY_CONFIGURATION_ERROR);
+        }
+        Map<String, EventCategory> categories = new LinkedHashMap<>();
+        Map<String, Map<String, EventCategorySouvenir>> mappings = new LinkedHashMap<>();
+        List<RegistrationPolicyCandidateResult> result = new ArrayList<>();
+        for (var candidate : candidates) {
+            Set<String> selected = collectRequestedSouvenirIds(candidate.selectedSouvenirList());
+            EventCategory category = categories.computeIfAbsent(candidate.eventCategoryId(), id -> {
+                EventCategory row = adminCategories.findById(id)
+                        .orElseThrow(() -> new CustomException(ErrorCode.EVENT_CATEGORY_NOT_FOUND));
+                if (!event.getId().equals(row.getEvent().getId())) {
+                    throw new CustomException(ErrorCode.EVENT_CATEGORY_NOT_FOUND);
+                }
+                return row;
+            });
+            Map<String, EventCategorySouvenir> bySouvenir = mappings.computeIfAbsent(category.getId(), id -> {
+                Map<String, EventCategorySouvenir> values = new LinkedHashMap<>();
+                for (var mapping : adminMappings.findAllMappingsByCategoryId(id)) {
+                    if (!id.equals(mapping.getEventCategory().getId()) || mapping.getSouvenir() == null
+                            || !event.getId().equals(mapping.getSouvenir().getEvent().getId())
+                            || values.putIfAbsent(mapping.getSouvenir().getId(), mapping) != null) {
+                        throw new CustomException(ErrorCode.INVALID_EVENT_CATEGORY_SOUVENIR);
+                    }
+                }
+                return values;
+            });
+            if (!bySouvenir.keySet().equals(selected)) {
+                throw new CustomException(ErrorCode.INVALID_EVENT_CATEGORY_SOUVENIR,
+                        " 선택한 종목에 연결된 기념품 목록과 일치하도록 다시 선택해 주세요.");
+            }
+            LocalDate birth = registrationPolicyValidator.parseBirth(candidate.participant().birth(), now.toLocalDate());
+            List<kr.co.teambrain.marvelrun.common.json_object.SouvenirJson> normalized = new ArrayList<>();
+            for (var choice : candidate.selectedSouvenirList()) {
+                normalized.add(new kr.co.teambrain.marvelrun.common.json_object.SouvenirJson(choice.souvenirId(),
+                        validateAndNormalizeSize(bySouvenir.get(choice.souvenirId()).getSouvenir(), choice.selectedSize())));
+            }
+            result.add(new RegistrationPolicyCandidateResult(category, birth, List.copyOf(normalized)));
+        }
+        return List.copyOf(result);
     }
 
     /**
