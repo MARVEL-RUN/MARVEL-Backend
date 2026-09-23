@@ -156,8 +156,9 @@ class AdminRefundPreparationServiceTest {
     }
 
     /** 어린이→성인도 서버 가격으로 추가금이 계산된다. */
+    /** 임시 차단 중에는 기존 시나리오가 변경 전에 거절되어야 한다. */
     @Test
-    void childToAdultLeavesAdditionalDue() {
+    void childToAdultIsTemporarilyBlocked() {
         registration = Registration.builder().id("r").event(event).eventCategory(category).birth("2015-01-01")
                 .souvenirJson(souvenirs).contractAmount(new BigDecimal("40000")).paidAmount(new BigDecimal("40000"))
                 .status(RegistrationStatus.CONFIRMED).build();
@@ -168,14 +169,14 @@ class AdminRefundPreparationServiceTest {
         PaymentAllocation allocation = PaymentAllocation.builder().id("a").payment(payment).registration(registration)
                 .allocatedAmount(new BigDecimal("40000")).build();
         when(store.ledgers(any())).thenReturn(List.of(new RefundPaymentLedger(payment,List.of(allocation),List.of(),List.of())));
-        var prepared = service.preparePartial("test-marvelrun",null,
-                List.of(new AdminPaymentPartialRefundTarget("r","c",souvenirs,"1990-01-01",true)),command);
-        assertThat(prepared.refunds()).isEmpty();
-        assertThat(prepared.members().getFirst().additionalPaymentAmount()).isEqualByComparingTo("30000");
-        assertThat(registration.getBirth()).isEqualTo("1990-01-01");
-        assertThat(registration.getPaidAmount()).isEqualByComparingTo("40000");
-        assertThat(registration.getStatus()).isEqualTo(RegistrationStatus.ADDITIONAL_PAYMENT_REQUIRED);
-        verify(requirements).resolveAll(eq("test-marvelrun"),argThat(inputs -> !inputs.getFirst().child()));
+        assertThatThrownBy(() -> service.preparePartial("test-marvelrun",null,
+                List.of(new AdminPaymentPartialRefundTarget("r","c",souvenirs,"1990-01-01",true)),command))
+                .isInstanceOfSatisfying(CustomException.class, error -> assertThat(error.getErrorCode())
+                        .isEqualTo(ErrorCode.ADMIN_ADJUSTMENT_AGE_GROUP_TEMPORARILY_BLOCKED));
+        assertThat(registration.getBirth()).isEqualTo("2015-01-01");
+        assertThat(registration.getContractAmount()).isEqualByComparingTo("40000");
+        verifyNoInteractions(policies, requirements, movement, removal, allocations);
+        verify(store, never()).ledgers(any());
     }
 
     /** 원장이 부족하면 실제 계약·자원 변경 전에 거절한다. */
@@ -203,20 +204,17 @@ class AdminRefundPreparationServiceTest {
     /** 관리자 금액 입력 없이 종목·기념품 후보만 제공한다. */
     private AdminPaymentPartialRefundTarget target(Boolean keep) { return new AdminPaymentPartialRefundTarget("r", "c", souvenirs, keep); }
     /** 같은 생년월일 후보가 정책·가격·어린이 정원·신청 저장에 모두 사용된다. 일반 개인정보는 보존한다. */
+    /** 임시 차단 중에는 성인→어린이 변경을 정책 검증과 저장 전에 거절한다. */
     @Test
-    void birthCandidateFlowsThroughPolicyPriceCapacityAndEntity() {
-        when(category.getAmount()).thenReturn(new BigDecimal("70000"));
-        when(policies.validateAdminAdjustment(eq(event),anyList(),eq(now))).thenAnswer(invocation -> {
-            List<kr.co.teambrain.marvelrun.admin.event.command.application.valid.dto.RegistrationPolicyCandidateRequest> requests = invocation.getArgument(1);
-            assertThat(requests.getFirst().participant().birth()).isEqualTo("2015-01-01");
-            return List.of(new RegistrationPolicyCandidateResult(category,java.time.LocalDate.of(2015,1,1),souvenirs));
-        });
-        service.preparePartial("test-marvelrun",null,List.of(new AdminPaymentPartialRefundTarget("r","c",souvenirs,"2015-01-01",true)),command);
-        verify(pricing).calculateContractAmount(event,category,"2015-01-01");
-        verify(requirements).resolveAll(eq("test-marvelrun"),argThat(inputs -> inputs.size()==1 && inputs.getFirst().child()));
-        assertThat(registration.getBirth()).isEqualTo("2015-01-01");
-        assertThat(registration.getContractAmount()).isEqualByComparingTo("40000");
-        assertThat(registration.getPaidAmount()).isEqualByComparingTo("70000");
+    void adultToChildIsTemporarilyBlocked() {
+        assertThatThrownBy(() -> service.preparePartial("test-marvelrun",null,
+                List.of(new AdminPaymentPartialRefundTarget("r","c",souvenirs,"2015-01-01",true)),command))
+                .isInstanceOfSatisfying(CustomException.class, error -> assertThat(error.getErrorCode())
+                        .isEqualTo(ErrorCode.ADMIN_ADJUSTMENT_AGE_GROUP_TEMPORARILY_BLOCKED));
+        assertThat(registration.getBirth()).isEqualTo("1990-01-01");
+        assertThat(registration.getContractAmount()).isEqualByComparingTo("70000");
+        verifyNoInteractions(policies, requirements, movement, removal, allocations);
+        verify(store, never()).ledgers(any());
     }
     /** 단일 대상 원결제 계획 11개는 계약·정원·금융 쓰기 전에 차단한다. */
     @Test void batchRejectsElevenRefundPlansBeforeMutation() {
@@ -236,6 +234,26 @@ class AdminRefundPreparationServiceTest {
         assertThat(registration.getPaidAmount()).isEqualByComparingTo("70000");
         assertThat(registration.getStatus()).isEqualTo(RegistrationStatus.CONFIRMED);
         assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.CONSUMED);
+    }
+
+    /** 다른 종목의 서버 계산금액이 증가하면 원장 조회·자원 변경·저장 전에 거절한다. */
+    @Test
+    void categoryPriceIncreaseIsTemporarilyBlockedBeforeMutation() {
+        EventCategory next = mock(EventCategory.class);
+        when(next.getId()).thenReturn("next");
+        when(policies.validateAdminAdjustment(eq(event), anyList(), eq(now))).thenReturn(List.of(
+                new RegistrationPolicyCandidateResult(next, java.time.LocalDate.of(1990,1,1), souvenirs)));
+        doReturn(new BigDecimal("80000")).when(pricing).calculateContractAmount(eq(event), eq(next), anyString());
+        assertThatThrownBy(() -> service.preparePartial("test-marvelrun",null,
+                List.of(new AdminPaymentPartialRefundTarget("r","next",souvenirs,true)),command))
+                .isInstanceOfSatisfying(CustomException.class, error -> assertThat(error.getErrorCode())
+                        .isEqualTo(ErrorCode.ADMIN_ADJUSTMENT_CATEGORY_PRICE_INCREASE_TEMPORARILY_BLOCKED));
+        assertThat(registration.getEventCategory()).isSameAs(category);
+        assertThat(registration.getContractAmount()).isEqualByComparingTo("70000");
+        verifyNoInteractions(requirements, movement, removal, allocations);
+        verify(store, never()).ledgers(any());
+        verify(store, never()).save(any());
+        verify(store, never()).flush();
     }
 
 }

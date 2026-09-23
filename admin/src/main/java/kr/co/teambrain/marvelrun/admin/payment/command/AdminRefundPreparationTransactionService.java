@@ -93,6 +93,9 @@ public class AdminRefundPreparationTransactionService {
             for (Registration registration : registrations) {
                 AdminPaymentPartialRefundTarget target = requests.get(registration.getId());
                 if (target == null) { throw invalid(); }
+                AdminAdjustmentTemporaryBlock.validateBirthTransition(
+                        registration.getBirth(), target.birth() == null ? registration.getBirth() : target.birth(),
+                        event.getStartDate().toLocalDate());
                 policyInputs.add(new RegistrationPolicyCandidateRequest(target.eventCategoryId(), target.selectedSouvenirList(),
                         new RegistrationPolicyInput(target.birth() == null ? registration.getBirth() : target.birth(),
                         organization == null ? registration.getGuardianName() : organization.getLeaderName(),
@@ -122,6 +125,9 @@ public class AdminRefundPreparationTransactionService {
                 RegistrationPolicyCandidateResult checked = checkedById.get(registration.getId());
                 BigDecimal amount = pricing.calculateContractAmount(event, checked.eventCategory(), checked.birth().toString());
                 if (amount == null || amount.signum() < 0) { throw invalid(); }
+                AdminAdjustmentTemporaryBlock.validateCategoryPriceIncrease(
+                        registration.getEventCategory().getId(), checked.eventCategory().getId(),
+                        registration.getContractAmount(), amount);
                 candidates.add(new Candidate(registration, checked.eventCategory(), checked.souvenirJsons(), checked.birth().toString(), amount,
                         amount.signum() == 0 && Boolean.FALSE.equals(target.keepParticipationWhenZero())));
             }
