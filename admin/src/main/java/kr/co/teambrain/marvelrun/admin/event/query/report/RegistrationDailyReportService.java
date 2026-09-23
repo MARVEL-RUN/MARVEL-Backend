@@ -52,7 +52,7 @@ public class RegistrationDailyReportService {
     }
 
     /** 기본 접수 시작일~어제, 최대 366일의 표를 만들며 누계는 선택 시작일 이전도 포함한다. */
-    public RegistrationDailyReport getDailyPaymenterReport(String eventId, LocalDate requestedStart, LocalDate requestedEnd) {
+    public RegistrationDailyReport getDailyPaymenterExcelReport(String eventId, LocalDate requestedStart, LocalDate requestedEnd) {
         LocalDateTime generatedAt = LocalDateTime.now(clock.withZone(REPORT_ZONE));
         Event event = events.findById(eventId).orElseThrow(() -> new CustomException(ErrorCode.EVENT_NOT_FOUND));
         LocalDateTime openedAt = event.getRegistStartDate();

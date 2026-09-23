@@ -51,6 +51,17 @@ public class RegistrationDailyReportExcelWriter {
             response.setHeader("X-Content-Type-Options","nosniff");
             workbook.write(response.getOutputStream());
             response.getOutputStream().flush();
+        } catch (CustomException exception) {
+            /** 기존 업무 예외의 코드와 메시지는 보존한다. */
+            throw exception;
+
+        } catch (IOException | RuntimeException exception) {
+            /** 파일 생성·POI 처리 실패의 원인은 서버 로그에 보존한다. */
+//            log.error("일별 보고서 엑셀 생성 실패", exception);
+
+            throw new CustomException(
+                    ErrorCode.REPORT_EXCEL_GENERATION_FAILED
+            );
         } finally {
             workbook.dispose();
         }

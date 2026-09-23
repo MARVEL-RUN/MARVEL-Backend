@@ -170,6 +170,12 @@ public enum ErrorCode {
             "조회 종료일은 오늘 이후로 설정할 수 없습니다."
     ),
 
+    /** 엑셀 보고서 파일 생성에 실패한 경우 안내한다. */
+    REPORT_EXCEL_GENERATION_FAILED(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "엑셀 보고서 생성에 실패했습니다. 잠시 후 다시 시도해 주세요."
+    ),
+
     ;
 
 
