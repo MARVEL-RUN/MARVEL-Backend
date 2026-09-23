@@ -219,6 +219,9 @@ public class RegistrationQueryService {
                 .name(registration.getName())
                 .orgName(orgName)
                 .courseName(registration.getEventCategory().getName())
+                /** 수정 요청에 필요한 현재 종목 및 전체 기념품 선택값을 함께 제공한다. */
+                .eventCategoryId(registration.getEventCategory().getId())
+                .selectedSouvenirList(registration.getSouvenirJson())
                 .souvenirName(souvenirName)
                 .souvenirSize(souvenirSize)
                 .gender(registration.getGender() == GenderClass.M ? "남성" : "여성")
