@@ -64,19 +64,20 @@ public class RegistrationDailyReportService {
         LocalDate end = requestedEnd == null ? yesterday : requestedEnd;
 
 
-        /** 조회 시작일이 접수 시작일보다 빠르면 접수 시작일로 보정한다. */
-        if (start.isBefore(openedAt.toLocalDate())) {
-            start = openedAt.toLocalDate();
-        }
-
-        /** 오늘 이후의 조회 종료일은 별도 오류로 안내한다. */
-        if (end.isAfter(start)) {
+        //** 오늘 이후의 조회 종료일은 별도 오류로 안내한다. */
+        /** 조회 종료일이 오늘 이후이면 거절한다. */
+        if (end.isAfter(today)) {
             throw new CustomException(
                     ErrorCode.REPORT_END_DATE_AFTER_TODAY
             );
         }
 
-        /** 시작일과 종료일을 포함하여 최대 366일까지만 조회한다. */
+        /** 조회 시작일이 접수 시작일보다 빠르면 접수 시작일로 보정한다. */
+        if (start.isBefore(openedAt.toLocalDate())) {
+            start = openedAt.toLocalDate();
+        }
+
+        /** 보정된 조회 기간은 시작일과 종료일을 포함하여 최대 366일로 제한한다. */
         if (ChronoUnit.DAYS.between(start, end) >= 366) {
             throw new CustomException(
                     ErrorCode.REPORT_DATE_RANGE_INVALID

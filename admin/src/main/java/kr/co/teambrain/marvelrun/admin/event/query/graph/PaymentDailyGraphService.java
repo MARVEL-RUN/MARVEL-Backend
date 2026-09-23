@@ -59,34 +59,38 @@ public class PaymentDailyGraphService {
 
 
 
-        /** 조회 시작일이 접수 시작일보다 빠르면 접수 시작일로 보정한다. */
-        if (start.isBefore(openedAt.toLocalDate())) {
-            start = openedAt.toLocalDate();
-        }
-
-        /** 오늘 이후의 조회 종료일은 별도 오류로 안내한다. */
+        //** 오늘 이후의 조회 종료일은 별도 오류로 안내한다. */
+        /** 조회 종료일이 오늘 이후이면 거절한다. */
         if (end.isAfter(today)) {
             throw new CustomException(
                     ErrorCode.REPORT_END_DATE_AFTER_TODAY
             );
         }
 
-        /** 시작일과 종료일을 포함하여 최대 366일까지만 조회한다. */
+        /** 조회 시작일이 접수 시작일보다 빠르면 접수 시작일로 보정한다. */
+        if (start.isBefore(openedAt.toLocalDate())) {
+            start = openedAt.toLocalDate();
+        }
+
+        /** 보정된 조회 기간은 시작일과 종료일을 포함하여 최대 366일로 제한한다. */
         if (ChronoUnit.DAYS.between(start, end) >= 366) {
             throw new CustomException(
                     ErrorCode.REPORT_DATE_RANGE_INVALID
             );
         }
-
         // plus days 1을 해야 23:59 까지 해당 일지 집계가능
+        // 유료결제 하루단위 신청수를 저장하는 제네릭의 리스트 집합을 사용
         List<PaymentDailyGraphRepository.DailyCount> rows = repository.findDailyCounts(
                 eventId, openedAt, end.plusDays(1).atStartOfDay(), offsetMinutes);
-
+            
+        // 일단위 카운트 적재할 Map
         Map<LocalDate, Long> counts = new HashMap<>();
-
+        
+        // 일별 카운팅 진행
         long opening = 0;
-
         for (PaymentDailyGraphRepository.DailyCount row : rows) {
+
+            //
             if (row.date().isBefore(start)) {
                 opening += row.count();
             } else {
@@ -94,8 +98,11 @@ public class PaymentDailyGraphService {
             }
         }
 
-        long cumulative = opening;
-
+        
+        // 일단위로 카운팅된 내역을 집계하여 누계로 사용한다
+        
+        long cumulative = opening; // 누계
+        
         List<PaymentDailyGraphResponse.Day> days = new ArrayList<>();
         for (LocalDate date = start; !date.isAfter(end); date = date.plusDays(1)) {
             long count = counts.getOrDefault(date, 0L);
