@@ -45,7 +45,7 @@ public class PaymentDailyGraphService {
         this.offsetMinutes = (ZoneOffset.ofHours(9).getTotalSeconds() - storedOffset.getTotalSeconds()) / 60;
     }
 
-    /** 기본 범위는 접수 시작일~어제이며 누계의 시작점은 대회 접수 시작. */
+    /** 기본 범위는 접수 시작일~금일이며 누계의 시작점은 대회 접수 시작. */
     public PaymentDailyGraphResponse getPaymentDailyGraph(String eventId, LocalDate requestedStart, LocalDate requestedEnd) {
         Event event = events.findById(eventId)
                 .orElseThrow(() -> new CustomException(ErrorCode.EVENT_NOT_FOUND));
@@ -53,7 +53,7 @@ public class PaymentDailyGraphService {
         if (openedAt == null) {
             throw new CustomException(ErrorCode.REPORT_CONFIGURATION_INVALID);
         }
-        LocalDate today = LocalDate.now(clock.withZone(REPORT_ZONE)).minusDays(1);
+        LocalDate today = LocalDate.now(clock.withZone(REPORT_ZONE));
         LocalDate start = requestedStart == null ? openedAt.toLocalDate() : requestedStart;
         LocalDate end = requestedEnd == null ? today : requestedEnd;
 
