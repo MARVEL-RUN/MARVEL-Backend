@@ -428,14 +428,29 @@
   }
 
   function initPayment() {
-    const order = MR.order();
     let widgets = null, methodWidget = null, agreementWidget = null, mountedOrderId = null, callback = null;
     const cfg = MR.config();
     $('paymentVariant').value = cfg.paymentVariant;
     $('agreementVariant').value = cfg.agreementVariant;
-    $('orderView').textContent = order ? MR.pretty(order) : '준비된 주문 없음';
-    $('mount').disabled = !order;
-    $('pay').disabled = true;
+
+    function currentOrder() { return MR.order(); }
+
+    function syncPaymentState() {
+      const order = currentOrder();
+      const attempted = Boolean(order?.attemptedAt);
+      $('orderView').textContent = order ? MR.pretty(MR.mask(order)) : '준비된 주문 없음';
+      $('mount').disabled = !order || attempted;
+      $('pay').disabled = !order || attempted || !widgets || mountedOrderId !== order?.orderId;
+      $('confirm').disabled = !callback;
+      if (order && attempted && !callback) {
+        $('status').textContent = '이 orderId는 Toss 결제 요청을 이미 한 번 시작했습니다. 같은 주문번호로 다시 결제하지 않습니다. 결과를 조회하거나 결제 주문 재준비 페이지를 사용하세요.';
+      }
+    }
+
+    async function runPaymentApi(fn) {
+      await MR.runApi(fn);
+      syncPaymentState();
+    }
 
     $('saveVariants').onclick = () => {
       MR.saveConfig({...MR.config(), paymentVariant:$('paymentVariant').value, agreementVariant:$('agreementVariant').value});
@@ -446,11 +461,13 @@
       try { if (methodWidget) await methodWidget.destroy(); } catch {}
       try { if (agreementWidget) await agreementWidget.destroy(); } catch {}
       widgets = methodWidget = agreementWidget = null; mountedOrderId = null;
-      $('payment-methods').replaceChildren(); $('agreement').replaceChildren(); $('pay').disabled = true;
+      $('payment-methods').replaceChildren(); $('agreement').replaceChildren();
     }
 
-    $('mount').onclick = () => MR.runApi(async () => {
-      const current = MR.order(); if (!current) throw new Error('준비된 서버 주문이 없습니다.');
+    $('mount').onclick = async () => runPaymentApi(async () => {
+      const current = currentOrder();
+      if (!current) throw new Error('준비된 서버 주문이 없습니다.');
+      if (current.attemptedAt) throw new Error('이 orderId는 이미 Toss 결제를 시도했습니다. 같은 주문번호를 재사용하지 말고 결과 조회/재준비를 사용하세요.');
       const key = $('clientKey').value.trim();
       if (!key.startsWith('test_gck_')) throw new Error('Toss 테스트 결제위젯 클라이언트 키(test_gck_...)를 입력하세요.');
       if (typeof TossPayments !== 'function') throw new Error('Toss SDK를 불러오지 못했습니다. 네트워크/CSP를 확인하세요.');
@@ -459,18 +476,22 @@
       await widgets.setAmount({currency:'KRW', value:Number(current.amount)});
       methodWidget = await widgets.renderPaymentMethods({selector:'#payment-methods',variantKey:$('paymentVariant').value.trim() || 'DEFAULT'});
       agreementWidget = await widgets.renderAgreement({selector:'#agreement',variantKey:$('agreementVariant').value.trim() || 'AGREEMENT'});
-      mountedOrderId = current.orderId; $('pay').disabled = false;
+      mountedOrderId = current.orderId;
       MR.report('결제수단과 약관 UI를 표시했습니다.');
     });
 
-    $('pay').onclick = () => MR.runApi(async () => {
-      const current = MR.order();
+    $('pay').onclick = async () => runPaymentApi(async () => {
+      const current = currentOrder();
       if (!widgets || !current || mountedOrderId !== current.orderId) throw new Error('결제수단을 먼저 표시하세요.');
+      if (current.attemptedAt) throw new Error('이 orderId는 이미 Toss 결제를 시도했습니다. 같은 주문번호를 다시 사용할 수 없습니다.');
       if (!/^https?:$/.test(location.protocol)) throw new Error('Toss 결제 복귀를 위해 HTTP(S) 주소에서 이 파일을 열어야 합니다.');
       const success = new URL(location.href); const fail = new URL(location.href);
       success.search = ''; fail.search = '';
       success.searchParams.set('paymentResult','success'); fail.searchParams.set('paymentResult','fail');
-      MR.write('pendingPayment',{...current, confirmUrl:MR.api('/v1/public/payments/confirm')});
+      const attemptedOrder = {...current, attemptedAt:new Date().toISOString(), attemptState:'REQUESTED'};
+      MR.write('order', attemptedOrder);
+      MR.write('pendingPayment',{...attemptedOrder, confirmUrl:MR.api('/v1/public/payments/confirm')});
+      syncPaymentState();
       await widgets.requestPayment({orderId:current.orderId,orderName:current.orderName,successUrl:success.href,failUrl:fail.href});
     });
 
@@ -479,7 +500,10 @@
       if (!q.has('paymentResult')) return;
       const pending = MR.read('pendingPayment');
       if (q.get('paymentResult') === 'fail') {
-        $('callback').textContent = 'Toss 인증 실패/취소: ' + (q.get('code') || '') + ' ' + (q.get('message') || '') + '\n실패 URL만으로 서버 Payment 상태를 FAILED라고 단정하지 마세요.';
+        if (pending) MR.write('order', {...pending, attemptState:'FAILED_OR_CANCELED'});
+        $('callback').textContent = 'Toss 인증 실패/취소: ' + (q.get('code') || '') + ' ' + (q.get('message') || '') + '\n같은 orderId를 이 페이지에서 다시 사용하지 않습니다. 서버 상태를 조회한 뒤 필요하면 결제 주문 재준비를 사용하세요.';
+        callback = null;
+        syncPaymentState();
         return;
       }
       const paymentKey = q.get('paymentKey');
@@ -487,28 +511,41 @@
       const amount = Number(q.get('amount'));
       if (!pending || !paymentKey || orderId !== pending.orderId || amount !== Number(pending.amount)) {
         $('callback').textContent = '저장된 서버 주문과 Toss 복귀 정보가 일치하지 않습니다. 승인하지 마세요.';
+        callback = null;
+        syncPaymentState();
         return;
       }
+      MR.write('order', {...pending, attemptState:'AUTHENTICATED'});
       callback = {paymentKey,orderId,amount};
       $('callback').textContent = 'Toss 인증 복귀 확인\norderId=' + orderId + '\namount=' + amount.toLocaleString() + '원\n아래 백엔드 승인 버튼을 눌러야 결제가 완료됩니다.';
-      $('confirm').disabled = false;
+      syncPaymentState();
     }
 
-    $('confirm').onclick = () => MR.runApi(async () => {
+    $('confirm').onclick = async () => runPaymentApi(async () => {
       if (!callback) throw new Error('유효한 Toss 성공 복귀 정보가 없습니다.');
-      $('confirm').disabled = true;
       const data = await MR.request('/v1/public/payments/confirm','POST',callback);
       MR.write('lastPaymentConfirm', data);
       MR.storeTarget('paymentId', data.paymentId);
       if (data.registrationId) MR.storeTarget('registrationId',data.registrationId);
       if (data.organizationId) MR.storeTarget('organizationId',data.organizationId);
       $('confirmResult').textContent = MR.pretty(MR.mask(data));
-      MR.report('백엔드 승인 응답을 받았습니다. processStatus / tossStatus / registrationStatus를 확인하세요.');
+      if (data.processStatus === 'COMPLETED') {
+        callback = null;
+        MR.clearOrder();
+        await destroy();
+        $('callback').textContent += '\n\n승인 완료: 사용한 주문을 테스트 도구에서 제거했습니다. 다음 결제는 새 신청/수정/추가결제 준비에서 새 orderId를 받아 진행하세요.';
+        MR.report('백엔드 승인 완료. 사용한 orderId를 재사용하지 않도록 현재 주문을 제거했습니다.');
+      } else {
+        const order = currentOrder();
+        if (order) MR.write('order', {...order, attemptState:'CONFIRM_RESULT_' + (data.processStatus || 'UNKNOWN')});
+        MR.report('백엔드 승인 응답을 받았습니다. processStatus / tossStatus / registrationStatus를 확인하세요. 같은 orderId로 새 결제를 열지 않습니다.');
+      }
     });
 
     $('clearOrder').onclick = () => { if (confirm('현재 테스트 도구에 저장된 주문/복귀값만 지울까요? 서버 Payment는 삭제되지 않습니다.')) { MR.clearOrder(); location.reload(); } };
     setEndpoint('POST','/v1/public/payments/confirm');
     readCallback();
+    syncPaymentState();
   }
 
   const INIT = {

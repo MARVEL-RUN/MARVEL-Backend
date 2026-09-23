@@ -79,3 +79,10 @@ Toss 테스트 Client Key(`test_gck_...`)는 `payment.html`에서만 직접 입�
 - Toss 성공 redirect만으로 결제 완료가 아닙니다. `payment.html`에서 백엔드 confirm 응답까지 확인하세요.
 - `CONFIRMING`, `UNKNOWN`, 환불 `PROCESSING`, `UNKNOWN`은 실패 확정으로 간주하지 마세요.
 - 이 도구는 Payment/Allocation을 DB에 직접 삽입하지 않습니다.
+
+## 결제 orderId 재사용 방지
+
+- Toss `orderId`는 결제마다 고유해야 하며, 승인/취소된 주문번호를 다시 결제에 사용하지 않습니다.
+- `payment.html`은 Toss `requestPayment()` 호출 직전에 해당 주문을 `attemptedAt` 상태로 기록하고 같은 주문의 결제 버튼을 차단합니다.
+- 승인 `COMPLETED` 후에는 테스트 도구의 현재 주문을 제거합니다. 다음 결제는 새 신청/수정/추가결제 준비/재준비 API에서 받은 새 주문으로 진행합니다.
+- 실패·취소 복귀 후에도 화면에서 동일 orderId를 즉시 재사용하지 않습니다. 사용자 조회로 서버 상태를 확인한 후 `payment-retry.html`을 사용합니다.
