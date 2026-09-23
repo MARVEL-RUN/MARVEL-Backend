@@ -78,6 +78,10 @@ public class JwtFilter
                 "/v3/api-docs/**",
                 path
         )
+                || pathMatcher.match(
+                "/test-page/**",
+                path
+        )
                 || path.equals(
                 "/v1/admin/login"
         )

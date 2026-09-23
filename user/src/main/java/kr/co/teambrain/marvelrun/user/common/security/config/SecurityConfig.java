@@ -68,7 +68,7 @@ public class SecurityConfig {
                                                 "/public/**",
                                                 "/v1/admin/login",
                                                 "/v1/admin/refresh",
-                                                "/marvelrun-flow-test.html"
+                                                "/test-page/**"
                                         )
                                         .permitAll()
 

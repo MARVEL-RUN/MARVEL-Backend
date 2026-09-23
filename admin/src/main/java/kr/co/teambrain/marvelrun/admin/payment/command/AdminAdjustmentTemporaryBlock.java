@@ -14,11 +14,12 @@ import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
  * TODO: 기념품 정책/관리자 화면 및 추가 결제 검증 후 아래 스위치를 각각 false로 바꾸고 재배포한다.
  * 영구 참가 정책이나 사용자 결제 준비를 변경하지 않는다.
  */
+/** 테스트 서버 검증 재개를 위해 두 임시 차단을 해제한 상태이다. 배포 환경별 자동 분기는 없다. */
 public final class AdminAdjustmentTemporaryBlock {
     /** 기념품 정책 재적용 및 관리자 화면 대응까지 어른↔어린이 전환을 중단한다. */
-    private static final boolean BLOCK_AGE_GROUP_CHANGE = true;
+    private static final boolean BLOCK_AGE_GROUP_CHANGE = false;
     /** 종목 변경으로 변경 전 계약금액보다 금액이 커지는 경우만 중단한다. */
-    private static final boolean BLOCK_CATEGORY_PRICE_INCREASE = true;
+    private static final boolean BLOCK_CATEGORY_PRICE_INCREASE = false;
 
     /** 인스턴스 생성이 필요 없는 공통 가드이다. */
     private AdminAdjustmentTemporaryBlock() { }
