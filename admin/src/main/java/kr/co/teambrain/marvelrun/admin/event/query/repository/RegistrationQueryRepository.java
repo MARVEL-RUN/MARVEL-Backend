@@ -35,6 +35,7 @@ public interface RegistrationQueryRepository extends JpaRepository<Registration,
             r.birth,
             c.name, 
             r.contractAmount,
+            r.paidAmount,
             coalesce((select p.paymentMethod
              from Payment p
              left join p.registration directRegistration

@@ -100,6 +100,7 @@ class RegistrationStatisticsDatabaseTest {
         for (PaymentProcessStatus status : List.of(PaymentProcessStatus.READY,PaymentProcessStatus.UNKNOWN,PaymentProcessStatus.FAILED)) {
             Registration member = registration(true,GenderClass.M,"1990-01-01");
             payment(List.of(member),true,PaymentMethod.CARD,status,0);
+            jdbc.update("update registration set paid_amount=0,status='PAYMENT_PENDING' where id=?",member.getId());
         }
         totals(statistics(),3,0,0,0,0,3);
     }
@@ -162,7 +163,7 @@ class RegistrationStatisticsDatabaseTest {
         payment(List.of(member),true,PaymentMethod.CARD,PaymentProcessStatus.COMPLETED,0);
         payment(List.of(member),true,PaymentMethod.EASY_PAY,PaymentProcessStatus.COMPLETED,1);
         removeAllocations(member);
-        totals(statistics(),1,0,0,0,0,1);
+        totals(statistics(),1,1,0,0,0,1);
     }
 
     /** 테스트 트랜잭션 안에서만 귀속 누락 상태를 재현하고 종료 시 함께 롤백한다. */
@@ -172,6 +173,70 @@ class RegistrationStatisticsDatabaseTest {
             jdbc.update("delete from payment_allocation where registration_id=?",member.getId());
         }
         em.clear();
+    }
+
+    /** 원결제 COMPLETED가 남아 있어도 취소완료는 모든 현재 집계에서 제외한다. */
+    @Test
+    void canceledAfterFullRefundIsExcludedForPersonalAndGroup() {
+        Registration personal = registration(false,GenderClass.M,"1990-01-01");
+        Registration group = registration(true,GenderClass.F,"1990-01-01");
+        payment(List.of(personal),false,PaymentMethod.CARD,PaymentProcessStatus.COMPLETED,0);
+        payment(List.of(group),true,PaymentMethod.EASY_PAY,PaymentProcessStatus.COMPLETED,0);
+        for (Registration member : List.of(personal,group)) {
+            jdbc.update("update registration set paid_amount=0,status='CANCELED' where id=?",member.getId());
+        }
+        totals(statistics(),0,0,0,0,0,0);
+    }
+
+    /** 참가를 유지해도 전액 환불 후 잔액 0이면 과거 결제수단을 입금자로 세지 않는다. */
+    @Test
+    void zeroBalanceWithCompletedPaymentIsNotPaid() {
+        Registration member = registration(true,GenderClass.M,"1990-01-01");
+        payment(List.of(member),true,PaymentMethod.CARD,PaymentProcessStatus.COMPLETED,0);
+        jdbc.update("update registration set paid_amount=0,contract_amount=0 where id=?",member.getId());
+        totals(statistics(),1,0,0,0,0,1);
+    }
+
+    /** 부분환불 후 잔액이 있으면 개인·단체 모두 현재 입금자로 유지한다. */
+    @Test
+    void partialRefundRetainsPaidParticipantWithPositiveBalance() {
+        Registration personal = registration(false,GenderClass.M,"1990-01-01");
+        Registration group = registration(true,GenderClass.F,"1990-01-01");
+        payment(List.of(personal),false,PaymentMethod.CARD,PaymentProcessStatus.COMPLETED,0);
+        payment(List.of(group),true,PaymentMethod.EASY_PAY,PaymentProcessStatus.COMPLETED,0);
+        for (Registration member : List.of(personal,group)) {
+            jdbc.update("update registration set paid_amount=40000,contract_amount=40000 where id=?",member.getId());
+        }
+        totals(statistics(),2,2,1,1,1,1);
+    }
+
+    /** 취소 요청만으로 환불 완료를 가정하지 않으며 잔액이 남아 있으면 집계한다. */
+    @Test
+    void cancellationPendingStillHasMoneyUntilRefundApplied() {
+        Registration member = registration(true,GenderClass.M,"1990-01-01");
+        payment(List.of(member),true,PaymentMethod.CARD,PaymentProcessStatus.COMPLETED,0);
+        jdbc.update("update registration set status='CANCELLATION_PENDING' where id=?",member.getId());
+        totals(statistics(),1,1,1,0,0,1);
+    }
+
+    /** 추가금 미납은 기존 납부액이 사라진 것이 아니므로 입금자를 유지한다. */
+    @Test
+    void additionalPaymentRequiredRetainsExistingPaidBalance() {
+        Registration member = registration(true,GenderClass.M,"1990-01-01");
+        payment(List.of(member),true,PaymentMethod.CARD,PaymentProcessStatus.COMPLETED,0);
+        jdbc.update("update registration set contract_amount=90000,status='ADDITIONAL_PAYMENT_REQUIRED' where id=?",member.getId());
+        totals(statistics(),1,1,1,0,0,1);
+    }
+
+    /** 만료·취소완료 상태는 잘못 남은 양수 잔액이 있어도 현재 참가 집계에 섞지 않는다. */
+    @Test
+    void terminalStatusesAreExcludedEvenWithStalePositiveBalance() {
+        Registration expired = registration(true,GenderClass.M,"1990-01-01");
+        Registration canceled = registration(true,GenderClass.F,"1990-01-01");
+        payment(List.of(expired,canceled),true,PaymentMethod.CARD,PaymentProcessStatus.COMPLETED,0);
+        jdbc.update("update registration set status='EXPIRED' where id=?",expired.getId());
+        jdbc.update("update registration set status='CANCELED' where id=?",canceled.getId());
+        totals(statistics(),0,0,0,0,0,0);
     }
 
     /** PG 호출 없이 실제 엔티티와 귀속 원장을 저장한다. */
