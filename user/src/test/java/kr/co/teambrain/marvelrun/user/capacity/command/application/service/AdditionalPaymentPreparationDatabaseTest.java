@@ -8,6 +8,8 @@ import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.util.AopTestUtils;
+import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentAllocationCreator;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -79,9 +81,13 @@ class AdditionalPaymentPreparationDatabaseTest extends CapacityMvpTestSupport {
         var initial = personal(categoryA,"S","1990-01-01");
         mockApprovalSuccess(); payments.confirm(confirmRequest(initial.paymentId()));
         String id = initial.registrationId(); due(id,70000);
-        doThrow(new IllegalStateException("fixture allocation failure")).when(paymentAllocationCreator).create(any(),anyList());
+        /** 실패 주입만 프록시 내부 Spy에 설정하고, 실제 주문 준비는 서비스 트랜잭션을 통한다. */
+        PaymentAllocationCreator allocationSpy = AopTestUtils.getUltimateTargetObject(paymentAllocationCreator);
+        assertThat(mockingDetails(allocationSpy).isSpy()).isTrue();
+        doThrow(new IllegalStateException("fixture allocation failure")).when(allocationSpy).create(any(),anyList());
         clearInvocations(toss);
-        assertThatThrownBy(() -> additional.preparePersonal(eventId,id,access(id))).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> additional.preparePersonal(eventId,id,access(id)))
+                .isInstanceOf(IllegalStateException.class).hasMessage("fixture allocation failure");
         assertThat(n("select count(*) from payment where registration_id=?",id)).isEqualTo(1);
         assertThat(s("select status from registration where id=?",id)).isEqualTo("ADDITIONAL_PAYMENT_REQUIRED");
         counters(total,0,1); verifyNoInteractions(toss);

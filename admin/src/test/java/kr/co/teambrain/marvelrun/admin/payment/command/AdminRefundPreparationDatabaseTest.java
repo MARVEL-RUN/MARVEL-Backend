@@ -1127,7 +1127,10 @@ class AdminRefundPreparationDatabaseTest {
     @Test
     void adjustmentEvidenceFailureRollsBackBusinessChange() {
         jdbc.update("update event_category set amount=90000 where id=?",categoryB);
-        doThrow(new IllegalStateException("fixture evidence failure")).when(store).recordAdjustmentPrepared(any(),any());
+        // 실패 설정만 실제 spy에 적용하고, 업무 실행은 기존 트랜잭션 프록시를 통한다.
+        AdminRefundPreparationStore storeSpy = AopTestUtils.getUltimateTargetObject(store);
+        assertThat(mockingDetails(storeSpy).isSpy()).isTrue();
+        doThrow(new IllegalStateException("fixture evidence failure")).when(storeSpy).recordAdjustmentPrepared(any(),any());
         var result = batches.partial(eventId,"fixture-admin",
                 new kr.co.teambrain.marvelrun.admin.payment.command.dto.AdminPaymentPartialRefundRequest(id(),"원자성",List.of(target(true))));
         assertThat(result.items().getFirst().status()).isEqualTo("NEEDS_REVIEW");
