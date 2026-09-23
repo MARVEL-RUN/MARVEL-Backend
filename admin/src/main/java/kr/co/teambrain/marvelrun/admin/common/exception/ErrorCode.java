@@ -155,6 +155,17 @@ public enum ErrorCode {
     PRICE_TIER_CHANGE_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "생년월일 변경으로 참가비가 달라집니다. 신청 정보·금액 조정 기능으로 변경해 주세요. 차액은 환불 또는 추가 납부로 처리됩니다."),
     DUPLICATE_REGISTRATION(HttpStatus.BAD_REQUEST, "동일한 정보(이름, 연락처, 생년월일)를 가진 다른 활성 참가자가 이미 존재합니다."),
     DUPLICATE_GROUP_NAME(HttpStatus.BAD_REQUEST, "이미 해당 대회에 동일한 이름의 단체가 존재합니다."),
+
+    // 통계관련
+    /** 통계 조회 범위는 접수 시작 이후부터 오늘까지 최대 366일이다. */
+    REPORT_DATE_RANGE_INVALID(HttpStatus.BAD_REQUEST, "조회 기간은 접수 시작일부터 오늘 사이의 최대 366일이어야 합니다."),
+    /** 누적 집계의 기준 시각인 접수 시작일이 없는 대회이다. */
+    REPORT_CONFIGURATION_INVALID(HttpStatus.CONFLICT, "대회 접수 시작일을 확인해주세요."),
+    /** 일별 엑셀 보고는 오늘을 제외한 접수 시작일~어제의 최대 366일을 허용한다. */
+    REPORT_EXCEL_DATE_RANGE_INVALID(HttpStatus.BAD_REQUEST,
+            "엑셀 조회 기간은 접수 시작일부터 어제 사이의 최대 366일이어야 합니다."),
+
+
     ;
 
 
