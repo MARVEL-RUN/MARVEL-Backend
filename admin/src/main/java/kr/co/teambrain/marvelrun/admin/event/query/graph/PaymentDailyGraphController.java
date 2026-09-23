@@ -23,7 +23,7 @@ public class PaymentDailyGraphController {
     @Operation(
             summary = "일별 결제자 그래프 조회",
             description = "최초 결제일별 현재 유효 결제자 수와 누계를 조회합니다. 추가결제는 중복 집계하지 않으며, 취소·전액환불 시 과거 수치에도 반영됩니다.")
-    public PaymentDailyGraphResponse get(
+    public PaymentDailyGraphResponse getPaymentDetailGraph(
             @PathVariable("eventId") String eventId,
             @RequestParam(value = "startDate", required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,

@@ -165,6 +165,10 @@ public enum ErrorCode {
     REPORT_EXCEL_DATE_RANGE_INVALID(HttpStatus.BAD_REQUEST,
             "엑셀 조회 기간은 접수 시작일부터 어제 사이의 최대 366일이어야 합니다."),
 
+    REPORT_END_DATE_AFTER_TODAY(
+            HttpStatus.BAD_REQUEST,
+            "조회 종료일은 오늘 이후로 설정할 수 없습니다."
+    ),
 
     ;
 

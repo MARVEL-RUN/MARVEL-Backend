@@ -81,7 +81,7 @@ public class RegistrationExcelController {
             @RequestParam(value = "mode", defaultValue = "BOTH") ReportExcelMode mode,
             HttpServletResponse response
     ) throws IOException {
-        RegistrationDailyReport report = registrationDailyReportService.get(eventId, startDate, endDate);
+        RegistrationDailyReport report = registrationDailyReportService.getDailyPaymenterReport(eventId, startDate, endDate);
         registrationDailyReportExcelWriter.write(report, mode, response);
     }
 

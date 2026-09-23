@@ -945,6 +945,7 @@ public class PaymentConfirmTransactionService {
             }
         }
     }
+
     /** 성공 확정과 동일한 응답 검증을 사용하되 불일치 응답을 외부 성공으로 기록하지 않는다. */
     private static java.util.Map<String, Object> confirmComparison(PaymentConfirmContext context,
             TossPaymentConfirmResponse response, String localState, boolean localTargetReached) {
