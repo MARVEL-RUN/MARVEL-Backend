@@ -66,7 +66,7 @@ public class RegistrationDailyReportService {
 
         //** 오늘 이후의 조회 종료일은 별도 오류로 안내한다. */
         /** 조회 종료일이 오늘 이후이면 거절한다. */
-        if (end.isAfter(today)) {
+        if (end.isAfter(generatedAt.toLocalDate())) {
             throw new CustomException(
                     ErrorCode.REPORT_END_DATE_AFTER_TODAY
             );
