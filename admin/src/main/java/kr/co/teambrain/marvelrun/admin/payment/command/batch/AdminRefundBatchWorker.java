@@ -34,12 +34,25 @@ public class AdminRefundBatchWorker {
             prepared = work.operation() == Operation.FULL
                     ? preparation.prepareFull(work.eventId(),target.organizationId(),List.of(target.registrationId()),context)
                     : preparation.preparePartial(work.eventId(),target.organizationId(),List.of(target.change()),context);
-            store.prepared(work,prepared);
+            // 정보 변경은 준비 트랜잭션 안에서 이미 원자적으로 저장했다.
+            if (work.operation() == Operation.FULL) { store.prepared(work,prepared); }
         } catch (RuntimeException error) {
             String code = error instanceof CustomException custom ? custom.getErrorCode().name() : "PREPARATION_OR_JOURNAL_ERROR";
             // 준비가 커밋되었거나 커밋 결과가 모호한 경우 환불을 새로 시작하지 않는다.
             String status = prepared == null && error instanceof CustomException ? "BLOCKED" : "NEEDS_REVIEW";
-            return finish(work,status,code,prepared == null ? null : Map.of("preparation",prepared));
+            Map<String,Object> detail = new java.util.LinkedHashMap<>();
+            detail.put("message", error instanceof CustomException ? error.getMessage()
+                    : "처리 결과를 확정하지 못했습니다. 같은 요청 ID로 조회하고 확인해 주세요.");
+            if (prepared != null) { detail.put("preparation", prepared); }
+            return finish(work,status,code,detail);
+        }
+        if (prepared.refunds().isEmpty() && work.operation() == Operation.PARTIAL) {
+            // 업무 변경은 이미 커밋되었다. 환불이 없다고 실패 처리하거나 PG 실행기를 호출하지 않는다.
+            boolean additional = prepared.members().stream().anyMatch(AdminRefundPrepared.Member::additionalPaymentRequired);
+            return finish(work, "SUCCEEDED", null, Map.of("members", prepared.members(), "refunds", List.of(),
+                    "orders", List.of(), "message", additional
+                            ? "신청 정보 수정 완료. 추가 납부가 필요합니다. 대상자에게 금액과 변경 사유를 안내해 주세요."
+                            : "신청 정보 수정 완료. 추가 결제 또는 환불이 없습니다."));
         }
         AdminRefundExecutionService.Result result;
         try {

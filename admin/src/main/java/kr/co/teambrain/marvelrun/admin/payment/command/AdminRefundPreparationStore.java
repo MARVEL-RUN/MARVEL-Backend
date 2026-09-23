@@ -22,6 +22,7 @@ import kr.co.teambrain.marvelrun.admin.payment.command.application.dto.RefundPay
 @Transactional(propagation = Propagation.MANDATORY)
 public class AdminRefundPreparationStore {
     private final EntityManager entityManager;
+    private final com.fasterxml.jackson.databind.ObjectMapper mapper;
     private static final int MAX_ALLOCATION_ROWS = 5000;
 
     /** 잠긴 엔티티를 refresh하여 영속성 컨텍스트의 과거 값을 사용하지 않는다. */
@@ -78,5 +79,19 @@ public class AdminRefundPreparationStore {
     public void log(PaymentProcessLog log) { entityManager.persist(log); }
     /** 데이터 제약 실패도 준비 전체를 롤백시킨다. */
     public void flush() { entityManager.flush(); }
+    /** 배치 대상의 변경 스냅샷을 신청 변경과 원자적으로 기록한다. 금융 시도를 새로 만들지 않는다. */
+    public void recordAdjustmentPrepared(AdminRefundCommandContext command, AdminRefundPrepared prepared) {
+        if (command.batchId() == null) { return; }
+        try {
+            int count = entityManager.createNativeQuery("""
+                    update admin_refund_batch_item set preparation_json=:body
+                    where batch_id=:batch and item_no=:item and status='RUNNING'
+                    """).setParameter("body", mapper.writeValueAsString(prepared))
+                    .setParameter("batch", command.batchId()).setParameter("item", command.batchItemNo()).executeUpdate();
+            if (count != 1) { throw invalid(); }
+        } catch (com.fasterxml.jackson.core.JsonProcessingException error) {
+            throw new IllegalStateException("관리자 변경 증거 직렬화 실패", error);
+        }
+    }
     private static CustomException invalid() { return new CustomException(ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR); }
 }

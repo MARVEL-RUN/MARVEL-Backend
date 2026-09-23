@@ -49,7 +49,7 @@ public class AdminRefundPreparationTransactionService {
         return prepare(eventId, organizationId, registrationIds, null, command);
     }
 
-    /** 결제액 부분환불은 정책으로 계산하며 수기 금액 입력을 받지 않는다. */
+    /** 관리자 정보 변경의 환불·추가 납부·동일 금액을 서버 가격으로 계산한다. 추가 주문은 만들지 않는다. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public AdminRefundPrepared preparePartial(String eventId, String organizationId,
             List<AdminPaymentPartialRefundTarget> targets, AdminRefundCommandContext command) {
@@ -65,7 +65,8 @@ public class AdminRefundPreparationTransactionService {
     private AdminRefundPrepared prepare(String eventId, String organizationId, List<String> ids,
             List<AdminPaymentPartialRefundTarget> targets, AdminRefundCommandContext command) {
         Objects.requireNonNull(command, "관리자 추적정보");
-        AdminRefundLockedScope scope = access.lock(eventId, organizationId, ids);
+        AdminRefundLockedScope scope = targets == null ? access.lock(eventId, organizationId, ids)
+                : access.lockAdjustment(eventId, organizationId, ids);
         LocalDateTime now = time.now();
         Event event = store.current(Event.class, eventId);
         Organization organization = organizationId == null ? null : store.current(Organization.class, organizationId);
@@ -88,20 +89,20 @@ public class AdminRefundPreparationTransactionService {
         Map<String, RegistrationPolicyCandidateResult> checkedById = new HashMap<>();
         if (targets != null) {
             if (event.getStartDate() == null) { throw invalid(); }
-            if (organization != null) {
-                policies.validateStoredLeader(organization.getLeaderBirth(), event.getStartDate().toLocalDate(), now.toLocalDate());
-            }
             List<RegistrationPolicyCandidateRequest> policyInputs = new ArrayList<>();
             for (Registration registration : registrations) {
                 AdminPaymentPartialRefundTarget target = requests.get(registration.getId());
                 if (target == null) { throw invalid(); }
+                AdminAdjustmentTemporaryBlock.validateBirthTransition(
+                        registration.getBirth(), target.birth() == null ? registration.getBirth() : target.birth(),
+                        event.getStartDate().toLocalDate());
                 policyInputs.add(new RegistrationPolicyCandidateRequest(target.eventCategoryId(), target.selectedSouvenirList(),
                         new RegistrationPolicyInput(target.birth() == null ? registration.getBirth() : target.birth(),
                         organization == null ? registration.getGuardianName() : organization.getLeaderName(),
                         organization == null ? registration.isGuardianConsent() : organization.isGuardianConsent())));
             }
-            // 같은 종목의 기념품/정책을 묶어서 조회하는 기존 사용자 구현을 재사용한다.
-            List<RegistrationPolicyCandidateResult> checked = policies.validateAll(event, policyInputs, now);
+            // 관리자 전용 후보 검증은 참가 정책을 제외하고 소속·실제 선택값·날짜 형식을 검증한다.
+            List<RegistrationPolicyCandidateResult> checked = policies.validateAdminAdjustment(event, policyInputs, now);
             if (checked.size() != registrations.size()) { throw invalid(); }
             for (int i = 0; i < registrations.size(); i++) { checkedById.put(registrations.get(i).getId(), checked.get(i)); }
         }
@@ -110,10 +111,12 @@ public class AdminRefundPreparationTransactionService {
             // 소속·금액은 JDBC 검사 후 현재 Entity에서도 대조한다.
             if (!eventId.equals(registration.getEvent().getId())
                     || !Objects.equals(organizationId, registration.getOrganization() == null ? null : registration.getOrganization().getId())
-                    || registration.isSoftDeleted() || registration.getStatus() != RegistrationStatus.CONFIRMED
-                    || registration.getPaidAmount() == null || registration.getContractAmount() == null
-                    || registration.getPaidAmount().signum() <= 0
-                    || registration.getPaidAmount().compareTo(registration.getContractAmount()) != 0) { throw invalid(); }
+                    || registration.isSoftDeleted() || registration.getPaidAmount() == null || registration.getContractAmount() == null
+                    || registration.getPaidAmount().signum() < 0 || registration.getContractAmount().signum() < 0
+                    || (registration.getStatus() == RegistrationStatus.CONFIRMED
+                        ? registration.getPaidAmount().compareTo(registration.getContractAmount()) != 0
+                        : targets == null || registration.getStatus() != RegistrationStatus.ADDITIONAL_PAYMENT_REQUIRED
+                          || registration.getContractAmount().compareTo(registration.getPaidAmount()) <= 0)) { throw invalid(); }
             if (targets == null) {
                 candidates.add(new Candidate(registration, registration.getEventCategory(), registration.getSouvenirJson(), registration.getBirth(), BigDecimal.ZERO, true));
             } else {
@@ -121,7 +124,10 @@ public class AdminRefundPreparationTransactionService {
                 if (target == null) { throw invalid(); }
                 RegistrationPolicyCandidateResult checked = checkedById.get(registration.getId());
                 BigDecimal amount = pricing.calculateContractAmount(event, checked.eventCategory(), checked.birth().toString());
-                if (amount == null || amount.signum() < 0 || amount.compareTo(registration.getContractAmount()) >= 0) { throw invalid(); }
+                if (amount == null || amount.signum() < 0) { throw invalid(); }
+                AdminAdjustmentTemporaryBlock.validateCategoryPriceIncrease(
+                        registration.getEventCategory().getId(), checked.eventCategory().getId(),
+                        registration.getContractAmount(), amount);
                 candidates.add(new Candidate(registration, checked.eventCategory(), checked.souvenirJsons(), checked.birth().toString(), amount,
                         amount.signum() == 0 && Boolean.FALSE.equals(target.keepParticipationWhenZero())));
             }
@@ -156,7 +162,7 @@ public class AdminRefundPreparationTransactionService {
             readyToInvalidate.add(ledger.payment());
         }
         List<RefundPreparationPlan> plans = planner.plan(projected, ledgers);
-        if (plans.isEmpty()) { throw invalid(); }
+        if (targets == null && plans.isEmpty()) { throw invalid(); }
         // 관리자 배치 단일 대상의 외부 호출 수도 제한한다. 준비 변경 전이므로 전체 롤백된다.
         if (command.batchId() != null && plans.size() > 10) { throw invalid(); }
 
@@ -170,7 +176,7 @@ public class AdminRefundPreparationTransactionService {
                 newRequirements.put(byRegistration.get(retained.get(i).registration().getId()).getId(), needed.get(i));
             }
             List<Reservation> selectedReservations = retained.stream().map(c -> byRegistration.get(c.registration().getId())).toList();
-            movement.moveAll(eventId, diffs.compareAll(selectedReservations, newRequirements), now);
+            movement.moveAllForAdminAdjustment(eventId, diffs.compareAll(selectedReservations, newRequirements), now);
         }
         List<String> removed = candidates.stream().filter(Candidate::cancel).map(c -> c.registration().getId()).sorted().toList();
         removal.releaseAll(eventId, removed, now);
@@ -179,14 +185,17 @@ public class AdminRefundPreparationTransactionService {
         for (Candidate candidate : candidates) {
             Registration registration = candidate.registration();
             BigDecimal previous = registration.getContractAmount();
+            String previousBirth = registration.getBirth();
+            String previousCategory = registration.getEventCategory().getId();
             if (targets != null) {
-                registration.applyAdminRefundCandidate(candidate.category(), candidate.souvenirs(), candidate.birth(), candidate.amount());
+                registration.applyAdminAdjustmentCandidate(candidate.category(), candidate.souvenirs(), candidate.birth(), candidate.amount());
             }
             if (candidate.cancel()) { registration.cancelParticipation(); }
             Reservation reservation = byRegistration.get(registration.getId());
             registration.reconcileModificationFinancialState(reservation.getStatus());
             members.add(new AdminRefundPrepared.Member(registration.getId(), previous, registration.getContractAmount(),
-                    registration.getPaidAmount(), registration.getStatus(), reservation.getStatus(), registration.isSoftDeleted()));
+                    registration.getPaidAmount(), registration.getStatus(), reservation.getStatus(), registration.isSoftDeleted(),
+                    previousBirth, registration.getBirth(), previousCategory, registration.getEventCategory().getId()));
         }
         String correlationId = UUID.randomUUID().toString();
         List<AdminRefundPrepared.Refund> refunds = new ArrayList<>();
@@ -213,7 +222,10 @@ public class AdminRefundPreparationTransactionService {
             refunds.add(new AdminRefundPrepared.Refund(saved.getId(), plan.payment().getId(), plan.amount(), saved.getCancelType(), saved.getStatus()));
         }
         store.flush();
-        return new AdminRefundPrepared(command.requestId(), correlationId, eventId, organizationId, now, members, refunds);
+        AdminRefundPrepared prepared = new AdminRefundPrepared(command.requestId(), correlationId, eventId, organizationId, now, members, refunds);
+        // 추가 결제/동일 금액 변경은 금융 시도가 없으므로 업무 변경과 같은 Tx에 배치 증거를 남긴다.
+        if (targets != null) { store.recordAdjustmentPrepared(command, prepared); }
+        return prepared;
     }
 
     /** 정책 계산 결과와 참가 취소 분기를 분리한다. 결제 롤백 기능은 여기 포함하지 않는다. */

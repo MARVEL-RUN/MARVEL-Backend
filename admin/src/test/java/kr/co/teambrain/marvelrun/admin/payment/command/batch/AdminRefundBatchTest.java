@@ -324,4 +324,25 @@ class AdminRefundBatchTest {
                 List.of(new TossCancelResponse.Cancel(transactionKey,amount,new BigDecimal("60000"),"DONE",OffsetDateTime.parse("2026-09-23T12:00:00+09:00")))));
     }
 
+
+    /** 환불 없는 추가금 준비는 PG 실행 없이 성공하며 원자 저장된 준비 증거를 중복 UPDATE하지 않는다. */
+    @Test void additionalAdjustmentCompletesWithoutRefundExecutor() {
+        var change = new AdminPaymentPartialRefundTarget("r","c",List.of(new kr.co.teambrain.marvelrun.common.json_object.SouvenirJson("s","M")),true);
+        Work adjustment = new Work("batch",0,"event","admin","request","성인 정정",Operation.PARTIAL,new Target("r",null,0L,change,null));
+        var member = new AdminRefundPrepared.Member("r",new BigDecimal("40000"),new BigDecimal("70000"),new BigDecimal("40000"),
+                kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus.ADDITIONAL_PAYMENT_REQUIRED,
+                kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus.CONSUMED,false);
+        var result = new AdminRefundPrepared("request","correlation","event",null,now,List.of(member),List.of());
+        when(store.claim("batch")).thenReturn(adjustment);
+        when(preparation.preparePartial(eq("event"),isNull(),eq(List.of(change)),any())).thenReturn(result);
+        assertThat(worker.processOne("batch")).isTrue();
+        verifyNoInteractions(execution);
+        verify(store,never()).prepared(any(),any());
+        verify(store).finish(eq(adjustment),eq("SUCCEEDED"),isNull(),argThat(value ->
+                value instanceof Map<?,?> data && data.get("message").toString().contains("추가 납부")));
+        var json = new ObjectMapper().valueToTree(member);
+        assertThat(json.path("additionalPaymentAmount").decimalValue()).isEqualByComparingTo("30000");
+        assertThat(json.path("paymentOrder").isNull()).isTrue();
+    }
+
 }

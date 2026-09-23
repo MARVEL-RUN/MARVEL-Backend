@@ -139,9 +139,11 @@ class ModificationRefundPlannerTest {
 
     /** 초과 납부가 없으면 0원 환불을 생성하지 않는다. */
     @Test
-    void noExcessDoesNotNeedRefundLedger() {
+    void noExcessStillReconcilesPaidLedger() {
         Registration r = registration("r", null, "40000", "40000", false);
-        assertThat(planner.plan(List.of(r), List.of())).isEmpty();
+        Payment p = payment("p", r, null, "40000");
+        assertThat(planner.plan(List.of(r), List.of(ledger(p, allocation("a",p,r,"40000"))))).isEmpty();
+        assertError(() -> planner.plan(List.of(r), List.of()), ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR);
     }
 
     /** 신청에 순납부액만 있고 이를 설명할 원장이 없다면 임의 환불하지 않는다. */

@@ -13,6 +13,7 @@ public record RegistrationStatDto(
         String birth,
         String courseName,
         BigDecimal contractAmount,
+        BigDecimal paidAmount,
         PaymentMethod paymentMethod
 ) {
 }

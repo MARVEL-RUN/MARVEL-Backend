@@ -224,4 +224,20 @@ public interface CapacityCommandRepository
             @Param("quantity") int quantity,
             @Param("now") LocalDateTime now
     );
+    /** 관리자 기존 확정 신청의 이동은 비활성 설정과 무관하게 실제 잔여 수량 안에서 확보한다. */
+    @Modifying(flushAutomatically = true)
+    @Query("""
+        update Capacity c set c.confirmedCount=c.confirmedCount+:quantity, c.updatedAt=:now
+        where c.id=:capacityId and c.event.id=:eventId and :quantity>0
+          and c.heldCount+c.confirmedCount+:quantity<=c.limitCount
+        """)
+    int acquireConfirmedByAdmin(@Param("eventId") String eventId, @Param("capacityId") String capacityId,
+            @Param("quantity") int quantity, @Param("now") LocalDateTime now);
+
+    /** 실패 이유는 영속성 컨텍스트의 오래된 카운터 대신 DB의 스칼라 값으로 안내한다. */
+    @Query("""
+        select c.name, c.limitCount, c.heldCount, c.confirmedCount from Capacity c
+        where c.id=:capacityId and c.event.id=:eventId
+        """)
+    List<Object[]> describeCounter(@Param("eventId") String eventId, @Param("capacityId") String capacityId);
 }

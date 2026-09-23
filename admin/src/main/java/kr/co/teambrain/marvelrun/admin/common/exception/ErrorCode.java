@@ -143,9 +143,16 @@ public enum ErrorCode {
     INVALID_PASSWORD_LENGTH(HttpStatus.BAD_REQUEST,"신청 비밀번호는 6자리 이상이어야 합니다."),
 
 
+    /** 임시 운영 차단: 기념품 정책과 관리자 화면 보완 후 별도 해제한다. */
+    ADMIN_ADJUSTMENT_AGE_GROUP_TEMPORARILY_BLOCKED(HttpStatus.CONFLICT,
+            "어른↔어린이 구분이 변경되는 관리자 수정은 현재 임시 중단되었습니다."),
+    /** 임시 운영 차단: 종목 상향 변경의 추가 결제 흐름 검증 후 별도 해제한다. */
+    ADMIN_ADJUSTMENT_CATEGORY_PRICE_INCREASE_TEMPORARILY_BLOCKED(HttpStatus.CONFLICT,
+            "참가비가 올라가는 종목 변경은 현재 임시 중단되었습니다."),
+
     AGE_RESTRICTION_VIOLATION(HttpStatus.BAD_REQUEST, "만 12세 이하(2013년 11월 1일 이후 출생자)는 10Km 코스에 참가할 수 없습니다."),
     GUARDIAN_INFO_REQUIRED(HttpStatus.BAD_REQUEST, "만 12세 이하 참가자로 변경 시 보호자 정보 입력이 필수입니다."),
-    PRICE_TIER_CHANGE_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "생년월일 변경으로 인해 참가비가 변동되는 경우 관리자 임의 수정이 불가합니다. 취소 후 재결제를 안내해 주세요."),
+    PRICE_TIER_CHANGE_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "생년월일 변경으로 참가비가 달라집니다. 신청 정보·금액 조정 기능으로 변경해 주세요. 차액은 환불 또는 추가 납부로 처리됩니다."),
     DUPLICATE_REGISTRATION(HttpStatus.BAD_REQUEST, "동일한 정보(이름, 연락처, 생년월일)를 가진 다른 활성 참가자가 이미 존재합니다."),
     DUPLICATE_GROUP_NAME(HttpStatus.BAD_REQUEST, "이미 해당 대회에 동일한 이름의 단체가 존재합니다."),
     ;

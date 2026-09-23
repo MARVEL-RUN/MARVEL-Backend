@@ -29,6 +29,17 @@ public class AdminRefundAccessService {
      * 실패는 트랜잭션 밖 배치 실행자가 수집한다. 여기서 Toss를 호출하거나 예외를 삼키지 않는다.
      */
     public AdminRefundLockedScope lock(String eventId, String organizationId, List<String> registrationIds) {
+        return lockScope(eventId, organizationId, registrationIds, false);
+    }
+
+    /** 확정 예약의 정보 변경은 0원 확정 및 미수금이 남은 추가 결제 상태도 처리한다. */
+    public AdminRefundLockedScope lockAdjustment(String eventId, String organizationId, List<String> registrationIds) {
+        return lockScope(eventId, organizationId, registrationIds, true);
+    }
+
+    /** 금융 잠금과 미확정 거래 차단은 전액 환불 및 정보 변경에서 공유한다. */
+    private AdminRefundLockedScope lockScope(String eventId, String organizationId,
+            List<String> registrationIds, boolean adjustment) {
         if (!TransactionSynchronizationManager.isActualTransactionActive()
                 || TransactionSynchronizationManager.isCurrentTransactionReadOnly()) {
             throw new IllegalStateException("관리자 환불 접근은 기존 쓰기 트랜잭션이 필요합니다.");
@@ -68,15 +79,21 @@ public class AdminRefundAccessService {
             throw new CustomException(ErrorCode.REGISTRATION_NOT_FOUND);
         }
         for (RegistrationRow registration : registrations) {
-            if (!Objects.equals(organizationId, registration.organizationId()) || registration.deleted()
-                    || registration.status() != RegistrationStatus.CONFIRMED
-                    || registration.contractAmount() == null || registration.paidAmount() == null
-                    || registration.paidAmount().signum() <= 0
-                    || registration.contractAmount().compareTo(registration.paidAmount()) != 0) {
+            boolean moneyValid = registration.contractAmount() != null && registration.paidAmount() != null
+                    && registration.contractAmount().signum() >= 0 && registration.paidAmount().signum() >= 0;
+            boolean stateValid = moneyValid && (adjustment
+                    ? (registration.status() == RegistrationStatus.CONFIRMED
+                        && registration.contractAmount().compareTo(registration.paidAmount()) == 0)
+                      || (registration.status() == RegistrationStatus.ADDITIONAL_PAYMENT_REQUIRED
+                        && registration.contractAmount().compareTo(registration.paidAmount()) > 0)
+                    : registration.status() == RegistrationStatus.CONFIRMED
+                      && registration.paidAmount().signum() > 0
+                      && registration.contractAmount().compareTo(registration.paidAmount()) == 0);
+            if (!Objects.equals(organizationId, registration.organizationId()) || registration.deleted() || !stateValid) {
                 throw new CustomException(ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR);
             }
         }
-        if (payments.stream().noneMatch(p -> p.status() == PaymentProcessStatus.COMPLETED)) {
+        if (!adjustment && payments.stream().noneMatch(p -> p.status() == PaymentProcessStatus.COMPLETED)) {
             throw new CustomException(ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR);
         }
         return new AdminRefundLockedScope(eventId, organizationId, registrations, payments, cancellations);

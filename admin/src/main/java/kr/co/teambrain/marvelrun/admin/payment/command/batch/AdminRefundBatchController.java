@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Map;
+
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.CacheControl;
@@ -20,7 +22,6 @@ import kr.co.teambrain.marvelrun.admin.payment.command.batch.AdminRefundBatchMod
 /** 결제액 환불과 부분환불의 진입점을 분리하고 기존 관리자 인증을 사용한다. */
 @RestController
 @RequestMapping("/v1/admin/events/{eventId}")
-@ConditionalOnProperty(name="admin.refund.batch.enabled",havingValue="true")
 @RequiredArgsConstructor
 public class AdminRefundBatchController {
     private final AdminRefundBatchService service;
@@ -29,19 +30,28 @@ public class AdminRefundBatchController {
 
     /** 동기 처리 결과를 200으로 반환한다. HTTP 성공과 대상별 환불 성공은 다르다. */
     @PostMapping("/payment-refunds")
-    public ResponseEntity<Response> full(@PathVariable("eventId") String eventId,@RequestBody JsonNode body) throws JsonProcessingException {
-        String adminId=adminId();
-        AdminPaymentRefundRequest request=mapper.readerFor(AdminPaymentRefundRequest.class)
-                .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).readValue(body.toString());
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.full(eventId,adminId,request));
+    public ResponseEntity<Response> full(
+            @PathVariable("eventId") String eventId,
+            @Valid @RequestBody AdminPaymentRefundRequest request
+    ) {
+        String adminId = adminId();
+
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(service.full(eventId, adminId, request));
     }
-    /** 임의 환불액이나 일반 개인정보 필드를 무시하지 않고 잘못된 요청으로 거절한다. */
-    @PostMapping("/payment-partial-refunds")
-    public ResponseEntity<Response> partial(@PathVariable("eventId") String eventId,@RequestBody JsonNode body) throws JsonProcessingException {
-        String adminId=adminId();
-        AdminPaymentPartialRefundRequest request=mapper.readerFor(AdminPaymentPartialRefundRequest.class)
-                .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).readValue(body.toString());
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.partial(eventId,adminId,request));
+
+    /** 신청 정보 변경에 따른 환불·추가 납부·동일 금액 처리를 수행한다. */
+    @PostMapping({"/payment-partial-refunds"})
+    public ResponseEntity<Response> partial(
+            @PathVariable("eventId") String eventId,
+            @Valid @RequestBody AdminPaymentPartialRefundRequest request
+    ) {
+        String adminId = adminId();
+
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(service.partial(eventId, adminId, request));
     }
     /** 최초 응답 유실 시 같은 requestId로 저장 결과만 확인한다. */
     @GetMapping("/payment-refund-results")
