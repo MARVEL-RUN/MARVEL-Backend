@@ -1,4 +1,4 @@
-package kr.co.teambrain.marvelrun.admin.event.query.graph;
+package kr.co.teambrain.marvelrun.admin.event.query.repository;
 
 import kr.co.teambrain.marvelrun.admin.event.query.support.PaymentReportSql;
 import java.time.LocalDate;

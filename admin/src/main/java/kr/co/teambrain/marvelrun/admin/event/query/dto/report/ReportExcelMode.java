@@ -1,4 +1,4 @@
-package kr.co.teambrain.marvelrun.admin.event.query.report;
+package kr.co.teambrain.marvelrun.admin.event.query.dto.report;
 
 /** query parameter로 다운로드할 당일·누계 시트를 선택한다. */
 public enum ReportExcelMode {

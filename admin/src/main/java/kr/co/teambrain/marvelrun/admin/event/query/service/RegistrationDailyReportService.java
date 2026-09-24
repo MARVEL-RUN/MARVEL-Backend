@@ -1,16 +1,13 @@
-package kr.co.teambrain.marvelrun.admin.event.query.report;
+package kr.co.teambrain.marvelrun.admin.event.query.service;
 
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.EventCommandRepository;
-import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationStatDto;
-import kr.co.teambrain.marvelrun.admin.event.query.graph.PaymentDailyGraphResponse;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.PaymentDailyGraphResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.EventCategoryQueryRepository;
-import kr.co.teambrain.marvelrun.admin.event.query.repository.EventQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
-import kr.co.teambrain.marvelrun.admin.event.query.service.RegistrationQueryService;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.ss.usermodel.*;
@@ -22,15 +19,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.Period;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 import kr.co.teambrain.marvelrun.admin.event.query.report.RegistrationDailyReportRow;
 
@@ -218,7 +212,7 @@ public class RegistrationDailyReportService {
 
         /** 대회에 설정된 코스 순서대로 엑셀 열을 구성한다. */
         List<String> courseNames = categories
-                .findAllByEvent_IdOrderByOrderAsc(event.getId())
+                .findAllByEvent_IdOrderByOrderDesc(event.getId())
                 .stream()
                 .map(category -> category.getName())
                 .toList();
@@ -794,4 +788,6 @@ public class RegistrationDailyReportService {
             }
         }
     }
+
+
 }

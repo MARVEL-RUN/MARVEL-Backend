@@ -1,13 +1,13 @@
-package kr.co.teambrain.marvelrun.admin.event.query.graph;
+package kr.co.teambrain.marvelrun.admin.event.query.controller;
 
 import java.time.LocalDate;
 
 import io.swagger.v3.oas.annotations.Operation;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event;
-import kr.co.teambrain.marvelrun.admin.event.query.report.RegistrationDailyReportService;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.PaymentDailyGraphResponse;
+import kr.co.teambrain.marvelrun.admin.event.query.service.RegistrationDailyReportService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;

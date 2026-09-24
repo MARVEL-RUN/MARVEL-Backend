@@ -1,4 +1,4 @@
-package kr.co.teambrain.marvelrun.admin.event.query.report;
+package kr.co.teambrain.marvelrun.admin.event.query.dto.report;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
