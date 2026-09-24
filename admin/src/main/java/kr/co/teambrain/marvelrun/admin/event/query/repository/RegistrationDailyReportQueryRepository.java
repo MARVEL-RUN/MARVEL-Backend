@@ -1,6 +1,6 @@
 package kr.co.teambrain.marvelrun.admin.event.query.repository;
 
-import kr.co.teambrain.marvelrun.admin.event.query.report.PaymentDailyCountRow;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.PaymentDailyCountRow;
 import kr.co.teambrain.marvelrun.admin.event.query.report.RegistrationDailyReportRow;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import lombok.RequiredArgsConstructor;
