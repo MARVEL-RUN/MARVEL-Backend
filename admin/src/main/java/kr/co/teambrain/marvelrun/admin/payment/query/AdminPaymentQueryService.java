@@ -14,6 +14,8 @@ import org.springframework.web.server.ResponseStatusException;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -97,7 +99,7 @@ public class AdminPaymentQueryService {
             }
             result.add(new Payment(paymentId, text(p, "order_id"), text(p, "order_name"), amount(p, "amount"),
                     text(p, "purpose"), text(p, "process_status"), text(p, "toss_status"),
-                    text(p, "payment_method"), text(p, "easy_pay_provider"), time(p, "created_at"), time(p, "approved_at"),
+                    text(p, "payment_method"), text(p, "easy_pay_provider"), time(p, "created_at"), correctedApprovedAt(p),
                     shares.isEmpty(), shares, cancelResult));
         }
         return page(result, page, size, total);
@@ -171,5 +173,24 @@ public class AdminPaymentQueryService {
     /** 요청한 페이지와 전체 건수를 함께 반환한다. */
     private <T> Page<T> page(List<T> content, int page, int size, long total) {
         return new Page<>(content, page, size, total, total / size + (total % size == 0 ? 0 : 1));
+    }
+
+    /**
+     * 기존 approved_at은 UTC 기준 시각이 LocalDateTime으로 저장되어
+     * timezone 정보가 손실된 데이터이므로 한국 시간으로 보정한다.
+     *
+     * 임시 호환 로직이며 DB 시간 저장 정책 정리 후 제거한다.
+     */
+    private LocalDateTime correctedApprovedAt(Map<String, Object> row) {
+        LocalDateTime storedApprovedAt = time(row, "approved_at");
+
+        if (storedApprovedAt == null) {
+            return null;
+        }
+
+        return storedApprovedAt
+                .atZone(ZoneOffset.UTC)
+                .withZoneSameInstant(ZoneId.of("Asia/Seoul"))
+                .toLocalDateTime();
     }
 }

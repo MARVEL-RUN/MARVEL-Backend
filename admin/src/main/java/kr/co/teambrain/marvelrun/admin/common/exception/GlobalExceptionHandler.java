@@ -6,6 +6,7 @@ import kr.co.teambrain.marvelrun.admin.auth.command.application.exception.AuthEr
 import kr.co.teambrain.marvelrun.admin.auth.command.application.exception.JwtAuthenticationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -22,23 +23,26 @@ public class GlobalExceptionHandler {
                 .body("해당 메뉴에 대한 접근 권한이 없습니다.");
     }
 
+    /** 업무 예외를 지정된 HTTP 상태와 JSON 형식으로 반환한다. */
     @ExceptionHandler(CustomException.class)
-    public ResponseEntity<ErrorResponse>
-    handleCustomException(
-
+    public ResponseEntity<ErrorResponse> handleCustomException(
             CustomException exception,
-
             HttpServletRequest request
     ) {
+        ErrorCode errorCode = exception.getErrorCode();
 
-        ErrorCode errorCode =
-                exception.getErrorCode();
-
+        log.warn(
+                "업무 예외 응답: uri={}, dispatcher={}, code={}, status={}",
+                request.getRequestURI(),
+                request.getDispatcherType(),
+                errorCode.name(),
+                errorCode.getHttpStatus().value(),
+                exception
+        );
 
         return ResponseEntity
-                .status(
-                        errorCode.getHttpStatus()
-                )
+                .status(errorCode.getHttpStatus())
+                .contentType(MediaType.APPLICATION_JSON)
                 .body(
                         ErrorResponse.of(
                                 request.getRequestURI(),
