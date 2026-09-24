@@ -49,6 +49,10 @@ public enum ErrorCode {
             HttpStatus.BAD_REQUEST,
             "생년월일은 오늘 이전의 유효한 날짜를 yyyy-MM-dd 형식으로 입력해주세요."
     ),
+    INVALID_BIRTH_DATA(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "생년월일은 오늘 이전의 유효한 날짜를 yyyy-MM-dd 형식으로 입력해주세요."
+    ),
     INVALID_REGISTRATION_MODIFICATION_ARGUMENT(
             HttpStatus.BAD_REQUEST,
             "신청 수정 정보가 올바르지 않습니다."
