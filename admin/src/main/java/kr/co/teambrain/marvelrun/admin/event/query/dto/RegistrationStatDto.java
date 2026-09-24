@@ -5,6 +5,7 @@ import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentMethod;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 public record RegistrationStatDto(
         RegistrationStatus status,
@@ -16,4 +17,6 @@ public record RegistrationStatDto(
         BigDecimal paidAmount,
         PaymentMethod paymentMethod
 ) {
+
+
 }
