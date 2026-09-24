@@ -77,10 +77,10 @@ public class RegistrationExcelController {
 
     /** 기존 명단 다운로드와 같은 컨트롤러에서 날짜별 집계표를 제공한다. */
     @Operation(
-            summary = "일별 신청·결제 집계 엑셀 다운로드",
+            summary = "아동유무별 일별 신청·결제 집계 엑셀 다운로드",
             description = "기간 내 날짜별 코스·일반·아동 구분의 신청자와 결제자 수를 다운로드합니다. "
                     + "mode는 DAILY(당일), CUMULATIVE(누계), BOTH(모두)이며, "
-                    + "날짜 생략 시 접수 시작일부터 어제까지 조회합니다. 현재 변경·취소·환불 상태를 반영합니다."
+                    + "날짜 생략 시 접수 시작일부터 어제까지 조회합니다. 현재 변경·취소·환불 상태를 반영하므로 실행 일자에 따라 변동치가 있을 수 있습니다.."
     )
     @GetMapping("/{eventId}/daily-report/excel/download")
     public void downloadDailyReport(

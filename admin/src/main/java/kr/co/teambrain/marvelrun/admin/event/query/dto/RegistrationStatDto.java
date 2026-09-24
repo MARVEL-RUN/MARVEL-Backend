@@ -15,31 +15,8 @@ public record RegistrationStatDto(
         String courseName,
         BigDecimal contractAmount,
         BigDecimal paidAmount,
-        PaymentMethod paymentMethod,
-        LocalDateTime registrationDate
+        PaymentMethod paymentMethod
 ) {
 
-    /** 기존 통계 조회의 생성자 호출을 유지한다. */
-    public RegistrationStatDto(
-            RegistrationStatus status,
-            String organizationId,
-            GenderClass gender,
-            String birth,
-            String courseName,
-            BigDecimal contractAmount,
-            BigDecimal paidAmount,
-            PaymentMethod paymentMethod
-    ) {
-        this(
-                status,
-                organizationId,
-                gender,
-                birth,
-                courseName,
-                contractAmount,
-                paidAmount,
-                paymentMethod,
-                null
-        );
-    }
+
 }

@@ -29,4 +29,6 @@ public class ServerTimeProvider {
     public LocalDateTime currentDateTime() {
         return LocalDateTime.now(clock);
     }
+
+    public String timeZone() {return clock.getZone().toString(); }
 }

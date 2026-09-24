@@ -6,6 +6,7 @@ import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.EventCommandRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationStatDto;
+import kr.co.teambrain.marvelrun.admin.event.query.graph.PaymentDailyGraphResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.EventCategoryQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.EventQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
@@ -31,6 +32,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import kr.co.teambrain.marvelrun.admin.event.query.report.RegistrationDailyReportRow;
+
+
 /**
  * 날짜 범위와 코스 순서를 검증하고 일별 집계로 당일·누계 표를 구성한다.
  */
@@ -38,11 +42,163 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 public class RegistrationDailyReportService {
-    private static final ZoneId REPORT_ZONE = ZoneId.of("Asia/Seoul");
+    private final ServerTimeProvider serverTimeProvider;
     private final EventCategoryQueryRepository categories;
 
     private final EventCommandRepository eventCommandRepository;
     private final RegistrationQueryRepository registrationQueryRepository;
+
+    /**
+     * 현재 유효 입금자를 최초 완료 결제일 기준으로 일별 집계한다.
+     *
+     * 입금자 판정은 엑셀 보고서와 동일하게
+     * findDailyReportRows()의 결제 귀속 결과를 사용한다.
+     *
+     * 부분환불·추가결제 필요·추가결제 완료 상태에서도
+     * 현재 paidAmount가 양수이면 동일한 최초 결제자 1명으로 유지한다.
+     *
+     * 전액환불 등으로 paidAmount가 0이 되거나 신청이 취소된 경우에는
+     * 최초 결제일의 과거 집계에서도 제외된다.
+     */
+    public PaymentDailyGraphResponse getPaymentDailyGraph(
+            Event event,
+            LocalDate startDate,
+            LocalDate endDate
+    ) {
+
+        ReportDateRange reportDateRange =
+                resolveReportDateRange(startDate, endDate, event);
+
+        LocalDate resolvedStartDate =
+                reportDateRange.startDate();
+
+        LocalDate resolvedEndDate =
+                reportDateRange.endDate();
+
+        /**
+         * startDate 이전 누계도 계산해야 하므로
+         * 접수 시작 시각부터 조회 종료일까지 전체 데이터를 조회한다.
+         */
+        List<RegistrationDailyReportRow> rows =
+                registrationQueryRepository.findDailyReportRows(
+                        event.getId(),
+                        event.getRegistStartDate(),
+                        resolvedEndDate.plusDays(1).atStartOfDay()
+                );
+
+        /**
+         * 선택 기간의 모든 날짜를 먼저 생성한다.
+         * 해당 날짜 결제자가 없어도 그래프에 0명으로 전달한다.
+         */
+        Map<LocalDate, Long> dailyCounts =
+                new LinkedHashMap<>();
+
+        for (LocalDate date = resolvedStartDate;
+             !date.isAfter(resolvedEndDate);
+             date = date.plusDays(1)) {
+
+            dailyCounts.put(date, 0L);
+        }
+
+        long openingCumulativeCount = 0L;
+
+        for (RegistrationDailyReportRow row : rows) {
+
+            /**
+             * 취소 완료 또는 만료된 신청은
+             * 현재 유효 입금자로 보지 않는다.
+             */
+            if (row.status() == RegistrationStatus.CANCELED
+                    || row.status() == RegistrationStatus.EXPIRED) {
+                continue;
+            }
+
+            /**
+             * 입금자 판정:
+             *
+             * 1. 현재 순납부액이 1원 이상 존재하고
+             * 2. 기존 findStatsByEventId와 동일한 결제 귀속 규칙으로
+             *    COMPLETED Payment가 확인되어야 한다.
+             *
+             * firstPaidAt은 Repository에서 기존 결제 귀속 규칙을 이용하여
+             * 최초 완료 결제 시각으로 조회한다.
+             */
+            boolean payer =
+                    isCurrentPayer(row);
+
+            if (!payer) {
+                continue;
+            }
+
+            LocalDate firstPaidDate =
+                    row.firstPaidAt().toLocalDate();
+
+            /**
+             * 조회 종료일 이후 최초 결제자는
+             * 이번 그래프 범위에 포함하지 않는다.
+             */
+            if (firstPaidDate.isAfter(resolvedEndDate)) {
+                continue;
+            }
+
+            /**
+             * 선택 시작일 이전 최초 결제자는
+             * opening 누계에 포함한다.
+             */
+            if (firstPaidDate.isBefore(resolvedStartDate)) {
+                openingCumulativeCount++;
+                continue;
+            }
+
+            /**
+             * 선택 기간 내 최초 결제자는 해당 날짜에 정확히 1번 집계한다.
+             *
+             * 이후 추가결제가 발생하더라도 firstPaidAt은 변하지 않으므로
+             * 그래프 인원이 다시 증가하지 않는다.
+             */
+            dailyCounts.computeIfPresent(
+                    firstPaidDate,
+                    (date, count) -> count + 1L
+            );
+        }
+
+        long cumulativeCount =
+                openingCumulativeCount;
+
+        long periodTotal = 0L;
+
+        List<PaymentDailyGraphResponse.Day> days =
+                new java.util.ArrayList<>();
+
+        for (Map.Entry<LocalDate, Long> entry : dailyCounts.entrySet()) {
+
+            long dailyCount =
+                    entry.getValue();
+
+            periodTotal += dailyCount;
+            cumulativeCount += dailyCount;
+
+            days.add(
+                    new PaymentDailyGraphResponse.Day(
+                            entry.getKey(),
+                            dailyCount,
+                            cumulativeCount
+                    )
+            );
+        }
+
+        return new PaymentDailyGraphResponse(
+                event.getId(),
+                resolvedStartDate,
+                resolvedEndDate,
+                serverTimeProvider.timeZone(),
+                openingCumulativeCount,
+                periodTotal,
+                cumulativeCount,
+                days
+        );
+    }
+
 
     public SXSSFWorkbook getDailyPaymenterExcelReport(
             Event event,
@@ -50,6 +206,15 @@ public class RegistrationDailyReportService {
             LocalDate endDate
     ) throws IOException {
 
+        /**
+         * null 및 대회/현재 날짜 범위를 포함하여
+         * 실제 보고서에서 사용할 기간을 확정한다.
+         */
+        ReportDateRange reportDateRange =
+                resolveReportDateRange(startDate, endDate, event);
+
+        LocalDate resolvedStartDate = reportDateRange.startDate();
+        LocalDate resolvedEndDate = reportDateRange.endDate();
 
         /** 대회에 설정된 코스 순서대로 엑셀 열을 구성한다. */
         List<String> courseNames = categories
@@ -60,105 +225,155 @@ public class RegistrationDailyReportService {
 
         LocalDate openedDate = event.getRegistStartDate().toLocalDate();
         LocalDate eventDate = event.getStartDate().toLocalDate();
-        validDate(startDate, endDate, event);
 
-        long[][] cumulativeCounts = new long[6][courseNames.size()];
-        Map<LocalDate, long[][]> dailyCounts = new LinkedHashMap<>();
+        long[][] cumulativeCounts =
+                new long[6][courseNames.size()];
 
-        // 범위 내에 해당하는 모든 신청을 가져온다.
-        // 신청 개수 많아지면 분할해서 가져오는 방어로직을 추후 구현하기
+        Map<LocalDate, long[][]> dailyCounts =
+                new LinkedHashMap<>();
 
-        // 여기에 소속된 내역은 소프트딜리트를 제외하므로,
-        // 환불 처리 인원을 제외한 내역.
-        List<RegistrationStatDto> cumulativeDataList =
-                registrationQueryRepository.findStatsByEventIdAndBetweenRegistrationDate(
+        /**
+         * 신청이 없는 날짜도 엑셀에 0명으로 출력하기 위해
+         * 선택 기간의 날짜를 먼저 생성한다.
+         */
+        for (LocalDate date = resolvedStartDate;
+             !date.isAfter(resolvedEndDate);
+             date = date.plusDays(1)) {
+
+            dailyCounts.put(
+                    date,
+                    new long[6][courseNames.size()]
+            );
+        }
+
+        /**
+         * 누계 계산도 필요하므로 접수 시작일부터 조회 종료일까지의
+         * 모든 신청자를 한 번 조회한다.
+         */
+        List<RegistrationDailyReportRow> reportRows =
+                registrationQueryRepository.findDailyReportRows(
                         event.getId(),
                         event.getRegistStartDate(),
-                        endDate.plusDays(1).atStartOfDay()
+                        resolvedEndDate.plusDays(1).atStartOfDay()
                 );
 
-        /** 한 번 조회한 결과를 신청일별로 분류한다. */
-        Map<LocalDate, List<RegistrationStatDto>> registrationsByDate =
-                cumulativeDataList.stream()
-                        .collect(Collectors.groupingBy(
-                                dto -> dto.registrationDate().toLocalDate()
-                        ));
+        for (RegistrationDailyReportRow row : reportRows) {
 
-        /** 선택한 기간의 각 날짜를 독립적으로 집계한다. */
-        for (LocalDate indexDate = openedDate;
-             !indexDate.isAfter(endDate);
-             indexDate = indexDate.plusDays(1)) {
-
-            long[][] counts = new long[6][courseNames.size()];
-
-            LocalDateTime dayStart = indexDate.atStartOfDay();
-
-            /** 접수 시작일에는 실제 접수 시작 시각 이전 신청을 제외한다. */
-            if (dayStart.isBefore(event.getRegistStartDate())) {
-                dayStart = event.getRegistStartDate();
+            /**
+             * 취소 완료·만료 신청은 현재 신청자 집계에서 제외한다.
+             */
+            if (row.status() == RegistrationStatus.CANCELLATION_PENDING ||
+                    row.status() == RegistrationStatus.CANCELED
+                    || row.status() == RegistrationStatus.EXPIRED) {
+                continue;
             }
 
-            /** 해당 날짜의 신청만 가져온다. 추가 DB 조회는 하지 않는다. */
-            List<RegistrationStatDto> dailyDataList =
-                    registrationsByDate.getOrDefault(indexDate, List.of());
+            int courseIndex =
+                    courseNames.indexOf(row.courseName());
 
+            if (courseIndex < 0) {
+                throw new CustomException(
+                        ErrorCode.REPORT_CONFIGURATION_INVALID,
+                        "집계 대상 코스가 대회 코스 목록에 없습니다."
+                );
+            }
 
-            for (RegistrationStatDto dto : dailyDataList) {
-                /** 취소 접수·취소 완료·만료 신청은 집계에서 제외한다. */
-                if (dto.status() == RegistrationStatus.CANCELED
-                        || dto.status() == RegistrationStatus.EXPIRED) {
-                    continue;
-                }
+            boolean adult;
 
-                int courseIndex = courseNames.indexOf(dto.courseName());
+            try {
+                /**
+                 * 성인·아동 구분은 대회일 기준으로 계산한다.
+                 */
+                adult = adultValidator(
+                        row.birth(),
+                        eventDate,
+                        19
+                );
 
-                if (courseIndex < 0) {
-                    throw new CustomException(
-                            ErrorCode.REPORT_CONFIGURATION_INVALID,
-                            " 집계 대상 코스가 대회 코스 목록에 없습니다."
-                    );
-                }
+            } catch (IllegalArgumentException exception) {
+                throw new CustomException(
+                        ErrorCode.INVALID_BIRTH_DATA,
+                        "참여자 중 이상 수치 확인"
+                );
+            }
 
-                boolean adult;
-                try {
-                    /** 나이 판정은 신청별 한 번만 수행한다. */
-                    adult = adultValidator(dto.birth(), eventDate, 19);
-                } catch (IllegalArgumentException exception) {
-                    throw new CustomException(
-                            ErrorCode.INVALID_BIRTH_DATA,
-                            " 참여자 중 이상 수치 확인"
-                    );
-                }
+            int applicantRow = adult ? 0 : 1;
+            int paidRow = adult ? 3 : 4;
 
-                int applicantRow = adult ? 0 : 1;
-                int paidRow = adult ? 3 : 4;
+            /*
+             * ---------------------------------------------------------
+             * 신청자
+             * ---------------------------------------------------------
+             *
+             * 신청자는 registrationDate 기준으로 귀속한다.
+             */
+            LocalDate registrationDate =
+                    row.registrationDate().toLocalDate();
 
-                /** 신청자 한 명을 당일과 전체 누계에 각각 반영한다. */
-                counts[applicantRow][courseIndex]++;
+            if (!registrationDate.isAfter(resolvedEndDate)) {
+
+                /**
+                 * 누계에는 접수 시작일부터 조회 종료일까지의 신청자를 포함한다.
+                 */
                 cumulativeCounts[applicantRow][courseIndex]++;
 
-                /** 현재 순납부액이 있는 신청자를 입금자로 집계한다. */
-                if (dto.paidAmount() != null && dto.paidAmount().signum() > 0) {
-                    counts[paidRow][courseIndex]++;
-                    cumulativeCounts[paidRow][courseIndex]++;
+                /**
+                 * 일자별 시트에는 선택한 조회 기간에 포함되는 신청만 기록한다.
+                 */
+                if (!registrationDate.isBefore(resolvedStartDate)) {
+
+                    dailyCounts
+                            .get(registrationDate)
+                            [applicantRow][courseIndex]++;
                 }
             }
-            /** 신청이 없는 날짜도 0명 표를 출력한다. */
-            /** 선택 기간에 한해 저장하며 신청이 없는 날짜도 0명으로 포함한다. */
-            if (!indexDate.isBefore(startDate)) {
-                dailyCounts.put(indexDate, counts);
+
+            /**
+             * 현재 순납부액이 존재하면서,
+             * 기존 통계의 결제 귀속 규칙으로 COMPLETED Payment가 확인되는 신청자만
+             * 현재 입금자로 판단한다.
+             */
+            boolean payer =
+                    isCurrentPayer(row);
+
+            if (!payer) {
+                continue;
+            }
+
+            /**
+             * 추가결제가 있어도 입금자 귀속일은
+             * 최초 COMPLETED 결제일을 유지한다.
+             */
+            LocalDate firstPaidDate =
+                    row.firstPaidAt().toLocalDate();
+
+            if (!firstPaidDate.isAfter(resolvedEndDate)) {
+
+                /**
+                 * 현재 기준 입금자이면서
+                 * 조회 종료일까지 최초 결제를 완료한 사람을 누계에 포함한다.
+                 */
+                cumulativeCounts[paidRow][courseIndex]++;
+
+                /**
+                 * 일자별 입금자는 신청일이 아니라 최초 결제일에 귀속한다.
+                 */
+                if (!firstPaidDate.isBefore(resolvedStartDate)) {
+
+                    dailyCounts
+                            .get(firstPaidDate)
+                            [paidRow][courseIndex]++;
+                }
             }
         }
 
-
-        /** 합계 행은 기존 엑셀 생성 메서드에서 계산한다. */
         return createReportWorkbook(
                 courseNames,
                 cumulativeCounts,
                 dailyCounts,
-                event.getRegistStartDate().toLocalDate(),
-                startDate,
-                endDate
+                openedDate,
+                resolvedStartDate,
+                resolvedEndDate
         );
     }
 
@@ -171,38 +386,130 @@ public class RegistrationDailyReportService {
                 ));
     }
 
+    /**
+     * 검증과 보정이 완료된 보고서 조회 기간이다.
+     */
+    private record ReportDateRange(
+            LocalDate startDate,
+            LocalDate endDate
+    ) {
+    }
     /** 들어온 일자들이 정상적인지 검증한다. */
-    private void validDate(LocalDate startDate, LocalDate endDate, Event event) {
+    /**
+     * 보고서 조회 시작·종료일을 검증하고 실제 사용할 기간을 반환한다.
+     *
+     * 시작일 생략 시 접수 시작일,
+     * 종료일 생략 시 어제까지 조회한다.
+     *
+     * 대회가 이미 종료된 경우 종료일은 대회일을 넘지 않는다.
+     */
+    private ReportDateRange resolveReportDateRange(
+            LocalDate startDate,
+            LocalDate endDate,
+            Event event
+    ) {
 
-        LocalDate openedDate = event.getRegistStartDate().toLocalDate();
-        LocalDate eventDate = event.getStartDate().toLocalDate();
+        LocalDate openedDate =
+                event.getRegistStartDate().toLocalDate();
 
+        LocalDate eventDate =
+                event.getStartDate().toLocalDate();
 
-        /** 조회 시작일이 접수 시작일보다 빠르면 접수 시작일로 보정한다. */
-        if (startDate == null || startDate.isBefore(openedDate)) {
-            startDate = openedDate;
+        LocalDate today =
+                serverTimeProvider.currentDateTime().toLocalDate();
+
+        LocalDate yesterday =
+                today.minusDays(1);
+
+        /**
+         * 시작일 생략 또는 접수 시작일 이전 요청은
+         * 실제 접수 시작일로 보정한다.
+         */
+        LocalDate resolvedStartDate =
+                startDate == null || startDate.isBefore(openedDate)
+                        ? openedDate
+                        : startDate;
+
+        LocalDate resolvedEndDate;
+
+        if (endDate == null) {
+
+            /**
+             * 기본 종료일은 어제다.
+             *
+             * 이미 대회가 종료된 경우에는
+             * 대회일을 넘어서 집계하지 않는다.
+             */
+            resolvedEndDate =
+                    eventDate.isBefore(yesterday)
+                            ? eventDate
+                            : yesterday;
+
+        } else {
+
+            /**
+             * 명시적으로 오늘 이후 날짜를 요청하는 것은 허용하지 않는다.
+             */
+            if (endDate.isAfter(today)) {
+                throw new CustomException(
+                        ErrorCode.REPORT_END_DATE_AFTER_TODAY
+                );
+            }
+
+            /**
+             * 대회일 이후 날짜는 대회일로 보정한다.
+             */
+            resolvedEndDate =
+                    endDate.isAfter(eventDate)
+                            ? eventDate
+                            : endDate;
         }
-        /** 조회 종료일이 대회 시작일보다 늦으면 대회 시작일로 보정한다. */
-        if (endDate == null || endDate.isAfter(eventDate)) {
-            endDate = eventDate;
-        }
 
-        /** 조회 종료일이 오늘 이후이면 거절한다. */
-        if (endDate.isAfter(startDate)) {
-            throw new CustomException(
-                    ErrorCode.REPORT_END_DATE_AFTER_TODAY
-            );
-        }
-
-        /** 시작일과 종료일을 포함하여 최대 366일까지 허용한다. */
-        if (endDate.isAfter(startDate.plusDays(365))) {
+        /**
+         * 종료일이 시작일보다 앞설 수 없다.
+         */
+        if (resolvedEndDate.isBefore(resolvedStartDate)) {
             throw new CustomException(
                     ErrorCode.REPORT_DATE_RANGE_INVALID
             );
         }
+
+        /**
+         * 시작일과 종료일을 포함해 최대 366일까지 허용한다.
+         */
+        if (resolvedEndDate.isAfter(
+                resolvedStartDate.plusDays(365)
+        )) {
+            throw new CustomException(
+                    ErrorCode.REPORT_DATE_RANGE_INVALID
+            );
+        }
+
+        return new ReportDateRange(
+                resolvedStartDate,
+                resolvedEndDate
+        );
     }
 
+    /**
+     * 현재 보고서 기준 유효 입금자인지 판단한다.
+     *
+     * 현재 순납부액이 존재하고 기존 결제 귀속 규칙으로
+     * 완료된 최초 결제가 확인되어야 한다.
+     */
+    private boolean isCurrentPayer(
+            RegistrationDailyReportRow row
+    ) {
 
+        if (row.status() == RegistrationStatus.CANCELED
+                || row.status() == RegistrationStatus.EXPIRED) {
+            return false;
+        }
+
+        return row.paidAmount() != null
+                && row.paidAmount().signum() > 0
+                && row.firstPaidAt() != null;
+    }
 
     /**
      * 대회일 기준으로 지정된 나이에 도달(이상)했는지 확인한다.
