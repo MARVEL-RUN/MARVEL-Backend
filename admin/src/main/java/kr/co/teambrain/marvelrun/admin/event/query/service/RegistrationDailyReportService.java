@@ -7,6 +7,7 @@ import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.EventCommandRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.PaymentDailyGraphResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.EventCategoryQueryRepository;
+import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationDailyReportQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import lombok.RequiredArgsConstructor;
@@ -43,16 +44,16 @@ public class RegistrationDailyReportService {
     private final RegistrationQueryRepository registrationQueryRepository;
 
     /**
+     * 대량 보고서의 금융 귀속을 set-based SQL로 조회한다.
+     */
+    private final RegistrationDailyReportQueryRepository
+            registrationDailyReportQueryRepository;
+
+    /**
      * 현재 유효 입금자를 최초 완료 결제일 기준으로 일별 집계한다.
      *
-     * 입금자 판정은 엑셀 보고서와 동일하게
-     * findDailyReportRows()의 결제 귀속 결과를 사용한다.
-     *
-     * 부분환불·추가결제 필요·추가결제 완료 상태에서도
-     * 현재 paidAmount가 양수이면 동일한 최초 결제자 1명으로 유지한다.
-     *
-     * 전액환불 등으로 paidAmount가 0이 되거나 신청이 취소된 경우에는
-     * 최초 결제일의 과거 집계에서도 제외된다.
+     * 금융 귀속과 날짜별 인원 계산은 DB에서 집합 연산으로 수행하고,
+     * Java에서는 빈 날짜 보완 및 누계만 계산한다.
      */
     public PaymentDailyGraphResponse getPaymentDailyGraph(
             Event event,
@@ -61,7 +62,11 @@ public class RegistrationDailyReportService {
     ) {
 
         ReportDateRange reportDateRange =
-                resolveReportDateRange(startDate, endDate, event);
+                resolveReportDateRange(
+                        startDate,
+                        endDate,
+                        event
+                );
 
         LocalDate resolvedStartDate =
                 reportDateRange.startDate();
@@ -70,90 +75,43 @@ public class RegistrationDailyReportService {
                 reportDateRange.endDate();
 
         /**
-         * startDate 이전 누계도 계산해야 하므로
-         * 접수 시작 시각부터 조회 종료일까지 전체 데이터를 조회한다.
+         * 접수 시작일부터 조회 종료일까지의 최초 결제자 수를
+         * 날짜별 GROUP BY 결과로 가져온다.
          */
-        List<RegistrationDailyReportRow> rows =
-                registrationQueryRepository.findDailyReportRows(
-                        event.getId(),
-                        event.getRegistStartDate(),
-                        resolvedEndDate.plusDays(1).atStartOfDay()
-                );
+        List<PaymentDailyCountRow> paymentCounts =
+                registrationDailyReportQueryRepository
+                        .findPaymentDailyCounts(
+                                event.getId(),
+                                event.getRegistStartDate(),
+                                resolvedEndDate
+                                        .plusDays(1)
+                                        .atStartOfDay()
+                        );
 
         /**
-         * 선택 기간의 모든 날짜를 먼저 생성한다.
-         * 해당 날짜 결제자가 없어도 그래프에 0명으로 전달한다.
+         * DB 집계 결과를 날짜 기준 Map으로 변환한다.
          */
-        Map<LocalDate, Long> dailyCounts =
+        Map<LocalDate, Long> paymentCountByDate =
                 new LinkedHashMap<>();
 
-        for (LocalDate date = resolvedStartDate;
-             !date.isAfter(resolvedEndDate);
-             date = date.plusDays(1)) {
-
-            dailyCounts.put(date, 0L);
+        for (PaymentDailyCountRow row : paymentCounts) {
+            paymentCountByDate.put(
+                    row.date(),
+                    row.dailyCount()
+            );
         }
 
+        /**
+         * 선택 시작일 이전까지의 현재 유효 결제자 누계다.
+         */
         long openingCumulativeCount = 0L;
 
-        for (RegistrationDailyReportRow row : rows) {
+        for (PaymentDailyCountRow row : paymentCounts) {
 
-            /**
-             * 취소 완료 또는 만료된 신청은
-             * 현재 유효 입금자로 보지 않는다.
-             */
-            if (row.status() == RegistrationStatus.CANCELED
-                    || row.status() == RegistrationStatus.EXPIRED) {
-                continue;
+            if (row.date().isBefore(resolvedStartDate)) {
+                openingCumulativeCount +=
+                        row.dailyCount();
             }
-
-            /**
-             * 입금자 판정:
-             *
-             * 1. 현재 순납부액이 1원 이상 존재하고
-             * 2. 기존 findStatsByEventId와 동일한 결제 귀속 규칙으로
-             *    COMPLETED Payment가 확인되어야 한다.
-             *
-             * firstPaidAt은 Repository에서 기존 결제 귀속 규칙을 이용하여
-             * 최초 완료 결제 시각으로 조회한다.
-             */
-            boolean payer =
-                    isCurrentPayer(row);
-
-            if (!payer) {
-                continue;
-            }
-
-            LocalDate firstPaidDate =
-                    row.firstPaidAt().toLocalDate();
-
-            /**
-             * 조회 종료일 이후 최초 결제자는
-             * 이번 그래프 범위에 포함하지 않는다.
-             */
-            if (firstPaidDate.isAfter(resolvedEndDate)) {
-                continue;
-            }
-
-            /**
-             * 선택 시작일 이전 최초 결제자는
-             * opening 누계에 포함한다.
-             */
-            if (firstPaidDate.isBefore(resolvedStartDate)) {
-                openingCumulativeCount++;
-                continue;
-            }
-
-            /**
-             * 선택 기간 내 최초 결제자는 해당 날짜에 정확히 1번 집계한다.
-             *
-             * 이후 추가결제가 발생하더라도 firstPaidAt은 변하지 않으므로
-             * 그래프 인원이 다시 증가하지 않는다.
-             */
-            dailyCounts.computeIfPresent(
-                    firstPaidDate,
-                    (date, count) -> count + 1L
-            );
         }
 
         long cumulativeCount =
@@ -164,17 +122,26 @@ public class RegistrationDailyReportService {
         List<PaymentDailyGraphResponse.Day> days =
                 new java.util.ArrayList<>();
 
-        for (Map.Entry<LocalDate, Long> entry : dailyCounts.entrySet()) {
+        /**
+         * 신청 또는 결제가 없는 날짜도 그래프에서 누락되지 않도록
+         * 조회 기간 전체를 순회한다.
+         */
+        for (LocalDate date = resolvedStartDate;
+             !date.isAfter(resolvedEndDate);
+             date = date.plusDays(1)) {
 
             long dailyCount =
-                    entry.getValue();
+                    paymentCountByDate.getOrDefault(
+                            date,
+                            0L
+                    );
 
             periodTotal += dailyCount;
             cumulativeCount += dailyCount;
 
             days.add(
                     new PaymentDailyGraphResponse.Day(
-                            entry.getKey(),
+                            date,
                             dailyCount,
                             cumulativeCount
                     )
@@ -192,6 +159,159 @@ public class RegistrationDailyReportService {
                 days
         );
     }
+    
+    
+    
+//    /** 개선필요 구코드
+//     * 현재 유효 입금자를 최초 완료 결제일 기준으로 일별 집계한다.
+//     *
+//     * 입금자 판정은 엑셀 보고서와 동일하게
+//     * findDailyReportRows()의 결제 귀속 결과를 사용한다.
+//     *
+//     * 부분환불·추가결제 필요·추가결제 완료 상태에서도
+//     * 현재 paidAmount가 양수이면 동일한 최초 결제자 1명으로 유지한다.
+//     *
+//     * 전액환불 등으로 paidAmount가 0이 되거나 신청이 취소된 경우에는
+//     * 최초 결제일의 과거 집계에서도 제외된다.
+//     */
+//    public PaymentDailyGraphResponse getPaymentDailyGraph(
+//            Event event,
+//            LocalDate startDate,
+//            LocalDate endDate
+//    ) {
+//
+//        ReportDateRange reportDateRange =
+//                resolveReportDateRange(startDate, endDate, event);
+//
+//        LocalDate resolvedStartDate =
+//                reportDateRange.startDate();
+//
+//        LocalDate resolvedEndDate =
+//                reportDateRange.endDate();
+//
+//        /**
+//         * startDate 이전 누계도 계산해야 하므로
+//         * 접수 시작 시각부터 조회 종료일까지 전체 데이터를 조회한다.
+//         */
+//        List<RegistrationDailyReportRow> rows =
+//                registrationQueryRepository.findDailyReportRows(
+//                        event.getId(),
+//                        event.getRegistStartDate(),
+//                        resolvedEndDate.plusDays(1).atStartOfDay()
+//                );
+//
+//        /**
+//         * 선택 기간의 모든 날짜를 먼저 생성한다.
+//         * 해당 날짜 결제자가 없어도 그래프에 0명으로 전달한다.
+//         */
+//        Map<LocalDate, Long> dailyCounts =
+//                new LinkedHashMap<>();
+//
+//        for (LocalDate date = resolvedStartDate;
+//             !date.isAfter(resolvedEndDate);
+//             date = date.plusDays(1)) {
+//
+//            dailyCounts.put(date, 0L);
+//        }
+//
+//        long openingCumulativeCount = 0L;
+//
+//        for (RegistrationDailyReportRow row : rows) {
+//
+//            /**
+//             * 취소 완료 또는 만료된 신청은
+//             * 현재 유효 입금자로 보지 않는다.
+//             */
+//            if (row.status() == RegistrationStatus.CANCELED
+//                    || row.status() == RegistrationStatus.EXPIRED) {
+//                continue;
+//            }
+//
+//            /**
+//             * 입금자 판정:
+//             *
+//             * 1. 현재 순납부액이 1원 이상 존재하고
+//             * 2. 기존 findStatsByEventId와 동일한 결제 귀속 규칙으로
+//             *    COMPLETED Payment가 확인되어야 한다.
+//             *
+//             * firstPaidAt은 Repository에서 기존 결제 귀속 규칙을 이용하여
+//             * 최초 완료 결제 시각으로 조회한다.
+//             */
+//            boolean payer =
+//                    isCurrentPayer(row);
+//
+//            if (!payer) {
+//                continue;
+//            }
+//
+//            LocalDate firstPaidDate =
+//                    row.firstPaidAt().toLocalDate();
+//
+//            /**
+//             * 조회 종료일 이후 최초 결제자는
+//             * 이번 그래프 범위에 포함하지 않는다.
+//             */
+//            if (firstPaidDate.isAfter(resolvedEndDate)) {
+//                continue;
+//            }
+//
+//            /**
+//             * 선택 시작일 이전 최초 결제자는
+//             * opening 누계에 포함한다.
+//             */
+//            if (firstPaidDate.isBefore(resolvedStartDate)) {
+//                openingCumulativeCount++;
+//                continue;
+//            }
+//
+//            /**
+//             * 선택 기간 내 최초 결제자는 해당 날짜에 정확히 1번 집계한다.
+//             *
+//             * 이후 추가결제가 발생하더라도 firstPaidAt은 변하지 않으므로
+//             * 그래프 인원이 다시 증가하지 않는다.
+//             */
+//            dailyCounts.computeIfPresent(
+//                    firstPaidDate,
+//                    (date, count) -> count + 1L
+//            );
+//        }
+//
+//        long cumulativeCount =
+//                openingCumulativeCount;
+//
+//        long periodTotal = 0L;
+//
+//        List<PaymentDailyGraphResponse.Day> days =
+//                new java.util.ArrayList<>();
+//
+//        for (Map.Entry<LocalDate, Long> entry : dailyCounts.entrySet()) {
+//
+//            long dailyCount =
+//                    entry.getValue();
+//
+//            periodTotal += dailyCount;
+//            cumulativeCount += dailyCount;
+//
+//            days.add(
+//                    new PaymentDailyGraphResponse.Day(
+//                            entry.getKey(),
+//                            dailyCount,
+//                            cumulativeCount
+//                    )
+//            );
+//        }
+//
+//        return new PaymentDailyGraphResponse(
+//                event.getId(),
+//                resolvedStartDate,
+//                resolvedEndDate,
+//                serverTimeProvider.timeZone(),
+//                openingCumulativeCount,
+//                periodTotal,
+//                cumulativeCount,
+//                days
+//        );
+//    }
 
 
     public SXSSFWorkbook getDailyPaymenterExcelReport(
@@ -240,12 +360,22 @@ public class RegistrationDailyReportService {
             );
         }
 
-        /**
+        /** 기존방식
          * 누계 계산도 필요하므로 접수 시작일부터 조회 종료일까지의
          * 모든 신청자를 한 번 조회한다.
          */
+//        List<RegistrationDailyReportRow> reportRows =
+//                registrationQueryRepository.findDailyReportRows(
+//                        event.getId(),
+//                        event.getRegistStartDate(),
+//                        resolvedEndDate.plusDays(1).atStartOfDay()
+//                );
+        /** 20260924 기능개선
+         * Payment / PaymentAllocation에서 신청별 최초 결제를 선집계한
+         * 보고서 전용 조회를 사용한다.
+         */
         List<RegistrationDailyReportRow> reportRows =
-                registrationQueryRepository.findDailyReportRows(
+                registrationDailyReportQueryRepository.findReportRows(
                         event.getId(),
                         event.getRegistStartDate(),
                         resolvedEndDate.plusDays(1).atStartOfDay()
