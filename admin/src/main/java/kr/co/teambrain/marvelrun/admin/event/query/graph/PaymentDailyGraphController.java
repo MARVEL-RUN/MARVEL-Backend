@@ -22,14 +22,13 @@ public class PaymentDailyGraphController {
     private final RegistrationDailyReportService registrationDailyReportService;
 
     /** ISO 날짜로 조회 범위를 받고 기존 관리자 Bearer 인증을 적용한다. */
-    @GetMapping("/{eventId}/graph/payment-daily")
+    @GetMapping("/{eventId}/daily-payment-graph")
     @Operation(
             summary = "일별 결제자 그래프 조회",
             description = "현재 유효 결제자를 최초 결제일 기준으로 일별 집계합니다. "
                     + "부분환불·추가결제 대상자는 결제자로 유지되며, "
                     + "취소·전액환불 시 과거 최초 결제일의 수치에서도 제외됩니다."
     )
-    @GetMapping("/{eventId}/daily-payment-graph")
     public PaymentDailyGraphResponse getDailyPaymentGraph(
             @PathVariable("eventId") String eventId,
             @RequestParam(value = "startDate", required = false)
