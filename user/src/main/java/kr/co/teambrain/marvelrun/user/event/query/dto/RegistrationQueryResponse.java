@@ -17,7 +17,6 @@ public record RegistrationQueryResponse(
         boolean guardianConsent,
 
         String guardianName,
-
         String guardianPhNum,
         String guardianRelationship,
 

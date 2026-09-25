@@ -316,6 +316,7 @@ public class RegistrationDailyReportService {
 //    }
 
 
+    /** 통계와 동일한 상태 제외 기준으로 신청자를 집계하고, 최초 완료 결제일별 입금 현황을 엑셀로 생성한다. */
     public SXSSFWorkbook getDailyPaymenterExcelReport(
             Event event,
             LocalDate startDate,
@@ -386,10 +387,9 @@ public class RegistrationDailyReportService {
         for (RegistrationDailyReportRow row : reportRows) {
 
             /**
-             * 취소 완료·만료 신청은 현재 신청자 집계에서 제외한다.
+             * 통계와 동일하게 취소 완료·만료 신청은 제외하고, 취소 진행 중인 신청은 유지한다.
              */
-            if (row.status() == RegistrationStatus.CANCELLATION_PENDING ||
-                    row.status() == RegistrationStatus.CANCELED
+            if (row.status() == RegistrationStatus.CANCELED
                     || row.status() == RegistrationStatus.EXPIRED) {
                 continue;
             }
