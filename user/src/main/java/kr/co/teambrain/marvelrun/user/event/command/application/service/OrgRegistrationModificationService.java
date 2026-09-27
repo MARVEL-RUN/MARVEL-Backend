@@ -34,6 +34,7 @@ import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment
 
 /**
  * 단체 최종 구성원 목록을 기준으로 추가·수정·제거를 반영한다.
+ * 추가 구성원은 최초 단체 생성과 동일한 정책으로 비밀번호 해시를 저장한다.
  *
  * 전체 후보 정책검증과 가격 계산을 마친 뒤 실제 변경을 시작한다.
  * 모든 신청·예약·카운터 변경은 외부 수정 Use Case의 같은 Tx에 속한다.
@@ -45,6 +46,8 @@ import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment
 @RequiredArgsConstructor
 @Transactional(propagation = Propagation.MANDATORY)
 public class OrgRegistrationModificationService {
+
+    private final OrgParticipantPasswordEncoder participantPasswordEncoder;
 
     private final RegistrationCapacityService registrationCapacityService;
     private final OrgRegistrationModificationAccessValidator accessValidator;
@@ -233,6 +236,7 @@ public class OrgRegistrationModificationService {
 
     /**
      * 신규 후보를 기존 단체 생성 팩터리로 생성하고 최초 HELD를 확보한다.
+     * 참가자별 고정 비밀번호 해시를 생성하며 기존 구성원의 비밀번호는 변경하지 않는다.
      *
      * 생성용 DTO 변환은 정책검증을 다시 수행하기 위한 것이 아니라,
      * 검증 완료 값을 기존 Entity 생성 팩터리에 전달하기 위한 것이다.
@@ -247,7 +251,7 @@ public class OrgRegistrationModificationService {
             return;
         }
 
-        // MVP 단축 전략: 기존 구성원(대표 등)의 약관 동의 내역을 새 인원에게도 동일하게 복사 적용
+        // 기존 첫 구성원의 약관 동의 내역을 추가 참가자에게 복사한다.
         Registration reference = candidate.currentRegistrations().get(0);
         boolean termsEssential = Boolean.TRUE.equals(reference.getTermsEssentialAgreed());
         boolean termsMarketing = Boolean.TRUE.equals(reference.getTermsMarketingAgreed());
@@ -279,9 +283,10 @@ public class OrgRegistrationModificationService {
                                     candidate.organization(),
                                     creationInput,
                                     participant.souvenirJsons(),
+                                    participantPasswordEncoder.encode(),
                                     item.price().newContractAmount(),
                                     now,
-                                    termsEssential, // DTO 형식 맞춤용 (팩토리 메서드에서 무시되거나 재덮어쓰기됨)
+                                    termsEssential,
                                     termsMarketing,
                                     termsChannel,
                                     null

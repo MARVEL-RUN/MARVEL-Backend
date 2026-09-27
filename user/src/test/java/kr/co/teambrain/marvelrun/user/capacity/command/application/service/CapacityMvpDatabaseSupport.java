@@ -74,6 +74,7 @@ import static org.mockito.Mockito.when;
         ReservationPaymentService.class,
         RegistrationCommandService.class,
         OrgRegistrationCommandService.class,
+        kr.co.teambrain.marvelrun.user.event.command.application.service.OrgParticipantPasswordEncoder.class,
         RegistrationApplyValidator.class,
         OrgRegistrationApplyValidator.class,
         RegistrationPolicyValidator.class,

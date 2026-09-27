@@ -81,6 +81,7 @@ import static org.mockito.Mockito.*;
 
         RegistrationCommandService.class,
         OrgRegistrationCommandService.class,
+        kr.co.teambrain.marvelrun.user.event.command.application.service.OrgParticipantPasswordEncoder.class,
         RegistrationPricingService.class,
 
         RegistrationApplyValidator.class,

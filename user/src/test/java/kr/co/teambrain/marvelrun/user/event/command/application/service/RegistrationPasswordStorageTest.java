@@ -39,6 +39,8 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class RegistrationPasswordStorageTest {
     @Spy private PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(4);
+    @Spy private OrgParticipantPasswordEncoder participantPasswordEncoder =
+            new OrgParticipantPasswordEncoder(new BCryptPasswordEncoder(4));
     @Mock private RegistrationCapacityService capacity;
     @Mock private ReservationReleaseService release;
     @Mock private EventCommandRepository events;
@@ -93,6 +95,43 @@ class RegistrationPasswordStorageTest {
         assertThat(saved.getValue().getPassword()).isNotEqualTo(request.account().organizationPassword());
         assertThat(passwordEncoder.matches(request.account().organizationPassword(), saved.getValue().getPassword())).isTrue();
         assertThat(request.account().organizationPassword()).isEqualTo("TestPassword1!");
+    }
+
+    /** 최초 단체 생성에서도 참가자마다 고정 원문의 서로 다른 해시를 저장한다. */
+    @Test
+    void storesDistinctHashesForInitialOrganizationParticipants() {
+        OrgRegistrationCreateRequest request = organizationRequest("TestPassword1!");
+        OrgRegistrationParticipantRequest participant = new OrgRegistrationParticipantRequest(
+                "category", List.of(), "참가자", "010-0000-0000", "1990-01-01", GenderClass.M);
+        OrgRegistrationCreateContext.ParticipantContext context =
+                new OrgRegistrationCreateContext.ParticipantContext(participant, category, List.of());
+        OrgRegistrationParticipantRequest secondParticipant = new OrgRegistrationParticipantRequest(
+                "category", List.of(), "다른 참가자", "010-0000-0001", "1990-01-01", GenderClass.M);
+        OrgRegistrationCreateContext.ParticipantContext secondContext =
+                new OrgRegistrationCreateContext.ParticipantContext(secondParticipant, category, List.of());
+        when(time.currentDateTime()).thenReturn(NOW);
+        when(organizationValidator.validate("event", request, NOW))
+                .thenReturn(new OrgRegistrationCreateContext(event, List.of(context, secondContext)));
+        when(pricing.calculateContractAmount(event, category, participant.birth())).thenReturn(BigDecimal.TEN);
+        when(organizations.save(any(Organization.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(registrations.saveAll(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(payments.createInitialPayment(any(Organization.class), any(BigDecimal.class), anyString()))
+                .thenReturn(mock(Payment.class));
+
+        organizationService.register("event", request);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Registration>> saved = ArgumentCaptor.forClass(List.class);
+        verify(registrations).saveAll(saved.capture());
+        assertThat(saved.getValue()).hasSize(2);
+        assertThat(saved.getValue()).allSatisfy(registration -> {
+            assertThat(passwordEncoder.matches("%^MVP_ORG_T&*EM^&#P_PA$%SSWO@!RD",
+                    registration.getPassword())).isTrue();
+            assertThat(passwordEncoder.matches(request.account().organizationPassword(),
+                    registration.getPassword())).isFalse();
+        });
+        assertThat(saved.getValue().get(0).getPassword()).isNotEqualTo(saved.getValue().get(1).getPassword());
+        verify(participantPasswordEncoder, times(2)).encode();
     }
 
     /** 문자 수가 짧아도 UTF-8 한도를 넘는 입력은 개인·단체 모두 저장 전에 거부한다. */

@@ -70,6 +70,7 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 
         RegistrationCommandService.class,
         OrgRegistrationCommandService.class,
+        OrgParticipantPasswordEncoder.class,
         RegistrationPricingService.class,
 
         RegistrationApplyValidator.class,
