@@ -23,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
+/** 실제 BCrypt 인코더로 수정 요청의 원문과 저장 해시를 검증한다. */
 @ExtendWith(MockitoExtension.class)
 class RegistrationModificationAccessValidatorTest {
 
@@ -52,6 +53,10 @@ class RegistrationModificationAccessValidatorTest {
     @Mock
     private Event
             event;
+
+    @org.mockito.Spy
+    private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder =
+            new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder(4);
 
     @InjectMocks
     private RegistrationModificationAccessValidator
@@ -97,7 +102,7 @@ class RegistrationModificationAccessValidatorTest {
                 .thenReturn("010-1111-2222");
 
         when(registration.getPassword())
-                .thenReturn("password");
+                .thenReturn(passwordEncoder.encode("password"));
 
         when(registration.getEvent())
                 .thenReturn(event);
@@ -312,7 +317,7 @@ class RegistrationModificationAccessValidatorTest {
                 .thenReturn("010-1111-2222");
 
         when(registration.getPassword())
-                .thenReturn("password");
+                .thenReturn(passwordEncoder.encode("password"));
     }
 
 

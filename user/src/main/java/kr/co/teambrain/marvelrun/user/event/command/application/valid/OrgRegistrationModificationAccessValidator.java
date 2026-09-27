@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.valid;
 
+import org.springframework.security.crypto.password.PasswordEncoder;
+
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.OrgRegistrationModificationAccessContext;
@@ -24,6 +26,7 @@ import java.util.stream.Collectors;
 @Component
 @RequiredArgsConstructor
 public class OrgRegistrationModificationAccessValidator {
+    private final PasswordEncoder passwordEncoder;
 
     private final OrganizationCommandRepository
             organizationCommandRepository;
@@ -97,7 +100,7 @@ public class OrgRegistrationModificationAccessValidator {
             Organization organization,
             OrganizationAccessRequest access
     ) {
-        RegistrationAccessVerifier.verifyOrganization(organization, access);
+        RegistrationAccessVerifier.verifyOrganization(organization, access, passwordEncoder);
     }
 
 

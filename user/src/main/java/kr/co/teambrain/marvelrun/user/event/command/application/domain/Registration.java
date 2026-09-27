@@ -91,13 +91,15 @@ public class Registration extends RegistrationBase<
         }
     }
 
+    /** 개인 신청 정보를 생성하며 서비스에서 만든 비밀번호 해시를 그대로 저장한다. */
     public static Registration createForPaymentMvp(
             Event event,
             EventCategory eventCategory,
             List<SouvenirJson> souvenirJsons,
             RegistrationCreateRequest request,
+            String encodedPassword,
             BigDecimal contractAmount,
-            LocalDateTime now // 추가됨
+            LocalDateTime now
     ) {
 
         String guardianName = request.guardianName();
@@ -115,7 +117,7 @@ public class Registration extends RegistrationBase<
                 .event(event)
                 .eventCategory(eventCategory)
                 .souvenirJson(souvenirJsons)
-                .password(request.password())
+                .password(encodedPassword)
                 .name(request.name())
                 .phNum(request.phNum())
                 .birth(request.birth())
@@ -131,10 +133,10 @@ public class Registration extends RegistrationBase<
                 .contractAmount(contractAmount)
                 .paidAmount(BigDecimal.ZERO)
                 .status(RegistrationStatus.PAYMENT_PENDING)
-                .termsEssentialAgreed(request.termsEssentialAgreed()) // 추가됨
-                .termsMarketingAgreed(request.termsMarketingAgreed()) // 추가됨
-                .termsMarketingChannelAgreed(request.termsMarketingChannelAgreed()) // 추가됨
-                .termsAgreedAt(now) // 추가됨
+                .termsEssentialAgreed(request.termsEssentialAgreed())
+                .termsMarketingAgreed(request.termsMarketingAgreed())
+                .termsMarketingChannelAgreed(request.termsMarketingChannelAgreed())
+                .termsAgreedAt(now)
                 .email(request.email())
                 .build();
     }

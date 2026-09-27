@@ -26,6 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
+/** 실제 BCrypt 인코더로 수정 요청의 원문과 저장 해시를 검증한다. */
 @ExtendWith(MockitoExtension.class)
 class OrgRegistrationModificationAccessValidatorTest {
 
@@ -67,6 +68,10 @@ class OrgRegistrationModificationAccessValidatorTest {
     @Mock
     private Registration
             registrationB;
+
+    @org.mockito.Spy
+    private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder =
+            new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder(4);
 
     @InjectMocks
     private OrgRegistrationModificationAccessValidator
@@ -451,7 +456,7 @@ class OrgRegistrationModificationAccessValidatorTest {
                 .thenReturn("group-login");
 
         when(organization.getPassword())
-                .thenReturn("password");
+                .thenReturn(passwordEncoder.encode("password"));
     }
 
 

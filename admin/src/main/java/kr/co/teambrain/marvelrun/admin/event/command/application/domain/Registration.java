@@ -22,6 +22,7 @@ import java.time.LocalDateTime;
 
 import static lombok.AccessLevel.PROTECTED;
 
+/** 관리자 변경을 반영하며 비밀번호는 서비스에서 전달한 해시로 저장한다. */
 @Getter
 @SuperBuilder
 @Entity
@@ -29,8 +30,9 @@ import static lombok.AccessLevel.PROTECTED;
 @NoArgsConstructor(access = PROTECTED)
 public class Registration extends RegistrationBase<User, Event, EventCategory, Organization, Souvenir> {
 
-    public void resetPasswordByAdmin(String newPassword) {
-        this.password = newPassword;
+    /** 서비스에서 검증하고 해시로 변환한 비밀번호를 저장한다. */
+    public void resetPasswordByAdmin(String encodedPassword) {
+        this.password = encodedPassword;
     }
     /**
      * 자원 반환을 마친 신청의 참가 의무를 없애고 실제 환불 완료까지 순납부액을 보존한다.

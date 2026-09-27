@@ -1,5 +1,8 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import org.springframework.security.crypto.password.PasswordEncoder;
+import java.nio.charset.StandardCharsets;
+
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationReleaseService;
@@ -48,6 +51,7 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class OrgRegistrationCommandService {
+    private final PasswordEncoder passwordEncoder;
 
     private final RegistrationCapacityService registrationCapacityService;
     private final ReservationReleaseService reservationReleaseService;
@@ -119,8 +123,13 @@ public class OrgRegistrationCommandService {
 
         Event event = context.event();
 
+        String rawPassword = request.account().organizationPassword();
+        if (rawPassword.getBytes(StandardCharsets.UTF_8).length > 72) {
+            throw new CustomException(ErrorCode.REGISTRATION_PASSWORD_TOO_LONG);
+        }
+        String encodedPassword = passwordEncoder.encode(rawPassword);
         Organization organization =
-                createOrganization(event, request);
+                createOrganization(event, request, encodedPassword);
 
         Organization savedOrganization =
                 organizationCommandRepository.save(organization);
@@ -367,7 +376,7 @@ public class OrgRegistrationCommandService {
 
 
     /**
-     * 단체 자체 정보 생성.
+     * 단체 자체 정보를 생성하고 서비스에서 전달한 비밀번호 해시를 저장한다.
      *
      * Organization 규모가 크지 않고
      * 현재 별도 use-case가 없으므로
@@ -375,7 +384,8 @@ public class OrgRegistrationCommandService {
      */
     private Organization createOrganization(
             Event event,
-            OrgRegistrationCreateRequest request
+            OrgRegistrationCreateRequest request,
+            String encodedPassword
     ) {
 
         String email =
@@ -390,10 +400,7 @@ public class OrgRegistrationCommandService {
                         request.account()
                                 .organizationLoginId()
                 )
-                .password(
-                        request.account()
-                                .organizationPassword()
-                )
+                .password(encodedPassword)
                 .groupName(
                         request.account()
                                 .organizationName()

@@ -66,6 +66,7 @@ import static org.mockito.Mockito.when;
 )
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Import({
+        org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder.class,
         CapacityHoldService.class,
         CapacityRequirementResolver.class,
         RegistrationCapacityService.class,

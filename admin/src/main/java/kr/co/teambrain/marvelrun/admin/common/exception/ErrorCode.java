@@ -144,6 +144,7 @@ public enum ErrorCode {
     EVENT_NOT_FOUND(HttpStatus.NOT_FOUND, "대회을 찾을 수 없습니다"),
     NOTICE_CATEGORY_NOT_FOUND(HttpStatus.NOT_FOUND, "공지 카테고리를 찾을 수 없습니다"),
     INVALID_REGISTRATION_MODIFICATION_TARGET(HttpStatus.BAD_REQUEST, "단체 소속 신청건은 개별적으로 비밀번호를 변경할 수 없습니다."),
+    REGISTRATION_PASSWORD_TOO_LONG(HttpStatus.BAD_REQUEST, "비밀번호는 UTF-8 기준 72바이트 이하여야 합니다."),
     INVALID_PASSWORD_LENGTH(HttpStatus.BAD_REQUEST,"신청 비밀번호는 6자리 이상이어야 합니다."),
 
 

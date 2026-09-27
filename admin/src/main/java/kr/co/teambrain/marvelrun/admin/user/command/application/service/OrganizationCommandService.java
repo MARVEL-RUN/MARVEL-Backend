@@ -1,5 +1,8 @@
 package kr.co.teambrain.marvelrun.admin.user.command.application.service;
 
+import org.springframework.security.crypto.password.PasswordEncoder;
+import java.nio.charset.StandardCharsets;
+
 import kr.co.teambrain.marvelrun.admin.common.dto.request.PasswordResetRequest;
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
@@ -16,30 +19,35 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+/** 관리자의 단체 정보 변경과 해시 기반 비밀번호 초기화를 수행한다. */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional
 public class OrganizationCommandService {
+    private final PasswordEncoder passwordEncoder;
 
     private final OrganizationCommandRepository organizationCommandRepository;
     private final RegistrationCommandRepository registrationCommandRepository;
 
     /**
-     * 단체 신청 비밀번호 초기화
+     * 단체 계정 비밀번호를 해시로 변환하여 초기화한다.
      */
     public void resetOrganizationPassword(String organizationId, PasswordResetRequest request) {
 
         Organization organization = organizationCommandRepository.findById(organizationId)
                 .orElseThrow(() -> new CustomException(ErrorCode.ORGANIZATION_NOT_FOUND)); // 해당 에러코드 추가 필요
 
+        if (request.newPassword().getBytes(StandardCharsets.UTF_8).length > 72) {
+            throw new CustomException(ErrorCode.REGISTRATION_PASSWORD_TOO_LONG);
+        }
         if (request.newPassword().length() < 6) {
             throw new CustomException(ErrorCode.INVALID_PASSWORD_LENGTH);
         }
 
 
         // 1. 단체 자체의 비밀번호 변경
-        organization.resetPasswordByAdmin(request.newPassword());
+        organization.resetPasswordByAdmin(passwordEncoder.encode(request.newPassword()));
 
         // 2. 단체에 속한 모든 참가자(Registration) 조회 및 비밀번호 일괄
         // 주석 처리 - 김경환 : 단체 신청에서의 개별 registration은 실제로 접근할 수 없어야함.

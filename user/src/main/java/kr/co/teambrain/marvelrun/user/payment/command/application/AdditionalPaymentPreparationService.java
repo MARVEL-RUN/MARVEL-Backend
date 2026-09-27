@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.payment.command.application;
 
+import org.springframework.security.crypto.password.PasswordEncoder;
+
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.math.BigDecimal;
@@ -39,6 +41,7 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 @Transactional
 public class AdditionalPaymentPreparationService {
+    private final PasswordEncoder passwordEncoder;
     private final EntityManager entityManager;
     private final PaymentCommandRepository payments;
     private final PaymentAllocationCommandRepository allocations;
@@ -55,7 +58,7 @@ public class AdditionalPaymentPreparationService {
         if (!eventId.equals(registration.getEvent().getId()) || registration.getOrganization() != null) {
             throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
         }
-        RegistrationAccessVerifier.verifyPersonal(registration, access);
+        RegistrationAccessVerifier.verifyPersonal(registration, access, passwordEncoder);
         return prepare(locked, List.of(registration), null);
     }
 
@@ -69,7 +72,7 @@ public class AdditionalPaymentPreparationService {
         if (!eventId.equals(organization.getEvent().getId())) {
             throw new CustomException(ErrorCode.ORGANIZATION_ACCESS_DENIED);
         }
-        RegistrationAccessVerifier.verifyOrganization(organization, access);
+        RegistrationAccessVerifier.verifyOrganization(organization, access, passwordEncoder);
         List<Payment> locked = lockPayments(eventId, organizationId, null);
         List<Registration> targets = entityManager.createQuery("""
                 select r from Registration r where r.event.id=:event and r.organization.id=:org
