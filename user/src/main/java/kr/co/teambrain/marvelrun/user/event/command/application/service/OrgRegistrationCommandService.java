@@ -44,6 +44,7 @@ import java.util.UUID;
 
 /**
  * 단체와 구성원 신청, 자원 예약, 단체 최초 결제를 생성한다.
+ * 단체 계정과 각 구성원의 비밀번호는 해시로 저장한다.
  *
  * 구성원 전체의 필요 수량을 합산하여 한 번에 확보한다.
  * 한 자원이라도 부족하면 단체 전체의 생성을 롤백한다.
@@ -52,6 +53,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class OrgRegistrationCommandService {
     private final PasswordEncoder passwordEncoder;
+    private final OrgParticipantPasswordEncoder participantPasswordEncoder;
 
     private final RegistrationCapacityService registrationCapacityService;
     private final ReservationReleaseService reservationReleaseService;
@@ -452,8 +454,8 @@ public class OrgRegistrationCommandService {
      * 각 참가자의 contractAmount는 개인 신청과 동일한
      * RegistrationPricingService를 통해 서버에서 계산한다.
      *
-     * password / address / addressBase 등의 단체 전용 차이는
-     * Registration.createForOrgPaymentMvp() 내부에서 처리한다.
+     * 구성원별 고정 비밀번호 해시를 생성해 팩터리에 전달한다.
+     * 주소 등 단체 전용 차이는 Registration.createForOrgPaymentMvp() 내부에서 처리한다.
      */
     private List<Registration> createRegistrations(
             Organization organization,
@@ -496,6 +498,7 @@ public class OrgRegistrationCommandService {
                             organization,
                             participantContext.request(),
                             participantContext.souvenirJsons(),
+                            participantPasswordEncoder.encode(),
                             contractAmount,
                             now,
                             termsEssential,          // 일괄 적용
