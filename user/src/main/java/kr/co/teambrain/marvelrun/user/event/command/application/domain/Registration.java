@@ -26,7 +26,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
 
-/** 신청의 참가 정보와 금융 요약을 관리하며 개인정보 정정은 허용 필드에만 반영한다. */
+/** 신청의 참가 정보와 금융 요약을 관리하며 생성 시 전달받은 비밀번호 해시를 저장한다. */
 @org.hibernate.annotations.DynamicUpdate
 @Getter
 @Entity
@@ -91,13 +91,15 @@ public class Registration extends RegistrationBase<
         }
     }
 
+    /** 개인 신청 정보를 생성하며 서비스에서 만든 비밀번호 해시를 그대로 저장한다. */
     public static Registration createForPaymentMvp(
             Event event,
             EventCategory eventCategory,
             List<SouvenirJson> souvenirJsons,
             RegistrationCreateRequest request,
+            String encodedPassword,
             BigDecimal contractAmount,
-            LocalDateTime now // 추가됨
+            LocalDateTime now
     ) {
 
         String guardianName = request.guardianName();
@@ -115,7 +117,7 @@ public class Registration extends RegistrationBase<
                 .event(event)
                 .eventCategory(eventCategory)
                 .souvenirJson(souvenirJsons)
-                .password(request.password())
+                .password(encodedPassword)
                 .name(request.name())
                 .phNum(request.phNum())
                 .birth(request.birth())
@@ -131,16 +133,16 @@ public class Registration extends RegistrationBase<
                 .contractAmount(contractAmount)
                 .paidAmount(BigDecimal.ZERO)
                 .status(RegistrationStatus.PAYMENT_PENDING)
-                .termsEssentialAgreed(request.termsEssentialAgreed()) // 추가됨
-                .termsMarketingAgreed(request.termsMarketingAgreed()) // 추가됨
-                .termsMarketingChannelAgreed(request.termsMarketingChannelAgreed()) // 추가됨
-                .termsAgreedAt(now) // 추가됨
+                .termsEssentialAgreed(request.termsEssentialAgreed())
+                .termsMarketingAgreed(request.termsMarketingAgreed())
+                .termsMarketingChannelAgreed(request.termsMarketingChannelAgreed())
+                .termsAgreedAt(now)
                 .email(request.email())
                 .build();
     }
 
     /**
-     * 단체 신청에 따른 registration 구성
+     * 단체 참가자 신청을 구성하며 서비스에서 전달한 비밀번호 해시를 저장한다.
      */
     public static Registration createForOrgPaymentMvp(
             Event event,
@@ -148,11 +150,12 @@ public class Registration extends RegistrationBase<
             Organization organization,
             OrgRegistrationParticipantRequest request,
             List<SouvenirJson> souvenirJsons,
+            String encodedPassword,
             BigDecimal contractAmount,
-            LocalDateTime now,                  // 추가됨: 약관 동의 일시
-            boolean termsEssentialAgreed,       // 추가됨: 필수 약관 동의
-            boolean termsMarketingAgreed,       // 추가됨: 마케팅 동의
-            boolean termsMarketingChannelAgreed, // 추가됨: 전자적 매체 수신 동의
+            LocalDateTime now,
+            boolean termsEssentialAgreed,
+            boolean termsMarketingAgreed,
+            boolean termsMarketingChannelAgreed,
             String email
     ) {
 
@@ -173,16 +176,8 @@ public class Registration extends RegistrationBase<
                         souvenirJsons
                 )
 
-                /*
-                 * 단체 신청으로 생성된 Registration은
-                 * 소유신청 이전에는 신청자 본인이 직접 접근하지 않는다.
-                 *
-                 * MVP에서는 난수 생성 로직을 생략하고
-                 * 임시 하드코딩 비밀번호를 사용한다.
-                 */
-                .password(
-                        "%^MVP_ORG_T&*EM^&#P_PA$%SSWO@!RD"
-                )
+                // 단체 인증은 Organization에서 수행하며 참가자 고정값도 해시로만 저장한다.
+                .password(encodedPassword)
 
                 .name(
                         request.name()
@@ -234,7 +229,7 @@ public class Registration extends RegistrationBase<
                 .paidAmount(
                         BigDecimal.ZERO
                 )
-                // --- 새롭게 추가된 약관 동의 매핑 ---
+                // 참가자 생성 요청의 약관 동의 내역을 저장한다.
                 .termsEssentialAgreed(
                         termsEssentialAgreed
                 )

@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import org.springframework.security.crypto.password.PasswordEncoder;
+
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
@@ -37,6 +39,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class RegistrationCancellationTransactionService {
+    private final PasswordEncoder passwordEncoder;
     private final EntityManager entityManager;
     private final EventCommandRepository events;
     private final RegistrationModificationPaymentGuard paymentGuard;
@@ -57,7 +60,7 @@ public class RegistrationCancellationTransactionService {
         if (registration.getOrganization() != null || !eventId.equals(registration.getEvent().getId())) {
             throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
         }
-        RegistrationAccessVerifier.verifyPersonal(registration, access);
+        RegistrationAccessVerifier.verifyPersonal(registration, access, passwordEncoder);
         return prepare(event, null, List.of(registration), payments);
     }
 
@@ -72,7 +75,7 @@ public class RegistrationCancellationTransactionService {
         if (!eventId.equals(organization.getEvent().getId())) {
             throw new CustomException(ErrorCode.ORGANIZATION_ACCESS_DENIED);
         }
-        RegistrationAccessVerifier.verifyOrganization(organization, access);
+        RegistrationAccessVerifier.verifyOrganization(organization, access, passwordEncoder);
         List<Payment> payments = paymentGuard.lockOrganization(eventId, organizationId);
         List<Registration> members = entityManager.createQuery(
                 "select r from Registration r where r.event.id = :eventId and r.organization.id = :organizationId order by r.id",

@@ -72,6 +72,7 @@ import static org.mockito.Mockito.*;
 )
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Import({
+        org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder.class,
         CapacityHoldService.class,
         CapacityRequirementResolver.class,
         RegistrationCapacityService.class,
@@ -80,6 +81,7 @@ import static org.mockito.Mockito.*;
 
         RegistrationCommandService.class,
         OrgRegistrationCommandService.class,
+        kr.co.teambrain.marvelrun.user.event.command.application.service.OrgParticipantPasswordEncoder.class,
         RegistrationPricingService.class,
 
         RegistrationApplyValidator.class,

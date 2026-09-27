@@ -44,6 +44,8 @@ import static org.mockito.Mockito.*;
 
 /** 실제 CommandService 분기와 개인정보 검증을 연결하여 불필요한 서비스 호출 생략을 확인한다. */
 class RegistrationPersonalInformationServiceTest {
+    private final org.springframework.security.crypto.password.PasswordEncoder passwordEncoder =
+            new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder(4);
     private static final ValidatorFactory INPUTS = Validation.buildDefaultValidatorFactory();
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 9, 20, 12, 0);
     private final RegistrationCommandRepository repository = mock(RegistrationCommandRepository.class);
@@ -57,7 +59,7 @@ class RegistrationPersonalInformationServiceTest {
             INPUTS.getValidator(), new RegistrationInformationPolicyValidator(new RegistrationPolicyValidator()), new RegistrationUniqueInfoValidator(repository),
             guardianPolicies, new RegistrationPolicyValidator());
     private final RegistrationModificationTransactionService commands = new RegistrationModificationTransactionService(
-            full, organization, settlement, time, new RegistrationModificationAccessValidator(repository), validator,
+            full, organization, settlement, time, new RegistrationModificationAccessValidator(passwordEncoder, repository), validator,
             new RegistrationModificationClassifier(), new RegistrationPersonalInformationService(validator, repository, entityManager),
             mock(OrgRegistrationModificationAccessValidator.class), mock(OrgRegistrationPersonalInformationValidator.class),
             mock(OrgRegistrationPersonalInformationService.class));
@@ -215,7 +217,7 @@ class RegistrationPersonalInformationServiceTest {
         Event event = Event.builder().id("e").eventStatus(eventStatus).registStartDate(start).registDeadline(deadline).build();
         Registration current = Registration.builder().id("r").event(event).eventCategory(EventCategory.builder().id("c").build())
                 .souvenirJson(List.of(new SouvenirJson("s", "M"))).name("기존 이름").phNum("010-1111-2222")
-                .password("test-only").birth("1990-01-01").gender(GenderClass.M).address("정정 주소").addressDetail("상세")
+                .password(passwordEncoder.encode("test-only")).birth("1990-01-01").gender(GenderClass.M).address("정정 주소").addressDetail("상세")
                 .guardianName(null).guardianConsent(false).status(status).contractAmount(new BigDecimal("10000"))
                 .paidAmount(new BigDecimal("5000")).version(7L).build();
         when(time.currentDateTime()).thenReturn(NOW);

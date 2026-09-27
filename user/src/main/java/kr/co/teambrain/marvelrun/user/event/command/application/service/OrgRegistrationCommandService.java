@@ -1,5 +1,8 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import org.springframework.security.crypto.password.PasswordEncoder;
+import java.nio.charset.StandardCharsets;
+
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationReleaseService;
@@ -41,6 +44,7 @@ import java.util.UUID;
 
 /**
  * 단체와 구성원 신청, 자원 예약, 단체 최초 결제를 생성한다.
+ * 단체 계정과 각 구성원의 비밀번호는 해시로 저장한다.
  *
  * 구성원 전체의 필요 수량을 합산하여 한 번에 확보한다.
  * 한 자원이라도 부족하면 단체 전체의 생성을 롤백한다.
@@ -48,6 +52,8 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class OrgRegistrationCommandService {
+    private final PasswordEncoder passwordEncoder;
+    private final OrgParticipantPasswordEncoder participantPasswordEncoder;
 
     private final RegistrationCapacityService registrationCapacityService;
     private final ReservationReleaseService reservationReleaseService;
@@ -119,8 +125,13 @@ public class OrgRegistrationCommandService {
 
         Event event = context.event();
 
+        String rawPassword = request.account().organizationPassword();
+        if (rawPassword.getBytes(StandardCharsets.UTF_8).length > 72) {
+            throw new CustomException(ErrorCode.REGISTRATION_PASSWORD_TOO_LONG);
+        }
+        String encodedPassword = passwordEncoder.encode(rawPassword);
         Organization organization =
-                createOrganization(event, request);
+                createOrganization(event, request, encodedPassword);
 
         Organization savedOrganization =
                 organizationCommandRepository.save(organization);
@@ -367,7 +378,7 @@ public class OrgRegistrationCommandService {
 
 
     /**
-     * 단체 자체 정보 생성.
+     * 단체 자체 정보를 생성하고 서비스에서 전달한 비밀번호 해시를 저장한다.
      *
      * Organization 규모가 크지 않고
      * 현재 별도 use-case가 없으므로
@@ -375,7 +386,8 @@ public class OrgRegistrationCommandService {
      */
     private Organization createOrganization(
             Event event,
-            OrgRegistrationCreateRequest request
+            OrgRegistrationCreateRequest request,
+            String encodedPassword
     ) {
 
         String email =
@@ -390,10 +402,7 @@ public class OrgRegistrationCommandService {
                         request.account()
                                 .organizationLoginId()
                 )
-                .password(
-                        request.account()
-                                .organizationPassword()
-                )
+                .password(encodedPassword)
                 .groupName(
                         request.account()
                                 .organizationName()
@@ -445,8 +454,8 @@ public class OrgRegistrationCommandService {
      * 각 참가자의 contractAmount는 개인 신청과 동일한
      * RegistrationPricingService를 통해 서버에서 계산한다.
      *
-     * password / address / addressBase 등의 단체 전용 차이는
-     * Registration.createForOrgPaymentMvp() 내부에서 처리한다.
+     * 구성원별 고정 비밀번호 해시를 생성해 팩터리에 전달한다.
+     * 주소 등 단체 전용 차이는 Registration.createForOrgPaymentMvp() 내부에서 처리한다.
      */
     private List<Registration> createRegistrations(
             Organization organization,
@@ -489,6 +498,7 @@ public class OrgRegistrationCommandService {
                             organization,
                             participantContext.request(),
                             participantContext.souvenirJsons(),
+                            participantPasswordEncoder.encode(),
                             contractAmount,
                             now,
                             termsEssential,          // 일괄 적용

@@ -62,6 +62,7 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
         replace = AutoConfigureTestDatabase.Replace.NONE
 )
 @Import({
+        org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder.class,
         CapacityHoldService.class,
         CapacityRequirementResolver.class,
         RegistrationCapacityService.class,
@@ -69,6 +70,7 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 
         RegistrationCommandService.class,
         OrgRegistrationCommandService.class,
+        OrgParticipantPasswordEncoder.class,
         RegistrationPricingService.class,
 
         RegistrationApplyValidator.class,

@@ -322,6 +322,7 @@ public enum ErrorCode {
             HttpStatus.NOT_FOUND,
             "답변을 찾을 수 없습니다."
     ),
+    REGISTRATION_PASSWORD_TOO_LONG(HttpStatus.BAD_REQUEST, "비밀번호는 UTF-8 기준 72바이트 이하여야 합니다."),
     MUST_NEED_PASSWORD(HttpStatus.FORBIDDEN,"올바른 비밀번호 입력이 필요합니다"),
     MUST_NEED_GUEST_NAMED_USER(HttpStatus.INTERNAL_SERVER_ERROR, "question 매핑 목적의 '비회원' user가 db내에 존재하지않음"), 
     NOTICE_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 공지를 찾을 수 없습니다"),
