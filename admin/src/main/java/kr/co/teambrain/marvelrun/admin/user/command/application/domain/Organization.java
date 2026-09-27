@@ -9,14 +9,16 @@ import lombok.NoArgsConstructor;
 
 import static lombok.AccessLevel.PROTECTED;
 
+/** 관리자 변경을 반영하며 비밀번호는 서비스에서 전달한 해시로 저장한다. */
 @Getter
 @Entity
 @Table(name = "organization")
 @NoArgsConstructor(access = PROTECTED)
 public class Organization extends OrganizationBase<Event> {
 
-    public void resetPasswordByAdmin(String newPassword) {
-        this.password = newPassword;
+    /** 서비스에서 검증하고 해시로 변환한 비밀번호를 저장한다. */
+    public void resetPasswordByAdmin(String encodedPassword) {
+        this.password = encodedPassword;
     }
 
     public void resetLoginIdByAdmin(String newLoginId) {

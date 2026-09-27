@@ -35,6 +35,8 @@ import static org.mockito.Mockito.*;
 
 /** 실제 단체 분기·접근·최소 검증·보호를 연결하고 전체 수정 서비스의 호출 여부를 확인한다. */
 class OrgRegistrationPersonalInformationServiceTest {
+    private final org.springframework.security.crypto.password.PasswordEncoder passwordEncoder =
+            new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder(4);
     private static final ValidatorFactory INPUTS = Validation.buildDefaultValidatorFactory();
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 9, 20, 12, 0);
     private final RegistrationCommandRepository repository = mock(RegistrationCommandRepository.class);
@@ -44,7 +46,7 @@ class OrgRegistrationPersonalInformationServiceTest {
     private final RegistrationPersonalModificationService personal = mock(RegistrationPersonalModificationService.class);
     private final RegistrationModificationSettlementService settlement = mock(RegistrationModificationSettlementService.class);
     private final ServerTimeProvider time = mock(ServerTimeProvider.class);
-    private final OrgRegistrationModificationAccessValidator access = new OrgRegistrationModificationAccessValidator(organizations, repository);
+    private final OrgRegistrationModificationAccessValidator access = new OrgRegistrationModificationAccessValidator(passwordEncoder, organizations, repository);
     private final OrgRegistrationPersonalInformationValidator validator = new OrgRegistrationPersonalInformationValidator(
             INPUTS.getValidator(), new RegistrationInformationPolicyValidator(new RegistrationPolicyValidator()),
             new RegistrationUniqueInfoValidator(repository));
@@ -66,7 +68,7 @@ class OrgRegistrationPersonalInformationServiceTest {
     void prepare() {
         Event event = Event.builder().id("e").eventStatus(EventStatus.OPEN)
                 .startDate(NOW.plusDays(10)).registStartDate(NOW.minusDays(1)).registDeadline(NOW.plusDays(1)).build();
-        organization = Organization.builder().id("o").event(event).loginId("group-test").password("Test1234!")
+        organization = Organization.builder().id("o").event(event).loginId("group-test").password(passwordEncoder.encode("Test1234!"))
                 .guardianConsent(true).email("test@example.com").address("테스트 주소").addressDetail("상세")
                 .leaderName("테스트 단체장").leaderBirth("1990-01-01").leaderPhNum("010-0000-0000").build();
         members = List.of(member("a", event), member("b", event));

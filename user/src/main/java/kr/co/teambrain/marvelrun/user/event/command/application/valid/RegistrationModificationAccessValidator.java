@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.valid;
 
+import org.springframework.security.crypto.password.PasswordEncoder;
+
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationModificationAccessContext;
@@ -13,9 +15,11 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDateTime;
 import java.util.Objects;
 
+/** 개인 신청 수정 대상과 본인정보를 확인하고 저장 해시로 비밀번호를 검증한다. */
 @Component
 @RequiredArgsConstructor
 public class RegistrationModificationAccessValidator {
+    private final PasswordEncoder passwordEncoder;
 
     private final RegistrationCommandRepository
             registrationCommandRepository;
@@ -72,6 +76,6 @@ public class RegistrationModificationAccessValidator {
             Registration registration,
             RegistrationAccessRequest access
     ) {
-        RegistrationAccessVerifier.verifyPersonal(registration, access);
+        RegistrationAccessVerifier.verifyPersonal(registration, access, passwordEncoder);
     }
 }

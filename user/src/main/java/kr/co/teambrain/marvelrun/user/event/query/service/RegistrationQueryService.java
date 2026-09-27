@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.query.service;
 
+import org.springframework.security.crypto.password.PasswordEncoder;
+
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GuardianBase;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
@@ -27,6 +29,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 public class RegistrationQueryService {
+    private final PasswordEncoder passwordEncoder;
     private final RegistrationQueryRepository repository;
     private final RegistrationPaymentQueryResolver paymentResolver;
     private final ServerTimeProvider time;
@@ -55,7 +58,7 @@ public class RegistrationQueryService {
                         row.birth(),
                         row.phNum(),
                         row.password(),
-                        access
+                        access, passwordEncoder
                 );
                 members.add(row);
             } catch (CustomException exception) {
@@ -64,11 +67,10 @@ public class RegistrationQueryService {
                 }
 
                 diagnosticLog.warn(
-                        "[신청조회 진단] 본인확인 실패: 이름일치={}, 생일일치={}, 전화번호일치={}, 비밀번호일치={}",
+                        "[신청조회 진단] 본인확인 실패: 이름일치={}, 생일일치={}, 전화번호일치={}",
                         java.util.Objects.equals(row.name(), access.name()),
                         java.util.Objects.equals(row.birth(), access.birth()),
-                        java.util.Objects.equals(row.phNum(), access.phNum()),
-                        java.util.Objects.equals(row.password(), access.password())
+                        java.util.Objects.equals(row.phNum(), access.phNum())
                 );
             }
         }
@@ -108,7 +110,7 @@ public class RegistrationQueryService {
         List<OrgRegistrationQueryResponse> result = new ArrayList<>();
         for (RegistrationQueryData.Organization org : repository.organizations(eventId, access.loginId())) {
             try {
-                RegistrationAccessVerifier.verifyOrganization(org.loginId(), org.password(), access);
+                RegistrationAccessVerifier.verifyOrganization(org.loginId(), org.password(), access, passwordEncoder);
             } catch (CustomException exception) {
                 if (exception.getErrorCode() == ErrorCode.ORGANIZATION_ACCESS_DENIED) { continue; }
                 throw exception;

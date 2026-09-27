@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.payment.command.application;
 
+import org.springframework.security.crypto.password.PasswordEncoder;
+
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.math.BigDecimal;
@@ -33,6 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class PaymentRetryPreparationService {
+    private final PasswordEncoder passwordEncoder;
     private final PaymentConfirmationAllocationSupport support;
     private final PaymentAllocationCommandRepository allocationRepository;
     private final RegistrationCapacityService capacityService;
@@ -58,7 +61,7 @@ public class PaymentRetryPreparationService {
                 || !Objects.equals(registration.getEvent().getId(), eventId)) {
             throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
         }
-        RegistrationAccessVerifier.verifyPersonal(registration, access);
+        RegistrationAccessVerifier.verifyPersonal(registration, access, passwordEncoder);
         return prepare(original, locked, registration.getEvent());
     }
 
@@ -76,7 +79,7 @@ public class PaymentRetryPreparationService {
         if (!Objects.equals(original.getOrganization().getEvent().getId(), eventId)) {
             throw new CustomException(ErrorCode.ORGANIZATION_ACCESS_DENIED);
         }
-        RegistrationAccessVerifier.verifyOrganization(original.getOrganization(), access);
+        RegistrationAccessVerifier.verifyOrganization(original.getOrganization(), access, passwordEncoder);
         return prepare(original, locked, original.getOrganization().getEvent());
     }
 

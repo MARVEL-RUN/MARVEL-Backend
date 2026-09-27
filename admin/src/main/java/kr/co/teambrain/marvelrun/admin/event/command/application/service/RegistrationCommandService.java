@@ -1,5 +1,8 @@
 package kr.co.teambrain.marvelrun.admin.event.command.application.service;
 
+import org.springframework.security.crypto.password.PasswordEncoder;
+import java.nio.charset.StandardCharsets;
+
 import kr.co.teambrain.marvelrun.admin.common.dto.request.PasswordResetRequest;
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
@@ -16,17 +19,19 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
+/** 관리자의 개인 신청 변경과 해시 기반 비밀번호 초기화를 수행한다. */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional
 public class RegistrationCommandService {
+    private final PasswordEncoder passwordEncoder;
 
     private final RegistrationCommandRepository registrationCommandRepository;
     private final AdminUnpaidRegistrationCancellationService unpaidCancellation;
 
     /**
-     * 개인 신청 비밀번호 초기화
+     * 개인 신청 비밀번호를 해시로 변환하여 초기화한다.
      */
     public void resetPersonalPassword(String registrationId, PasswordResetRequest request) {
         Registration registration = registrationCommandRepository.findById(registrationId)
@@ -36,11 +41,14 @@ public class RegistrationCommandService {
             throw new CustomException(ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET);
         }
 
+        if (request.newPassword().getBytes(StandardCharsets.UTF_8).length > 72) {
+            throw new CustomException(ErrorCode.REGISTRATION_PASSWORD_TOO_LONG);
+        }
         if (request.newPassword().length() < 6) {
             throw new CustomException(ErrorCode.INVALID_PASSWORD_LENGTH);
         }
 
-        registration.resetPasswordByAdmin(request.newPassword());
+        registration.resetPasswordByAdmin(passwordEncoder.encode(request.newPassword()));
     }
 
     public void modifyRegistrationBasicInfo(String registrationId, AdminRegistrationModifyRequest request) {

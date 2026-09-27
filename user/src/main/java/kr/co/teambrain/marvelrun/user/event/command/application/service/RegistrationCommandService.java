@@ -1,5 +1,8 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import org.springframework.security.crypto.password.PasswordEncoder;
+import java.nio.charset.StandardCharsets;
+
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
@@ -43,6 +46,7 @@ import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
 @Service
 @RequiredArgsConstructor
 public class RegistrationCommandService {
+    private final PasswordEncoder passwordEncoder;
 
     private final RegistrationCapacityService registrationCapacityService;
 
@@ -75,7 +79,7 @@ public class RegistrationCommandService {
 
 
     /**
-     * 개인 신청을 생성하고 정원·기념품을 임시 확보한다.
+     * 개인 신청 비밀번호를 해시로 변환해 전달하고 정원·기념품을 임시 확보한다.
      *
      * 대회 잠금 → 정책 검증 → 신청 저장 → 자원 확보 및 마감
      * → 최초 Payment 생성 순서로 처리한다.
@@ -116,14 +120,20 @@ public class RegistrationCommandService {
                         request.birth()
                 );
 
+        // BCrypt의 입력 한도를 넘는 원문은 자르지 않고 업무 오류로 거부한다.
+        if (request.password().getBytes(StandardCharsets.UTF_8).length > 72) {
+            throw new CustomException(ErrorCode.REGISTRATION_PASSWORD_TOO_LONG);
+        }
+        String encodedPassword = passwordEncoder.encode(request.password());
         Registration registration =
                 Registration.createForPaymentMvp(
                         event,
                         eventCategory,
                         context.souvenirJsons(),
                         request,
+                        encodedPassword,
                         contractAmount,
-                        now // 추가됨
+                        now
                 );
 
         Registration savedRegistration =

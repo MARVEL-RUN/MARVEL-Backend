@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.query.service;
 
+import org.springframework.security.crypto.password.PasswordEncoder;
+
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.domain.Reservation;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
@@ -36,6 +38,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 public class RegistrationReceiptQueryService {
+    private final PasswordEncoder passwordEncoder;
     private final RegistrationReceiptQueryRepository repository;
     private final RegistrationReceiptPaymentResolver paymentResolver;
     private final ServerTimeProvider time;
@@ -46,7 +49,7 @@ public class RegistrationReceiptQueryService {
         for (Registration registration : repository.findPersonalCandidates(
                 eventId, access.name(), access.birth(), access.phNum())) {
             try {
-                RegistrationAccessVerifier.verifyPersonal(registration, access);
+                RegistrationAccessVerifier.verifyPersonal(registration, access, passwordEncoder);
             } catch (CustomException exception) {
                 if (exception.getErrorCode() == ErrorCode.REGISTRATION_ACCESS_DENIED) {
                     continue;
@@ -67,7 +70,7 @@ public class RegistrationReceiptQueryService {
         List<RegistrationReceiptResponse> result = new ArrayList<>();
         for (Organization organization : repository.findOrganizationCandidates(eventId, access.loginId())) {
             try {
-                RegistrationAccessVerifier.verifyOrganization(organization, access);
+                RegistrationAccessVerifier.verifyOrganization(organization, access, passwordEncoder);
             } catch (CustomException exception) {
                 if (exception.getErrorCode() == ErrorCode.ORGANIZATION_ACCESS_DENIED) {
                     continue;
