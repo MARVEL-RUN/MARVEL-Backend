@@ -6,6 +6,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
 
 import java.util.List;
 import java.util.Optional;
@@ -13,6 +15,22 @@ import java.util.Optional;
 /** 신청 조회와 활성 중복 검사 및 단체 수정에 필요한 구성원 현재 읽기를 제공한다. */
 @Repository
 public interface RegistrationCommandRepository extends JpaRepository<Registration, String> {
+
+    /** 대회에 속한 미삭제 개인 신청을 잠가 비밀번호 검증과 변경 사이의 경합을 막는다. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+        select r
+        from Registration r
+        where r.id = :registrationId
+          and r.event.id = :eventId
+          and r.organization is null
+          and r.softDeleted = false
+        """)
+    Optional<Registration> findPersonalPasswordChangeTarget(
+            @Param("eventId") String eventId,
+            @Param("registrationId") String registrationId
+    );
+
     /**
      * 단체 잠금 획득 후 현재 읽기로 활성 구성원과 version을 확인하고 저장까지 보호한다.
      * 제공 DDL의 단체 인덱스로 범위를 한정하여 대회 전체 인덱스 스캔에 따른 잠금 확대를 피한다.

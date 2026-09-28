@@ -48,8 +48,8 @@ class RegistrationRequestBoundaryTest {
                 new RegistrationQueryController(queries), new OrgRegistrationQueryController(queries),
                 new RegistrationModificationController(modifications, retries),
                 new AdditionalPaymentController(additional), new RegistrationCancellationController(cancellations),
-                new RegistrationCommandController(personalCreation),
-                new OrgRegistrationCommandController(organizationCreation))
+                new RegistrationCommandController(personalCreation, mock(RegistrationPasswordChangeService.class)),
+                new OrgRegistrationCommandController(organizationCreation, mock(RegistrationPasswordChangeService.class)))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
     }
 
