@@ -1309,13 +1309,17 @@ class AdminRefundPreparationDatabaseTest {
     void batchContinuesAfterFailureDetailsError() {
         prepareUnpaid("CONFIRMING");
         String otherId = createUnpaidBatchParticipant();
+        AdminUnpaidRegistrationCancellationService cancellationSpy =
+                AopTestUtils.getUltimateTargetObject(unpaidCancellation);
+
+        assertThat(mockingDetails(cancellationSpy).isSpy()).isTrue();
 
         doAnswer(invocation -> {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
             assertThat(TransactionSynchronizationManager.isCurrentTransactionReadOnly()).isTrue();
 
             throw new CustomException(ErrorCode.INTERNAL_SERVER_ERROR);
-        }).when(unpaidCancellation).loadCancellationFailure(
+        }).when(cancellationSpy).loadCancellationFailure(
                 eventId,
                 registrationId,
                 ErrorCode.REGISTRATION_MODIFICATION_PAYMENT_CONFLICT
@@ -1340,17 +1344,28 @@ class AdminRefundPreparationDatabaseTest {
     void batchMapsUnexpectedFailureAndContinues() {
         prepareUnpaid("READY");
         String otherId = createUnpaidBatchParticipant();
+        AdminRefundPreparationStore storeSpy = AopTestUtils.getUltimateTargetObject(store);
 
+        assertThat(mockingDetails(storeSpy).isSpy()).isTrue();
+
+        // 스텁 설정은 실제 spy에 적용하고 서비스 실행은 기존 트랜잭션 프록시를 통한다.
         doAnswer(invocation -> {
             invocation.callRealMethod();
 
             throw new RuntimeException("test internal database detail");
-        }).doCallRealMethod().when(store).flush();
+        }).doCallRealMethod().when(storeSpy).flush();
 
-        UnpaidRegistrationBatchResponse result = registrationCommands.cancelUnpaidRegistrations(
-                eventId,
-                new UnpaidRegistrationBatchRequest(List.of(registrationId, otherId))
-        );
+        UnpaidRegistrationBatchResponse result;
+
+        try {
+            result = registrationCommands.cancelUnpaidRegistrations(
+                    eventId,
+                    new UnpaidRegistrationBatchRequest(List.of(registrationId, otherId))
+            );
+        } finally {
+            // 검증 실패 여부와 무관하게 주입한 오류를 제거하여 후속 테스트에 남기지 않는다.
+            doCallRealMethod().when(storeSpy).flush();
+        }
 
         assertThat(result.failures()).hasSize(1);
         assertThat(result.failures().getFirst().errorCode()).isEqualTo(ErrorCode.INTERNAL_SERVER_ERROR);
@@ -1427,8 +1442,14 @@ class AdminRefundPreparationDatabaseTest {
 
             UnpaidRegistrationBatchResponse retried = registrationCommands.cancelUnpaidRegistrations(eventId, request);
 
+            List<String> retryFailures = retried.failures().stream()
+                    .map(failure -> failure.registrationId() + ": " + failure.errorCode().name())
+                    .toList();
+
+            assertThat(retried.failures())
+                    .withFailMessage("잠금 해제 후 재요청 실패: %s", retryFailures)
+                    .isEmpty();
             assertThat(retried.successCount()).isEqualTo(2);
-            assertThat(retried.failures()).isEmpty();
             assertThat(held(total)).isZero();
             verifyNoInteractions(toss);
         } finally {
