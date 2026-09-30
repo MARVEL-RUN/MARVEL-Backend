@@ -2,8 +2,9 @@ package kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inn
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
-import jakarta.validation.constraints.Size;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.OrganizationRegistrationPassword;
 
+/** 단체 계정 생성 입력이며 비밀번호 정책은 변경 요청과 공유한다. */
 public record OrgAccountRequest(
 
         @NotBlank
@@ -16,12 +17,7 @@ public record OrgAccountRequest(
         )
         String organizationLoginId,
 
-        @NotBlank
-        @Size(
-                min = 6,
-                max = 64,
-                message = "비밀번호는 6~64자여야 합니다."
-        )
+        @OrganizationRegistrationPassword
         String organizationPassword
 ) {
 }

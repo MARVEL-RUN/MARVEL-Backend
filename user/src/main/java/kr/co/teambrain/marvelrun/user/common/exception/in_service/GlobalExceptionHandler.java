@@ -18,9 +18,10 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
-/** 업무·입력·저장 충돌을 기존 HTTP 오류 계약으로 변환한다. */
+/** 업무·입력·저장 충돌을 HTTP 오류로 변환하고 입력 오류의 비밀번호 원문 반환을 방지한다. */
 @RestControllerAdvice
 @Slf4j
 public class GlobalExceptionHandler {
@@ -121,8 +122,7 @@ public class GlobalExceptionHandler {
 //        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
 //    }
 
-    /** custom validator나 기타 valid에 의해 불만족 요소가 확인된 기입 값에 대한 예외를 '한번에' 반환. valid 검증에 대한 배치 예외 처리로 인지하면 됨 */
-    /** custom validator나 기타 valid에 의해 불만족 요소가 확인된 기입 값에 대한 예외를 한번에 반환 */
+    /** 입력 검증 오류를 모아 반환하되 비밀번호 필드의 거절된 원문은 포함하지 않는다. */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleMethodArgumentNotValid(MethodArgumentNotValidException e) {
         BindingResult bindingResult = e.getBindingResult();
@@ -136,7 +136,7 @@ public class GlobalExceptionHandler {
                     .target(fe.getField())
                     .code(resolveValidationCode(fe))
                     .message(fe.getDefaultMessage())
-                    .rejectedValue(fe.getRejectedValue())
+                    .rejectedValue(safeRejectedValue(fe))
                     .build());
         }
 
@@ -267,6 +267,15 @@ public class GlobalExceptionHandler {
                 "배치 유효성 검증에 실패했습니다.",
                 errors
         );
+    }
+
+    /** 중첩 필드명을 포함해 비밀번호 입력값은 오류 응답에서 가린다. */
+    private Object safeRejectedValue(FieldError error) {
+        if (error.getField().toLowerCase(Locale.ROOT).contains("password")) {
+            return null;
+        }
+
+        return error.getRejectedValue();
     }
 
     private String resolveValidationCode(FieldError fe) {

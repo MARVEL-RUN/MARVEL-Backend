@@ -2,11 +2,13 @@ package kr.co.teambrain.marvelrun.user.event.command.application.dto.request;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.PersonalRegistrationPassword;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 
 import java.util.List;
 
+/** 개인 신청 생성 입력이며 비밀번호 정책은 변경 요청과 공유한다. */
 public record RegistrationCreateRequest(
 
         @NotBlank
@@ -15,8 +17,7 @@ public record RegistrationCreateRequest(
         @NotEmpty
         List<@NotNull @Valid SouvenirJson> selectedSouvenirList,
 
-        @NotBlank
-        @Size(max = 127)
+        @PersonalRegistrationPassword
         String password,
 
         @NotBlank

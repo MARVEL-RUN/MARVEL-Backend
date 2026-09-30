@@ -41,6 +41,16 @@ public class Registration extends RegistrationBase<
         Souvenir
         > {
 
+    /** 본인확인을 마친 개인 신청에 신규 해시만 반영하고 참가·결제 정보는 보존한다. */
+    public void changePassword(String encodedPassword) {
+        if (organization != null || softDeleted) {
+            throw new CustomException(ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET);
+        }
+
+        this.password = encodedPassword;
+    }
+
+
     /**
      * 개인 신청의 기본정보와 보호자 정보를 공통 반영한다.
      * 종목·생년월일·기념품·금융 정보는 변경하지 않는다.
