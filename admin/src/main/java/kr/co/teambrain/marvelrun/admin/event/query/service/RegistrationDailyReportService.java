@@ -22,7 +22,6 @@ import kr.co.teambrain.marvelrun.admin.event.query.dto.PaymentDailyCountRow;
 
 import java.io.IOException;
 import java.time.LocalDate;
-import java.time.Period;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
@@ -33,12 +32,15 @@ import kr.co.teambrain.marvelrun.admin.event.query.report.RegistrationDailyRepor
 
 
 /**
- * 날짜 범위와 코스 순서를 검증하고 일별 집계로 당일·누계 표를 구성한다.
+ * 날짜 범위와 코스 순서를 검증하고 화면 통계와 같은 아동 기준으로 일별·누계 표를 구성한다.
  */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 public class RegistrationDailyReportService {
+    /** /statistics의 getChildGroup과 동일하게 이 날짜 출생자부터 아동으로 집계한다. */
+    private static final LocalDate CHILD_CUTOFF_DATE = LocalDate.of(2013, 11, 1);
+
     private final ServerTimeProvider serverTimeProvider;
     private final EventCategoryQueryRepository categories;
 
@@ -408,12 +410,11 @@ public class RegistrationDailyReportService {
 
             try {
                 /**
-                 * 성인·아동 구분은 대회일 기준으로 계산한다.
+                 * 일반·아동 구분은 /statistics와 같은 고정 출생일 기준을 사용한다.
                  */
                 adult = adultValidator(
                         row.birth(),
-                        eventDate,
-                        19
+                        eventDate
                 );
 
             } catch (IllegalArgumentException exception) {
@@ -638,19 +639,18 @@ public class RegistrationDailyReportService {
     }
 
     /**
-     * 대회일 기준으로 지정된 나이에 도달(이상)했는지 확인한다.
+     * 생년월일의 유효성을 검증하고 화면 통계의 아동 경계일보다 이전 출생자인지 확인한다.
      */
 
     private boolean adultValidator(
             String birthStr,
-            LocalDate eventStartDate,
-            int limitAge
+            LocalDate eventStartDate
     ) {
         if (birthStr == null || birthStr.isBlank()) {
             throw new IllegalArgumentException("생년월일이 없습니다.");
         }
-        if (eventStartDate == null || limitAge < 1) {
-            throw new IllegalArgumentException("대회일 또는 성인 나이 기준이 올바르지 않습니다.");
+        if (eventStartDate == null) {
+            throw new IllegalArgumentException("대회일이 없습니다.");
         }
 
         String cleanBirth = birthStr.replaceAll("[^0-9]", "");
@@ -676,7 +676,7 @@ public class RegistrationDailyReportService {
             throw new IllegalArgumentException("생년월일이 대회일 이후입니다.");
         }
 
-        return Period.between(birthDate, eventStartDate).getYears() >= limitAge;
+        return birthDate.isBefore(CHILD_CUTOFF_DATE);
     }
 
 
