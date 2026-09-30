@@ -3,6 +3,7 @@ package kr.co.teambrain.marvelrun.admin.common.exception;
 import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
+/** 관리자 업무의 HTTP 상태와 공개 가능한 오류 메시지를 정의한다. */
 @Getter
 public enum ErrorCode {
 
@@ -11,6 +12,19 @@ public enum ErrorCode {
     REGISTRATION_MODIFICATION_PAYMENT_CONFLICT(HttpStatus.CONFLICT, "관련 결제 처리가 완료되지 않았습니다."),
     PAYMENT_CANCEL_CONFLICT(HttpStatus.CONFLICT, "관련 환불 처리가 완료되지 않았습니다."),
     PAYMENT_CANCEL_INTEGRITY_ERROR(HttpStatus.CONFLICT, "환불 원장 정합성을 확인해야 합니다."),
+
+    INVALID_UNPAID_CANCELLATION_REQUEST(
+            HttpStatus.BAD_REQUEST,
+            "대회 ID와 1건 이상 50건 이하의 비어 있지 않은 신청 ID 목록이 필요합니다."
+    ),
+    REGISTRATION_EVENT_MISMATCH(
+            HttpStatus.BAD_REQUEST,
+            "해당 대회의 신청 내역이 아닙니다."
+    ),
+    INVALID_UNPAID_CANCELLATION_TARGET(
+            HttpStatus.BAD_REQUEST,
+            "삭제되지 않은 미결제 신청만 취소할 수 있습니다."
+    ),
 
     CAPACITY_ACQUIRE_FAILED(
             HttpStatus.CONFLICT,

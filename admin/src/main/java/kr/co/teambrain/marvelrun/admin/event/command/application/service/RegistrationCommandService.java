@@ -2,6 +2,10 @@ package kr.co.teambrain.marvelrun.admin.event.command.application.service;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 
 import kr.co.teambrain.marvelrun.admin.common.dto.request.PasswordResetRequest;
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
@@ -9,22 +13,29 @@ import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.admin.event.command.application.dto.AdminRegistrationModifyRequest;
 import kr.co.teambrain.marvelrun.admin.event.command.application.dto.RegistrationDeleteResponse;
+import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegistrationBatchRequest;
+import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegistrationBatchResponse;
+import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegistrationBatchResponse.Failure;
+import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegistrationBatchResponse.Success;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationCommandRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
-/** 관리자의 개인 신청 변경과 해시 기반 비밀번호 초기화를 수행한다. */
+/** 관리자 신청 변경·비밀번호 초기화와 미결제 삭제의 건별 결과 수집을 수행한다. */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional
 public class RegistrationCommandService {
+    private static final int MAX_UNPAID_CANCELLATION_COUNT = 50;
+
     private final PasswordEncoder passwordEncoder;
 
     private final RegistrationCommandRepository registrationCommandRepository;
@@ -109,5 +120,100 @@ public class RegistrationCommandService {
     @Transactional
     public RegistrationDeleteResponse deletePaymentPendingRegistration(String registrationId) {
         return unpaidCancellation.cancel(registrationId);
+    }
+
+    /**
+     * 입력 순서대로 중복 없는 신청을 취소하고 건별 커밋·롤백 이후 결과를 수집한다.
+     * 호출자의 트랜잭션은 중단하여 한 건의 실패가 다른 건을 롤백하지 않도록 한다.
+     */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public UnpaidRegistrationBatchResponse cancelUnpaidRegistrations(
+            String eventId,
+            UnpaidRegistrationBatchRequest request
+    ) {
+        validateUnpaidCancellationRequest(eventId, request);
+
+        Set<String> registrationIds = new LinkedHashSet<>(request.registrationIds());
+        List<Success> successes = new ArrayList<>();
+        List<Failure> failures = new ArrayList<>();
+
+        for (String registrationId : registrationIds) {
+            try {
+                Success success = unpaidCancellation.cancelUnpaidRegistrationInEvent(
+                        eventId,
+                        registrationId
+                );
+
+                successes.add(success);
+            } catch (CustomException exception) {
+                failures.add(collectUnpaidCancellationFailure(eventId, registrationId, exception));
+            } catch (RuntimeException exception) {
+                log.error(
+                        "미결제 신청 삭제 오류: eventId={}, registrationId={}, exceptionType={}",
+                        eventId,
+                        registrationId,
+                        exception.getClass().getName()
+                );
+
+                CustomException failure = new CustomException(ErrorCode.INTERNAL_SERVER_ERROR, exception);
+                failures.add(collectUnpaidCancellationFailure(eventId, registrationId, failure));
+            }
+        }
+
+        return new UnpaidRegistrationBatchResponse(
+                request.registrationIds().size(),
+                registrationIds.size(),
+                successes.size(),
+                failures.size(),
+                successes,
+                failures
+        );
+    }
+
+    /** 중복 제거 전에 원본 요청 전체를 검증하여 잘못된 입력의 일부 실행을 방지한다. */
+    private void validateUnpaidCancellationRequest(
+            String eventId,
+            UnpaidRegistrationBatchRequest request
+    ) {
+        if (eventId == null || eventId.isBlank() || request == null) {
+            throw new CustomException(ErrorCode.INVALID_UNPAID_CANCELLATION_REQUEST);
+        }
+
+        List<String> registrationIds = request.registrationIds();
+
+        if (registrationIds == null
+                || registrationIds.isEmpty()
+                || registrationIds.size() > MAX_UNPAID_CANCELLATION_COUNT) {
+            throw new CustomException(ErrorCode.INVALID_UNPAID_CANCELLATION_REQUEST);
+        }
+
+        for (String registrationId : registrationIds) {
+            if (registrationId == null || registrationId.isBlank()) {
+                throw new CustomException(ErrorCode.INVALID_UNPAID_CANCELLATION_REQUEST);
+            }
+        }
+    }
+
+    /** 취소 롤백 이후 별도로 정보를 조회하며 조회 실패도 원래 실패 결과를 덮어쓰지 않는다. */
+    private Failure collectUnpaidCancellationFailure(
+            String eventId,
+            String registrationId,
+            CustomException failure
+    ) {
+        ErrorCode errorCode = failure.getErrorCode();
+
+        try {
+            return unpaidCancellation.loadCancellationFailure(eventId, registrationId, errorCode);
+        } catch (RuntimeException exception) {
+            log.warn(
+                    "미결제 삭제 실패 정보 조회 오류: eventId={}, registrationId={}, code={}, exceptionType={}",
+                    eventId,
+                    registrationId,
+                    errorCode.name(),
+                    exception.getClass().getName()
+            );
+
+            return Failure.withoutRegistrationDetails(registrationId, errorCode);
+        }
     }
 }

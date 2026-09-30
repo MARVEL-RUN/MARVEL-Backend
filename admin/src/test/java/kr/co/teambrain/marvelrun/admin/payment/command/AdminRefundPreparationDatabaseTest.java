@@ -1,6 +1,27 @@
 package kr.co.teambrain.marvelrun.admin.payment.command;
 
 import jakarta.persistence.EntityManager;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Map;
+import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
+import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
+import kr.co.teambrain.marvelrun.admin.common.exception.GlobalExceptionHandler;
+import kr.co.teambrain.marvelrun.admin.event.command.application.controller.RegistrationCommandController;
+import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegistrationBatchRequest;
+import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegistrationBatchResponse;
+import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegistrationBatchResponse.Failure;
+import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegistrationBatchResponse.Success;
+import org.springframework.http.MediaType;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import kr.co.teambrain.marvelrun.admin.event.command.application.service.AdminUnpaidRegistrationCancellationService;
 import kr.co.teambrain.marvelrun.admin.event.command.application.service.RegistrationCommandService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -57,7 +78,7 @@ import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-/** 실제 MySQL에서 JDBC 잠금과 JPA 준비 변경의 동일 트랜잭션·커밋·롤백을 검증한다. PG는 호출하지 않는다. */
+/** 실제 MySQL에서 환불 준비와 미결제 단건·일괄 삭제의 잠금·커밋·롤백을 검증한다. PG는 호출하지 않는다. */
 @Tag("admin-refund-db")
 @EnabledIfEnvironmentVariable(named = "MARVELRUN_ADMIN_REFUND_DB_TEST", matches = "true")
 @ActiveProfiles("admin-refund-test")
@@ -82,11 +103,18 @@ class AdminRefundPreparationDatabaseTest {
     /** 슬라이스 테스트에서도 실제 Jakarta Validation을 사용한다. */
     @TestConfiguration
     static class InputValidation {
+        /** 기존 신청 서비스의 비밀번호 의존성을 슬라이스 테스트에 제공한다. */
+        @Bean
+        PasswordEncoder registrationPasswordEncoder() {
+            return new BCryptPasswordEncoder();
+        }
+
         @Bean ObjectMapper refundBatchObjectMapper() { return new ObjectMapper().findAndRegisterModules(); }
         @Bean(destroyMethod = "close") ValidatorFactory refundValidatorFactory() { return Validation.buildDefaultValidatorFactory(); }
         @Bean Validator refundValidator(ValidatorFactory factory) { return factory.getValidator(); }
     }
     @Autowired RegistrationCommandService registrationCommands;
+    @MockitoSpyBean AdminUnpaidRegistrationCancellationService unpaidCancellation;
     @Autowired EntityManager em;
     @Autowired JdbcTemplate jdbc;
     @Autowired PlatformTransactionManager manager;
@@ -964,6 +992,584 @@ class AdminRefundPreparationDatabaseTest {
             release.countDown(); pool.shutdownNow();
             if (!pool.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)) { throw new IllegalStateException("경합 테스트 종료 실패"); }
         }
+    }
+
+    /** 잘못된 원본 요청은 첫 신청을 처리하기 전에 CustomException으로 거절한다. */
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "missing-body", "missing-list", "empty-list", "null-id", "blank-id", "over-limit"
+    })
+    void batchRejectsInvalidInputBeforeCancellation(String invalid) {
+        prepareUnpaid("READY");
+        Map<String, Object> before = unpaidSnapshot();
+
+        UnpaidRegistrationBatchRequest request = switch (invalid) {
+            case "missing-body" -> null;
+            case "missing-list" -> new UnpaidRegistrationBatchRequest(null);
+            case "empty-list" -> new UnpaidRegistrationBatchRequest(List.of());
+            case "null-id" -> new UnpaidRegistrationBatchRequest(Arrays.asList(registrationId, null));
+            case "blank-id" -> new UnpaidRegistrationBatchRequest(List.of(registrationId, " "));
+            case "over-limit" -> new UnpaidRegistrationBatchRequest(Collections.nCopies(51, registrationId));
+            default -> throw new AssertionError(invalid);
+        };
+
+        assertThatThrownBy(() -> registrationCommands.cancelUnpaidRegistrations(eventId, request))
+                .isInstanceOfSatisfying(CustomException.class, exception -> {
+                    assertThat(exception.getErrorCode())
+                            .isEqualTo(ErrorCode.INVALID_UNPAID_CANCELLATION_REQUEST);
+                });
+
+        assertThat(unpaidSnapshot()).isEqualTo(before);
+        verifyNoInteractions(toss);
+    }
+
+    /** 활성 미결제 대상이 아닌 신청은 삭제 목적에 맞는 오류로 안내한다. */
+    @ParameterizedTest
+    @ValueSource(strings = {"CONFIRMED", "EXPIRED", "soft-deleted"})
+    void batchRejectsInactiveOrNonPendingTargets(String state) {
+        prepareUnpaid("READY");
+
+        if (state.equals("soft-deleted")) {
+            jdbc.update("update registration set is_del=true where id=?", registrationId);
+        } else {
+            jdbc.update("update registration set status=? where id=?", state, registrationId);
+        }
+
+        Map<String, Object> before = unpaidSnapshot();
+        UnpaidRegistrationBatchResponse result = registrationCommands.cancelUnpaidRegistrations(
+                eventId,
+                new UnpaidRegistrationBatchRequest(List.of(registrationId))
+        );
+
+        assertThat(result.successCount()).isZero();
+        assertThat(result.failures()).hasSize(1);
+        assertThat(result.failures().getFirst().errorCode()).isEqualTo(ErrorCode.INVALID_UNPAID_CANCELLATION_TARGET);
+        assertThat(result.failures().getFirst().message()).isEqualTo(ErrorCode.INVALID_UNPAID_CANCELLATION_TARGET.getMessage());
+        assertThat(unpaidSnapshot()).isEqualTo(before);
+        verifyNoInteractions(toss);
+    }
+
+    /** 최초 입력 순서로 중복을 제거하고 재요청은 정원을 다시 반환하지 않는다. */
+    @Test
+    void batchDeduplicatesAndReportsCanceledRetries() {
+        prepareUnpaid("READY");
+        String otherId = createUnpaidBatchParticipant();
+        UnpaidRegistrationBatchRequest request = new UnpaidRegistrationBatchRequest(
+                List.of(otherId, registrationId, otherId)
+        );
+
+        UnpaidRegistrationBatchResponse first = registrationCommands.cancelUnpaidRegistrations(eventId, request);
+
+        assertThat(first.requestedCount()).isEqualTo(3);
+        assertThat(first.targetCount()).isEqualTo(2);
+        assertThat(first.successCount()).isEqualTo(2);
+        assertThat(first.failureCount()).isZero();
+        assertThat(first.successes()).containsExactly(
+                new Success(otherId, false),
+                new Success(registrationId, false)
+        );
+
+        Map<String, Object> once = unpaidSnapshot();
+        UnpaidRegistrationBatchResponse repeated = registrationCommands.cancelUnpaidRegistrations(eventId, request);
+
+        assertThat(repeated.successes()).containsExactly(
+                new Success(otherId, true),
+                new Success(registrationId, true)
+        );
+        assertThat(repeated.failures()).isEmpty();
+        assertThat(unpaidSnapshot()).isEqualTo(once);
+
+        for (String capacityId : List.of(total, capacityA, shirt)) {
+            assertThat(held(capacityId)).isZero();
+        }
+
+        verifyNoInteractions(toss);
+    }
+
+    /** 최대 50개의 서로 다른 ID를 순회하고 부재 신청 이후에도 실제 신청을 처리한다. */
+    @Test
+    void batchAcceptsFiftyIdsAndHidesMissingDetails() {
+        prepareUnpaid("READY");
+        List<String> registrationIds = new ArrayList<>();
+
+        for (int index = 0; index < 49; index++) {
+            registrationIds.add(id());
+        }
+
+        registrationIds.add(registrationId);
+        UnpaidRegistrationBatchResponse result = registrationCommands.cancelUnpaidRegistrations(
+                eventId,
+                new UnpaidRegistrationBatchRequest(registrationIds)
+        );
+
+        assertThat(result.requestedCount()).isEqualTo(50);
+        assertThat(result.targetCount()).isEqualTo(50);
+        assertThat(result.successCount()).isEqualTo(1);
+        assertThat(result.failureCount()).isEqualTo(49);
+        assertThat(result.successes()).containsExactly(new Success(registrationId, false));
+        assertThat(result.failures()).extracting(Failure::registrationId)
+                .containsExactlyElementsOf(registrationIds.subList(0, 49));
+
+        for (Failure failure : result.failures()) {
+            assertThat(failure).isEqualTo(
+                    Failure.withoutRegistrationDetails(failure.registrationId(), ErrorCode.REGISTRATION_NOT_FOUND)
+            );
+        }
+
+        assertThat(state()).isEqualTo("EXPIRED");
+        verifyNoInteractions(toss);
+    }
+
+    /** 다른 대회 신청은 변경하거나 개인정보를 반환하지 않고 같은 대회 신청은 계속 처리한다. */
+    @Test
+    void batchRejectsForeignEventAndHidesDetails() {
+        prepareUnpaid("READY");
+        String foreignEventId = id();
+        String foreignCategoryId = id();
+
+        try {
+            String foreignRegistrationId = tx.execute(status -> {
+                jdbc.update("""
+                        insert into event(
+                            id, name_kr, start_date, region, host, organizer,
+                            event_status, visible_status, regist_start_date, regist_deadline,
+                            payment_deadline, auto_max_regist, auto_start, auto_deadline, phone_auth_required
+                        )
+                        select ?, name_kr, start_date, region, host, organizer,
+                               event_status, visible_status, regist_start_date, regist_deadline,
+                               payment_deadline, auto_max_regist, auto_start, auto_deadline, phone_auth_required
+                        from event where id=?
+                        """, foreignEventId, eventId);
+                jdbc.update("""
+                        insert into event_category(id, event_id, amount, name, is_active, sort_order)
+                        values(?, ?, 70000, 'foreign category', true, 0)
+                        """, foreignCategoryId, foreignEventId);
+
+                Registration foreign = persistUnpaidBatchRegistration(foreignEventId, foreignCategoryId);
+                em.flush();
+
+                return foreign.getId();
+            });
+
+            Map<String, Object> foreignBefore = jdbc.queryForMap(
+                    "select * from registration where id=?",
+                    foreignRegistrationId
+            );
+
+            UnpaidRegistrationBatchResponse result = registrationCommands.cancelUnpaidRegistrations(
+                    eventId,
+                    new UnpaidRegistrationBatchRequest(List.of(foreignRegistrationId, registrationId))
+            );
+
+            assertThat(result.failures()).containsExactly(Failure.withoutRegistrationDetails(
+                    foreignRegistrationId,
+                    ErrorCode.REGISTRATION_EVENT_MISMATCH
+            ));
+            assertThat(result.successes()).containsExactly(new Success(registrationId, false));
+            assertThat(jdbc.queryForMap(
+                    "select * from registration where id=?",
+                    foreignRegistrationId
+            )).isEqualTo(foreignBefore);
+            verifyNoInteractions(toss);
+        } finally {
+            tx.executeWithoutResult(status -> {
+                jdbc.update("delete from registration where event_id=?", foreignEventId);
+                jdbc.update("delete from event_category where event_id=?", foreignEventId);
+                jdbc.update("delete from event where id=?", foreignEventId);
+            });
+        }
+    }
+
+    /** 중간 신청의 마지막 정원 반환이 실패해도 앞뒤 신청은 커밋되고 실패 건은 모두 롤백된다. */
+    @Test
+    void batchCommitsAroundRolledBackCancellation() {
+        prepareUnpaid("READY");
+        String firstId = createUnpaidBatchParticipant();
+        String lastId = createUnpaidBatchParticipant();
+        String lastCapacity = List.of(total, capacityA, shirt).stream().sorted().toList().getLast();
+
+        jdbc.update(
+                "update reservation_item set quantity=1000 where reservation_id=? and capacity_id=?",
+                reservationId,
+                lastCapacity
+        );
+
+        Map<String, Object> before = unpaidSnapshot();
+        String expectedName = jdbc.queryForObject(
+                "select name from registration where id=?",
+                String.class,
+                registrationId
+        );
+        Map<String, Object> failedRegistrationBefore = jdbc.queryForMap(
+                "select * from registration where id=?",
+                registrationId
+        );
+
+        UnpaidRegistrationBatchResponse result = registrationCommands.cancelUnpaidRegistrations(
+                eventId,
+                new UnpaidRegistrationBatchRequest(List.of(firstId, registrationId, lastId))
+        );
+
+        assertThat(result.successes()).containsExactly(new Success(firstId, false), new Success(lastId, false));
+        assertThat(result.successCount()).isEqualTo(2);
+        assertThat(result.failureCount()).isEqualTo(1);
+        assertThat(result.failures()).containsExactly(new Failure(
+                registrationId,
+                expectedName,
+                "010-0000-0000",
+                "1990-01-01",
+                "test",
+                ErrorCode.CAPACITY_COUNTER_MISMATCH,
+                ErrorCode.CAPACITY_COUNTER_MISMATCH.getMessage()
+        ));
+
+        Map<String, Object> after = unpaidSnapshot();
+
+        assertThat(jdbc.queryForMap("select * from registration where id=?", registrationId))
+                .isEqualTo(failedRegistrationBefore);
+        assertThat(jdbc.queryForList(
+                "select status from registration where id in (?, ?) order by id",
+                String.class,
+                firstId,
+                lastId
+        )).containsExactly("EXPIRED", "EXPIRED");
+
+        for (String key : List.of("payment", "allocation", "reservation", "items", "cancel", "log")) {
+            assertThat(after.get(key)).isEqualTo(before.get(key));
+        }
+
+        assertThat(state()).isEqualTo("PAYMENT_PENDING");
+        assertThat(amount("contract_amount")).isEqualByComparingTo("70000");
+        assertThat(jdbc.queryForObject(
+                "select is_del from registration where id=?",
+                Boolean.class,
+                registrationId
+        )).isFalse();
+
+        for (String capacityId : List.of(total, capacityA, shirt)) {
+            assertThat(held(capacityId)).isEqualTo(1);
+        }
+
+        verifyNoInteractions(toss);
+    }
+
+    /** 동일 단체의 성공 건이 무효화한 공동 주문은 후속 구성원 실패에도 유지한다. */
+    @Test
+    void batchPreservesSharedOrderOnMemberFailure() {
+        prepareUnpaid("READY");
+        String otherId = unpaidGroupMember(false);
+
+        jdbc.update(
+                "update reservation set status='PROCESSING' where registration_id=?",
+                otherId
+        );
+
+        List<Map<String, Object>> allocations = jdbc.queryForList(
+                "select * from payment_allocation where payment_id=? order by id",
+                paymentId
+        );
+        Map<String, Object> otherBefore = jdbc.queryForMap(
+                "select * from registration where id=?",
+                otherId
+        );
+
+        UnpaidRegistrationBatchResponse result = registrationCommands.cancelUnpaidRegistrations(
+                eventId,
+                new UnpaidRegistrationBatchRequest(List.of(registrationId, otherId))
+        );
+
+        assertThat(result.successes()).containsExactly(new Success(registrationId, false));
+        assertThat(result.failures()).hasSize(1);
+        assertThat(result.failures().getFirst().errorCode()).isEqualTo(ErrorCode.RESERVATION_STATE_CONFLICT);
+        assertThat(jdbc.queryForMap("select * from registration where id=?", otherId)).isEqualTo(otherBefore);
+        assertThat(jdbc.queryForObject(
+                "select status from reservation where registration_id=?",
+                String.class,
+                otherId
+        )).isEqualTo("PROCESSING");
+        assertThat(jdbc.queryForObject(
+                "select process_status from payment where id=?",
+                String.class,
+                paymentId
+        )).isEqualTo("INVALIDATED");
+        assertThat(jdbc.queryForList(
+                "select * from payment_allocation where payment_id=? order by id",
+                paymentId
+        )).isEqualTo(allocations);
+
+        for (String capacityId : List.of(total, capacityA, shirt)) {
+            assertThat(held(capacityId)).isEqualTo(1);
+        }
+
+        verifyNoInteractions(toss);
+    }
+
+    /** 처리 실패와 표시 정보 조회 실패가 연속되어도 원래 오류를 보존하고 다음 신청을 처리한다. */
+    @Test
+    void batchContinuesAfterFailureDetailsError() {
+        prepareUnpaid("CONFIRMING");
+        String otherId = createUnpaidBatchParticipant();
+        AdminUnpaidRegistrationCancellationService cancellationSpy =
+                AopTestUtils.getUltimateTargetObject(unpaidCancellation);
+
+        assertThat(mockingDetails(cancellationSpy).isSpy()).isTrue();
+
+        doAnswer(invocation -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+            assertThat(TransactionSynchronizationManager.isCurrentTransactionReadOnly()).isTrue();
+
+            throw new CustomException(ErrorCode.INTERNAL_SERVER_ERROR);
+        }).when(cancellationSpy).loadCancellationFailure(
+                eventId,
+                registrationId,
+                ErrorCode.REGISTRATION_MODIFICATION_PAYMENT_CONFLICT
+        );
+
+        UnpaidRegistrationBatchResponse result = registrationCommands.cancelUnpaidRegistrations(
+                eventId,
+                new UnpaidRegistrationBatchRequest(List.of(registrationId, otherId))
+        );
+
+        assertThat(result.failures()).containsExactly(Failure.withoutRegistrationDetails(
+                registrationId,
+                ErrorCode.REGISTRATION_MODIFICATION_PAYMENT_CONFLICT
+        ));
+        assertThat(result.successes()).containsExactly(new Success(otherId, false));
+        assertThat(state()).isEqualTo("PAYMENT_PENDING");
+        verifyNoInteractions(toss);
+    }
+
+    /** 예상하지 못한 저장 예외도 롤백 후 공통 오류로 수집하고 내부 메시지는 노출하지 않는다. */
+    @Test
+    void batchMapsUnexpectedFailureAndContinues() {
+        prepareUnpaid("READY");
+        String otherId = createUnpaidBatchParticipant();
+        AdminRefundPreparationStore storeSpy = AopTestUtils.getUltimateTargetObject(store);
+
+        assertThat(mockingDetails(storeSpy).isSpy()).isTrue();
+
+        // 스텁 설정은 실제 spy에 적용하고 서비스 실행은 기존 트랜잭션 프록시를 통한다.
+        doAnswer(invocation -> {
+            invocation.callRealMethod();
+
+            throw new RuntimeException("test internal database detail");
+        }).doCallRealMethod().when(storeSpy).flush();
+
+        UnpaidRegistrationBatchResponse result;
+
+        try {
+            result = registrationCommands.cancelUnpaidRegistrations(
+                    eventId,
+                    new UnpaidRegistrationBatchRequest(List.of(registrationId, otherId))
+            );
+        } finally {
+            // 검증 실패 여부와 무관하게 주입한 오류를 제거하여 후속 테스트에 남기지 않는다.
+            doCallRealMethod().when(storeSpy).flush();
+        }
+
+        assertThat(result.failures()).hasSize(1);
+        assertThat(result.failures().getFirst().errorCode()).isEqualTo(ErrorCode.INTERNAL_SERVER_ERROR);
+        assertThat(result.failures().getFirst().message()).isEqualTo(ErrorCode.INTERNAL_SERVER_ERROR.getMessage());
+        assertThat(result.failures().getFirst().name()).isNotBlank();
+        assertThat(result.successes()).containsExactly(new Success(otherId, false));
+        assertThat(state()).isEqualTo("PAYMENT_PENDING");
+        assertThat(jdbc.queryForObject(
+                "select process_status from payment where id=?",
+                String.class,
+                paymentId
+        )).isEqualTo("READY");
+        assertThat(jdbc.queryForObject(
+                "select status from reservation where id=?",
+                String.class,
+                reservationId
+        )).isEqualTo("HELD");
+
+        verifyNoInteractions(toss);
+    }
+
+    /** 호출자 트랜잭션이 롤백되어도 일괄 처리에서 완료한 개별 신청의 커밋은 유지된다. */
+    @Test
+    void batchCommitsOutsideCallerTransaction() {
+        prepareUnpaid("READY");
+
+        tx.executeWithoutResult(status -> {
+            UnpaidRegistrationBatchResponse result = registrationCommands.cancelUnpaidRegistrations(
+                    eventId,
+                    new UnpaidRegistrationBatchRequest(List.of(registrationId))
+            );
+
+            assertThat(result.successCount()).isEqualTo(1);
+            status.setRollbackOnly();
+        });
+
+        assertThat(state()).isEqualTo("EXPIRED");
+        assertThat(held(total)).isZero();
+        verifyNoInteractions(toss);
+    }
+
+    /** 대회 잠금 경합은 건별 실패로 수집하고 잠금 해제 후 재요청은 정상 처리한다. */
+    @Test
+    void batchCollectsLockConflictsAndAllowsRetry() throws Exception {
+        prepareUnpaid("READY");
+        String otherId = createUnpaidBatchParticipant();
+        java.util.concurrent.CountDownLatch locked = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newSingleThreadExecutor();
+        UnpaidRegistrationBatchRequest request = new UnpaidRegistrationBatchRequest(
+                List.of(registrationId, otherId)
+        );
+
+        try {
+            java.util.concurrent.Future<?> competing = pool.submit(() -> tx.executeWithoutResult(status -> {
+                jdbc.queryForObject("select id from event where id=? for update", String.class, eventId);
+                locked.countDown();
+                awaitUnpaidTest(release);
+            }));
+
+            assertThat(locked.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            Map<String, Object> before = unpaidSnapshot();
+            UnpaidRegistrationBatchResponse blocked = registrationCommands.cancelUnpaidRegistrations(eventId, request);
+
+            assertThat(blocked.successCount()).isZero();
+            assertThat(blocked.failureCount()).isEqualTo(2);
+            assertThat(blocked.failures()).extracting(Failure::errorCode)
+                    .containsExactly(ErrorCode.CONCURRENT_MODIFICATION, ErrorCode.CONCURRENT_MODIFICATION);
+            assertThat(blocked.failures()).allSatisfy(failure -> assertThat(failure.name()).isNotBlank());
+            assertThat(unpaidSnapshot()).isEqualTo(before);
+
+            release.countDown();
+            competing.get(10, java.util.concurrent.TimeUnit.SECONDS);
+
+            UnpaidRegistrationBatchResponse retried = registrationCommands.cancelUnpaidRegistrations(eventId, request);
+
+            List<String> retryFailures = retried.failures().stream()
+                    .map(failure -> failure.registrationId() + ": " + failure.errorCode().name())
+                    .toList();
+
+            assertThat(retried.failures())
+                    .withFailMessage("잠금 해제 후 재요청 실패: %s", retryFailures)
+                    .isEmpty();
+            assertThat(retried.successCount()).isEqualTo(2);
+            assertThat(held(total)).isZero();
+            verifyNoInteractions(toss);
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+            assertThat(pool.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    /** 신규 API는 부분 실패도 200으로 반환하고 기존 단건 DELETE 경로와 응답은 유지한다. */
+    @Test
+    void batchEndpointReturnsResultsAndKeepsSingleApi() throws Exception {
+        prepareUnpaid("READY");
+        String missingId = id();
+        MockMvc mvc = createRegistrationCommandMvc();
+        String body = new ObjectMapper().writeValueAsString(
+                new UnpaidRegistrationBatchRequest(List.of(registrationId, missingId))
+        );
+
+        mvc.perform(post("/v1/admin/events/{eventId}/registrations/unpaid-cancellations", eventId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.requestedCount").value(2))
+                .andExpect(jsonPath("$.successCount").value(1))
+                .andExpect(jsonPath("$.failureCount").value(1))
+                .andExpect(jsonPath("$.successes[0].alreadyCanceled").value(false))
+                .andExpect(jsonPath("$.failures[0].errorCode").value("REGISTRATION_NOT_FOUND"));
+
+        mvc.perform(delete("/v1/admin/registrations/{registrationId}", registrationId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("이미 취소된 미결제 신청입니다. 정원은 다시 반환하지 않았습니다."));
+
+        mvc.perform(post("/v1/admin/events/{eventId}/registrations/unpaid-cancellations", eventId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_UNPAID_CANCELLATION_REQUEST"));
+
+        verifyNoInteractions(toss);
+    }
+
+    /** 전부 부재인 신청도 요청 처리는 성공하며 각 ID의 실패 정보를 반환한다. */
+    @Test
+    void batchEndpointReportsAllFailuresAsResults() throws Exception {
+        MockMvc mvc = createRegistrationCommandMvc();
+        String body = new ObjectMapper().writeValueAsString(
+                new UnpaidRegistrationBatchRequest(List.of(id(), id()))
+        );
+
+        mvc.perform(post("/v1/admin/events/{eventId}/registrations/unpaid-cancellations", eventId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.successCount").value(0))
+                .andExpect(jsonPath("$.failureCount").value(2));
+
+        verifyNoInteractions(toss);
+    }
+
+    /** 실제 서비스 프록시와 기존 예외 처리기를 사용하여 컨트롤러 경로와 JSON 계약을 검증한다. */
+    private MockMvc createRegistrationCommandMvc() {
+        return MockMvcBuilders.standaloneSetup(new RegistrationCommandController(registrationCommands))
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+    }
+
+    /** 같은 대회에 독립된 최초 주문과 예약을 가진 개인 미결제 신청을 추가한다. */
+    private String createUnpaidBatchParticipant() {
+        return tx.execute(status -> {
+            Registration registration = persistUnpaidBatchRegistration(eventId, categoryA);
+            Reservation reservation = Reservation.createHeld(registration);
+            em.persist(reservation);
+
+            for (String capacityId : List.of(total, capacityA, shirt)) {
+                em.persist(ReservationItem.create(reservation, em.getReference(Capacity.class, capacityId), 1));
+                jdbc.update("update capacity set held_count=held_count+1 where id=?", capacityId);
+            }
+
+            Payment payment = Payment.builder()
+                    .registration(registration)
+                    .amount(new BigDecimal("70000"))
+                    .orderId("test-" + id())
+                    .orderName("unpaid batch fixture")
+                    .purpose(PaymentPurpose.REGISTRATION_TRY)
+                    .processStatus(PaymentProcessStatus.READY)
+                    .confirmIdempotencyKey(id())
+                    .build();
+
+            em.persist(payment);
+            em.persist(PaymentAllocation.create(payment, registration, new BigDecimal("70000")));
+            em.flush();
+
+            return registration.getId();
+        });
+    }
+
+    /** 전달받은 대회·종목에 개인정보와 계약금액이 유효한 미결제 신청 행을 생성한다. */
+    private Registration persistUnpaidBatchRegistration(String targetEventId, String targetCategoryId) {
+        Registration registration = Registration.builder()
+                .event(em.getReference(Event.class, targetEventId))
+                .eventCategory(em.getReference(EventCategory.class, targetCategoryId))
+                .name("batch-" + id().substring(0, 8))
+                .phNum("010-0000-0000")
+                .birth("1990-01-01")
+                .gender(GenderClass.M)
+                .password("Test1234!")
+                .souvenirJson(List.of())
+                .status(RegistrationStatus.PAYMENT_PENDING)
+                .contractAmount(new BigDecimal("70000"))
+                .paidAmount(BigDecimal.ZERO)
+                .termsEssentialAgreed(true)
+                .termsMarketingAgreed(false)
+                .termsMarketingChannelAgreed(false)
+                .termsAgreedAt(now)
+                .build();
+
+        em.persist(registration);
+
+        return registration;
     }
 
     /** UUID fixture를 최초 미결제 상황으로 전환한다. 외부 결제는 생성하지 않는다. */
