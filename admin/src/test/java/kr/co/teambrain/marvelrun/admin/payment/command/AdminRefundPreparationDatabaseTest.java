@@ -1512,7 +1512,8 @@ class AdminRefundPreparationDatabaseTest {
 
     /** 실제 서비스 프록시와 기존 예외 처리기를 사용하여 컨트롤러 경로와 JSON 계약을 검증한다. */
     private MockMvc createRegistrationCommandMvc() {
-        return MockMvcBuilders.standaloneSetup(new RegistrationCommandController(registrationCommands))
+        return MockMvcBuilders.standaloneSetup(new RegistrationCommandController(registrationCommands,
+                mock(kr.co.teambrain.marvelrun.admin.event.command.application.service.OfflineRegistrationImportService.class)))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }

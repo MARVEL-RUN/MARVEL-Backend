@@ -10,6 +10,11 @@ import java.util.List;
 
 public interface RegistrationCommandRepository extends JpaRepository<Registration, String> {
 
+    /** 업로드 배치의 이름으로 후보를 조회하고 전화번호·출생일은 호출부에서 대조한다. */
+    @Query("select r from Registration r where r.event.id=:eventId and r.softDeleted=false and r.name in :names")
+    List<Registration> findActiveByEventAndNames(@Param("eventId") String eventId,
+                                                @Param("names") List<String> names);
+
     List<Registration> findAllByOrganization_Id(String organizationId);
 
     /**

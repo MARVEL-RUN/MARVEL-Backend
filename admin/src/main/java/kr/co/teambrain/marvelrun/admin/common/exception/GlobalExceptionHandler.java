@@ -11,10 +11,19 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import kr.co.teambrain.marvelrun.admin.event.command.application.dto.OfflineRegistrationImportResponse;
+import kr.co.teambrain.marvelrun.admin.event.command.application.exception.OfflineRegistrationImportException;
 
 @RestControllerAdvice
 @Slf4j
 public class GlobalExceptionHandler {
+
+    /** 입력 개인정보를 로그에 기록하지 않고 파일 전체의 행별 검증 오류를 반환한다. */
+    @ExceptionHandler(OfflineRegistrationImportException.class)
+    public ResponseEntity<OfflineRegistrationImportResponse> handleOfflineRegistrationImport(
+            OfflineRegistrationImportException exception) {
+        return ResponseEntity.status(exception.getErrorCode().getHttpStatus()).body(exception.getResponse());
+    }
 
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<String> handleAccessDeniedException(AccessDeniedException e) {

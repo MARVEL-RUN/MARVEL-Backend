@@ -19,9 +19,16 @@ import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import kr.co.teambrain.marvelrun.admin.event.command.application.context.OfflineRegistrationContext;
 
 import static lombok.AccessLevel.PROTECTED;
 
+/*
+ * 사용자 서버 참조 시각: 2026-10-02 17:43:11 KST
+ * 참조 파일: user/src/main/java/kr/co/teambrain/marvelrun/user/event/command/application/domain/Registration.java
+ * 유지한 동작: 개인정보·약관 매핑과 서비스가 만든 비밀번호 해시 저장.
+ * 관리자 적용 차이: 외부 신청은 CONFIRMED와 전액 납부 상태로 생성하며 마케팅 두 필드를 함께 저장한다.
+ */
 /** 관리자 변경을 반영하며 비밀번호는 서비스에서 전달한 해시로 저장한다. */
 @Getter
 @SuperBuilder
@@ -29,6 +36,21 @@ import static lombok.AccessLevel.PROTECTED;
 @Table(name = "registration")
 @NoArgsConstructor(access = PROTECTED)
 public class Registration extends RegistrationBase<User, Event, EventCategory, Organization, Souvenir> {
+
+    /** 외부 결제 입력을 확정 신청으로 생성하며 생성시각은 실제 저장시각으로 유지한다. */
+    public static Registration createOfflinePaidRegistration(Event event, EventCategory category,
+            OfflineRegistrationContext context,
+            String encodedPassword, LocalDateTime now) {
+        return Registration.builder().event(event).eventCategory(category).souvenirJson(context.souvenirs())
+                .externalPayment(true).password(encodedPassword).name(context.name()).birth(context.birth().toString())
+                .phNum(context.phone()).gender(context.gender()).address(context.address()).addressDetail(context.addressDetail())
+                .guardianConsent(context.guardianConsent()).guardianName(context.guardianName().isBlank() ? null : context.guardianName())
+                .guardianPhNum(context.guardianPhone()).guardianRelationship(context.guardianRelationship())
+                .termsEssentialAgreed(true).termsMarketingAgreed(context.marketingConsent())
+                .termsMarketingChannelAgreed(context.marketingConsent()).termsAgreedAt(now)
+                .email(context.email()).note(context.note()).status(RegistrationStatus.CONFIRMED)
+                .contractAmount(context.amount()).paidAmount(context.amount()).softDeleted(false).build();
+    }
 
     /** 서비스에서 검증하고 해시로 변환한 비밀번호를 저장한다. */
     public void resetPasswordByAdmin(String encodedPassword) {
