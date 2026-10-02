@@ -103,6 +103,9 @@ public class AdditionalPaymentPreparationService {
 
     /** 같은 부족액의 READY 주문은 재사용한다. 다른 READY 주문이 있으면 임의 폐기하지 않는다. */
     private Order prepare(List<Payment> locked, List<Registration> registrations, Organization organization) {
+        // 외부 결제 신청은 기존 주문 재사용과 신규 추가 결제 준비 모두 허용하지 않는다.
+        registrations.forEach(Registration::validateOnlineRegistrationProcessingAllowed);
+
         if (registrations.isEmpty()) { throw new CustomException(ErrorCode.PAYMENT_NOT_CONFIRMABLE, " 추가 납부할 금액이 없습니다."); }
         Map<String, BigDecimal> due = new TreeMap<>();
         for (Registration row : registrations) {

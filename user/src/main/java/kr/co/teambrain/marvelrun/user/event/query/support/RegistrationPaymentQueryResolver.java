@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** 읽은 프로젝션만으로 결제 재준비 버튼을 안내한다. 실제 허가는 기존 retry가 재검증한다. */
+/* 조회 프로젝션으로 결제 준비를 안내하되 외부 결제 신청은 온라인 결제 행동을 제공하지 않는다. */
 @Component
 public class RegistrationPaymentQueryResolver {
     /** 진행 중 요청을 우선 차단하고 현재 미납 전체에 맞는 주문을 선택한다. */
@@ -29,6 +29,12 @@ public class RegistrationPaymentQueryResolver {
         PaymentProcessStatus status = latest == null ? null : latest.status();
         String orderId = latest == null ? null : latest.orderId();
         PaymentCancelStatus refundStatus = refundStatus(refunds);
+
+        // 외부 결제 신청은 현재 미납액과 관계없이 온라인 결제 준비를 안내하지 않는다.
+        if (members.stream().anyMatch(RegistrationQueryData.Member::externalPayment)) {
+            return new Result(status, refundStatus, RegistrationPaymentAction.NONE, null, null, orderId);
+        }
+
         for (PaymentProcessStatus pending : List.of(PaymentProcessStatus.UNKNOWN, PaymentProcessStatus.CONFIRMING)) {
             if (payments.stream().anyMatch(p -> p.status() == pending)) {
                 return new Result(pending, refundStatus, RegistrationPaymentAction.WAIT,

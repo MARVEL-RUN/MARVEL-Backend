@@ -88,6 +88,9 @@ public class RegistrationCancellationTransactionService {
 
     /** 활성 신청만 새로 취소하고 이미 취소된 행은 재반환·재환불하지 않고 상태를 반환한다. */
     private Prepared prepare(Event event, String organizationId, List<Registration> members, List<Payment> payments) {
+        // 인증 후 외부 결제 여부를 확인하며 취소 상태의 재요청에도 같은 제한을 적용한다.
+        members.forEach(Registration::validateOnlineRegistrationProcessingAllowed);
+
         List<Registration> active = members.stream().filter(r -> !r.isSoftDeleted()).toList();
         if (active.isEmpty()) {
             validateCanceled(members);

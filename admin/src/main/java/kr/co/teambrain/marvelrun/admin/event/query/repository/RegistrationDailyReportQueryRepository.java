@@ -67,12 +67,17 @@ public class RegistrationDailyReportQueryRepository {
             r.organization_id,
             r.contract_amount,
             r.paid_amount,
-            r.registration_date
+            r.registration_date,
+            r.external_payment
         FROM registration r
         WHERE r.event_id = :eventId
           AND r.is_del = 0
-          AND r.registration_date >= :registrationStart
-          AND r.registration_date < :endExclusive
+          AND ((r.registration_date >= :registrationStart AND r.registration_date < :endExclusive)
+               OR (r.external_payment = 1 AND EXISTS (
+                   SELECT 1 FROM payment external_p
+                   WHERE external_p.registration_id = r.id AND external_p.process_status = 'COMPLETED'
+                     AND external_p.approved_at >= :registrationStart AND external_p.approved_at < :endExclusive
+               )))
     ),
 
     payment_sources AS (
@@ -81,7 +86,7 @@ public class RegistrationDailyReportQueryRepository {
          */
         SELECT
             p.registration_id AS registration_id,
-            p.created_at AS paid_at
+            CASE WHEN r.external_payment = 1 THEN p.approved_at ELSE p.created_at END AS paid_at
         FROM payment p
         INNER JOIN event_registrations r
             ON r.id = p.registration_id
@@ -98,7 +103,7 @@ public class RegistrationDailyReportQueryRepository {
          */
         SELECT
             pa.registration_id AS registration_id,
-            p.created_at AS paid_at
+            CASE WHEN r.external_payment = 1 THEN p.approved_at ELSE p.created_at END AS paid_at
         FROM payment_allocation pa
         INNER JOIN event_registrations r
             ON r.id = pa.registration_id

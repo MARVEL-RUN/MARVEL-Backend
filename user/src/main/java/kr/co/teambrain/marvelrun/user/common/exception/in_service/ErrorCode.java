@@ -8,6 +8,11 @@ import org.springframework.http.HttpStatus;
 @AllArgsConstructor
 public enum ErrorCode {
 
+    EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED(
+            HttpStatus.CONFLICT,
+            "외부 결제로 등록된 신청은 온라인에서 변경·취소·결제할 수 없습니다."
+    ),
+
     ORGANIZATION_LEADER_BIRTH_REQUIRED(
             HttpStatus.BAD_REQUEST,
             "단체장 생년월일을 입력해주세요."

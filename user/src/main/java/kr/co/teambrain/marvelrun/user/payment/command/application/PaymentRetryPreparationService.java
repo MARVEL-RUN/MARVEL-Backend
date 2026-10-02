@@ -85,6 +85,10 @@ public class PaymentRetryPreparationService {
 
     /** 유효 READY 주문은 재사용하고, 명확히 실패·무효화된 주문만 같은 귀속으로 새로 준비한다. */
     private Order prepare(Payment original, List<Payment> locked, Event event) {
+        // 인증 후 원 주문의 직접 대상과 전체 귀속을 확인하여 재사용·재확보 전에 차단한다.
+        List<PaymentAllocation> originalAllocations = allocationRepository.findAllForPaymentUpdate(original.getId());
+        support.validateOnlinePaymentRegistrations(original, originalAllocations);
+
         PaymentProcessStatus status = original.getProcessStatus();
         if (status != PaymentProcessStatus.READY && status != PaymentProcessStatus.FAILED
                 && status != PaymentProcessStatus.INVALIDATED) {
@@ -92,7 +96,6 @@ public class PaymentRetryPreparationService {
         }
         LocalDateTime now = time.currentDateTime();
         policyValidator.validateForPurpose(event, now, original.getPurpose());
-        List<PaymentAllocation> originalAllocations = allocationRepository.findAllForPaymentUpdate(original.getId());
         List<String> initialIds = support.validateForPreparation(original, originalAllocations);
         Map<String, Share> expected = shares(originalAllocations);
         Payment reusable = null;

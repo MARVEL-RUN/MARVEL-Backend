@@ -26,7 +26,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
 
-/** 신청의 참가 정보와 금융 요약을 관리하며 생성 시 전달받은 비밀번호 해시를 저장한다. */
+/* 참가 정보·금융 요약·비밀번호 해시를 관리하고 외부 결제의 온라인 처리 가능 여부를 검증한다. */
 @org.hibernate.annotations.DynamicUpdate
 @Getter
 @Entity
@@ -40,6 +40,14 @@ public class Registration extends RegistrationBase<
         Organization,
         Souvenir
         > {
+
+    /* 외부 결제 신청의 온라인 변경·취소·결제를 제한하며 조회와 비밀번호 변경은 허용한다. */
+    public void validateOnlineRegistrationProcessingAllowed() {
+        // 외부 접수 기능을 확장할 때 온라인 처리 허용 범위를 별도로 검토한다.
+        if (externalPayment) {
+            throw new CustomException(ErrorCode.EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED);
+        }
+    }
 
     /** 본인확인을 마친 개인 신청에 신규 해시만 반영하고 참가·결제 정보는 보존한다. */
     public void changePassword(String encodedPassword) {

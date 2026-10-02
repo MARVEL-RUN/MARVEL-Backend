@@ -10,15 +10,31 @@ import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
 import lombok.NoArgsConstructor;
+import java.time.LocalDateTime;
+import java.util.UUID;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentMethod;
 
 import static lombok.AccessLevel.PROTECTED;
 
+/** 관리자 결제 원장의 생성과 기존 결제 상태 변경을 담당한다. */
 @Getter
 @SuperBuilder
 @Entity
 @Table(name = "payment")
 @NoArgsConstructor(access = PROTECTED)
 public class Payment extends PaymentBase<Registration, Organization> {
+    /** 실제 PG 식별자를 만들지 않고 외부 결제 완료 원장을 구성한다. */
+    public static Payment createOfflineCompletedPayment(Registration registration,
+            LocalDateTime approvedAt) {
+        String identity = "OFFLINE-" + UUID.randomUUID();
+        return Payment.builder().registration(registration).amount(registration.getPaidAmount())
+                .orderId(identity).orderName("외부 단말기 개인 신청 결제")
+                .confirmIdempotencyKey(identity)
+                .purpose(PaymentPurpose.REGISTRATION_TRY)
+                .paymentMethod(PaymentMethod.CARD)
+                .processStatus(PaymentProcessStatus.COMPLETED).approvedAt(approvedAt).build();
+    }
     /**
      * 현재 결제 상태가 신청 수정을 허용하는지 확인한다.
      *

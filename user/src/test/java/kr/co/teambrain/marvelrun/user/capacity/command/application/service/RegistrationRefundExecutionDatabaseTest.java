@@ -72,6 +72,46 @@ class RegistrationRefundExecutionDatabaseTest extends CapacityMvpTestSupport {
     @Autowired private ModificationRefundResultReader resultReader;
     @MockitoBean private TossPaymentCancelClient cancelClient;
 
+    /* 별도로 남은 환불 준비 내역도 실행 시작 시 외부 결제 제한을 재검증한다. */
+    @Test
+    void rejectsExternalPaymentAtRefundExecutionBoundary() {
+        // 환불 준비 이후 외부 결제로 표시된 데이터를 구성하여 시작 경계 검증을 확인한다.
+        RegistrationCreateResponse original = paidPersonal();
+        RegistrationModificationSettlementResult prepared = preparation.modifyPersonal(eventId, original.registrationId(),
+                personalRequest(original.registrationId(), categoryB));
+        jdbc.update("update registration set external_payment=1 where id=?", original.registrationId());
+        String cancelId = prepared.refunds().getFirst().paymentCancelId();
+        List<Map<String, Object>> before = resourceSnapshot();
+
+        // 실행기에서 시작 오류를 수집하더라도 외부 환불은 호출하지 않는다.
+        expectError(ErrorCode.EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED,
+                () -> refundTransactions.begin(eventId, null, prepared.refunds().getFirst()));
+        executor.execute(eventId, null, prepared.refunds());
+        assertThat(n("select count(*) from payment_cancel where id=? and requested_at is not null", cancelId)).isZero();
+        assertThat(amount("select paid_amount from registration where id=?", original.registrationId()))
+                .isEqualByComparingTo("40000");
+        assertThat(resourceSnapshot()).isEqualTo(before);
+        verifyNoInteractions(cancelClient);
+    }
+
+    /* 이미 PG 요청을 시작한 건은 뒤늦은 외부 결제 표시가 실제 결과 반영을 막지 않는다. */
+    @Test
+    void preservesRefundResultApplicationAfterExternalFlagChange() {
+        // 승인된 환불 실행 정보와 외부 결과를 먼저 확보한다.
+        RegistrationCreateResponse original = paidPersonal();
+        RegistrationModificationSettlementResult prepared = preparation.modifyPersonal(eventId, original.registrationId(),
+                personalRequest(original.registrationId(), categoryB));
+        RefundExecutionTicket ticket = refundTransactions.begin(eventId, null, prepared.refunds().getFirst()).orElseThrow();
+        jdbc.update("update registration set external_payment=1 where id=?", original.registrationId());
+
+        // 시작 제한이 결과 저장까지 전파되지 않는지 검증한다.
+        refundTransactions.apply(ticket, success(ticket.attempt()));
+        assertThat(amount("select paid_amount from registration where id=?", original.registrationId()))
+                .isEqualByComparingTo("30000");
+        assertThat(s("select status from payment_cancel where id=?", ticket.attempt().paymentCancelId())).isEqualTo("DONE");
+        assertThat(n("select external_payment from registration where id=?", original.registrationId())).isEqualTo(1);
+    }
+
     /** 기존 개인 수정 API 하나로 준비·외부 취소·DB 반영·최종 응답까지 이어진다. */
     @Test
     void existingModificationApiCompletesRefundWithoutChangingOriginalLedger() {

@@ -21,6 +21,33 @@ import static org.mockito.Mockito.*;
 
 /** 관리자 초기화가 BCrypt 해시를 저장하고 기존 대상·길이 제한을 유지하는지 확인한다. */
 class RegistrationPasswordResetTest {
+    /** 외부 신청만 현장 출생일 기준을 적용하고 일반 신청의 기존 대회일 기준은 유지한다. */
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void preservesPriceTierRulesForExternalAndNormalRegistrations(boolean external) {
+        kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event event =
+                mock(kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event.class);
+        kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCategory category =
+                mock(kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCategory.class);
+        when(event.getId()).thenReturn("event");
+        when(event.getStartDate()).thenReturn(java.time.LocalDateTime.of(2026, 11, 1, 9, 0));
+        when(category.getName()).thenReturn("5km");
+        Registration registration = Registration.builder().id("r").event(event).eventCategory(category)
+                .externalPayment(external).birth("2013-11-01").build();
+        when(registrations.findById("r")).thenReturn(Optional.of(registration));
+        kr.co.teambrain.marvelrun.admin.event.command.application.dto.AdminRegistrationModifyRequest request =
+                new kr.co.teambrain.marvelrun.admin.event.command.application.dto.AdminRegistrationModifyRequest(
+                        "테스트", "01012345678", "2013-10-31", kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass.M,
+                        "", "주소", "없음", "", "", "");
+        if (external) {
+            assertThatThrownBy(() -> personalService.modifyRegistrationBasicInfo("r", request))
+                    .isInstanceOfSatisfying(CustomException.class,
+                            exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.PRICE_TIER_CHANGE_NOT_ALLOWED));
+        } else {
+            personalService.modifyRegistrationBasicInfo("r", request);
+            assertThat(registration.getBirth()).isEqualTo("2013-10-31");
+        }
+    }
     private final PasswordEncoder encoder = new BCryptPasswordEncoder(4);
     private final RegistrationCommandRepository registrations = mock(RegistrationCommandRepository.class);
     private final OrganizationCommandRepository organizations = mock(OrganizationCommandRepository.class);

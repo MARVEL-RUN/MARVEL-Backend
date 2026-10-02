@@ -24,6 +24,10 @@ import java.util.List;
 @NoArgsConstructor // abstract Class지만 SuperBuilder를 사용해야하므로 별도로 작성. Builder 어노테이션이 자체적으로 생성자를 만들어버려 기본생성자 생성이 안되기때문
 @MappedSuperclass
 public abstract class RegistrationBase<U extends UserBase, E extends EventBase, EC extends EventCategoryBase, O extends OrganizationBase, S extends SouvenirBase> {
+    /** 외부 단말기에서 이미 결제한 신청의 관리자 등록 여부다. 요청 차단 정책은 별도 적용한다. */
+    @Column(name = "external_payment", nullable = false)
+    protected boolean externalPayment;
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", nullable = false, length = 40)
