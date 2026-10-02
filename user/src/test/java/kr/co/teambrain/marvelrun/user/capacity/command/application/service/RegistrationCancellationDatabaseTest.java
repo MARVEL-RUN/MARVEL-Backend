@@ -58,6 +58,26 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
     @MockitoBean private TossPaymentCancelClient cancelClient;
     @MockitoSpyBean private ModificationRefundPreparationService refundPreparation;
 
+    /* 외부 결제 참가자의 취소는 정원 반환과 환불 준비 전에 거절한다. */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void rejectsCancellationOfExternalPaymentParticipant(boolean group) {
+        // 개인 직접 연결과 단체 구성원 경로를 같은 조건으로 검증한다.
+        Target target = target(group, true);
+        String externalId = target.ids().getFirst();
+        jdbc.update("update registration set external_payment=1 where id=?", externalId);
+        List<Map<String, Object>> before = resourceSnapshot();
+        clearInvocations(toss, cancelClient);
+
+        // 취소 요청 실패로 신청·순납부액·자원이 변경되거나 취소 원장이 생기지 않아야 한다.
+        expectError(ErrorCode.EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED, () -> cancel(target));
+        assertThat(resourceSnapshot()).isEqualTo(before);
+        assertThat(s("select status from registration where id=?", externalId)).isEqualTo("CONFIRMED");
+        assertThat(n("select is_del from registration where id=?", externalId)).isZero();
+        assertThat(n("select count(*) from payment_cancel where payment_id=?", target.paymentId())).isZero();
+        verifyNoInteractions(toss, cancelClient);
+    }
+
     /** 개인·단체의 미납 신청은 주문을 무효화하고 정원만 반환하며 PG 환불을 호출하지 않는다. */
     @ParameterizedTest
     @ValueSource(booleans = {false, true})

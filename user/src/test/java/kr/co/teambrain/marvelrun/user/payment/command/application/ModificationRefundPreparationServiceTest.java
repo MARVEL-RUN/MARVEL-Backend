@@ -36,6 +36,21 @@ class ModificationRefundPreparationServiceTest {
     private final ModificationRefundPreparationService service = new ModificationRefundPreparationService(
             payments, allocations, cancellations, cancelAllocations, logs, new ModificationRefundPlanner(), creator);
 
+    /* 외부 결제 신청은 환불 금액 계산이나 원장 저장을 시작하지 않는다. */
+    @Test
+    void rejectsExternalPaymentBeforePreparingRefund() {
+        // 초과 납부가 있더라도 외부 결제는 온라인 환불 대상이 아니다.
+        Registration external = Registration.builder().id("r").externalPayment(true)
+                .contractAmount(new BigDecimal("30000")).paidAmount(new BigDecimal("40000")).build();
+
+        // 거절 시 조회·저장과 순납부액 변경이 없어야 한다.
+        assertThatThrownBy(() -> service.prepare("event", null, List.of(external)))
+                .isInstanceOfSatisfying(CustomException.class, exception -> assertThat(exception.getErrorCode())
+                        .isEqualTo(ErrorCode.EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED));
+        verifyNoInteractions(payments, allocations, cancellations, cancelAllocations, logs, creator);
+        assertThat(external.getPaidAmount()).isEqualByComparingTo("40000");
+    }
+
     /** 같은 부족 환불 요청이 다시 오면 기존 PROCESSING을 우회하여 새 취소를 만들지 않는다. */
     @Test
     void reservesOnceWithoutDecreasingPaidAmount() {

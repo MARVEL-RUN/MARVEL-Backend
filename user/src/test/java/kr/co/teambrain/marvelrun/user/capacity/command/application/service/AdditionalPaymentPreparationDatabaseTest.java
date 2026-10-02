@@ -4,8 +4,11 @@ import java.math.BigDecimal;
 import java.util.List;
 import kr.co.teambrain.marvelrun.user.payment.command.application.AdditionalPaymentPreparationService;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.*;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.RegistrationCreateResponse;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.util.AopTestUtils;
@@ -17,6 +20,34 @@ import static org.mockito.Mockito.*;
 @Import(AdditionalPaymentPreparationService.class)
 class AdditionalPaymentPreparationDatabaseTest extends CapacityMvpTestSupport {
     @Autowired AdditionalPaymentPreparationService additional;
+
+    /* 외부 결제 신청에 미납액이 있더라도 추가 주문 생성과 재사용을 차단한다. */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void rejectsExternalPaymentBeforeCreatingOrReusingAdditionalOrder(boolean existingOrder) {
+        // 정상 추가금 fixture에서 주문 유무만 달리한 뒤 외부 결제로 전환한다.
+        RegistrationCreateResponse initial = personal(categoryA, "S", "1990-01-01");
+        mockApprovalSuccess();
+        payments.confirm(confirmRequest(initial.paymentId()));
+        String id = initial.registrationId();
+        due(id, 70000);
+        if (existingOrder) {
+            additional.preparePersonal(eventId, id, access(id));
+        }
+        jdbc.update("update registration set external_payment=1 where id=?", id);
+        int orderCount = n("select count(*) from payment where registration_id=?", id);
+        List<String> beforeItems = itemIds(id);
+        clearInvocations(toss);
+
+        // 기존 확정 예약과 미납액을 보존하며 외부 승인 호출을 하지 않는다.
+        expectError(ErrorCode.EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED,
+                () -> additional.preparePersonal(eventId, id, access(id)));
+        assertThat(n("select count(*) from payment where registration_id=?", id)).isEqualTo(orderCount);
+        assertThat(itemIds(id)).containsExactlyElementsOf(beforeItems);
+        assertThat(s("select status from registration where id=?", id)).isEqualTo("ADDITIONAL_PAYMENT_REQUIRED");
+        counters(total, 0, 1);
+        verifyNoInteractions(toss);
+    }
 
     @Test
     void personalDeferredOrderIsReusableAndPaidAfterDeadlineWithoutNewHold() {

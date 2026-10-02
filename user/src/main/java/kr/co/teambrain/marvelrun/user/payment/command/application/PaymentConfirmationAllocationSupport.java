@@ -23,7 +23,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 승인 트랜잭션의 잠금 순서와 참가자별 납부·예약 검증을 공통으로 제공한다. */
+/* 승인 트랜잭션의 잠금·납부·예약 검증과 외부 결제의 온라인 처리 시작 제한을 제공한다. */
 @Component
 @RequiredArgsConstructor
 @Transactional(propagation = Propagation.MANDATORY)
@@ -120,7 +120,37 @@ public class PaymentConfirmationAllocationSupport {
 
     /** 재결제 준비에서만 최초 예약의 RELEASED 상태를 허용하며 금융 검증은 승인과 공유한다. */
     public List<String> validateForPreparation(Payment payment, List<PaymentAllocation> allocations) {
+        validateOnlinePaymentRegistrations(payment, allocations);
         return validateAndGetInitialIds(payment, allocations, ReservationStatus.HELD, true);
+    }
+
+    /* 승인·재준비 시작 시 직접 연결과 배분 대상 신청을 ID 순서로 잠그고 외부 결제를 거절한다. */
+    public void validateOnlinePaymentRegistrations(Payment payment, List<PaymentAllocation> allocations) {
+        // 결과 반영 검증과 분리하여 이미 수행한 PG 요청의 결과 저장은 막지 않는다.
+        if (allocations == null) {
+            throw invalid();
+        }
+        Map<String, Registration> registrations = new TreeMap<>();
+        if (payment.getRegistration() != null) {
+            if (payment.getRegistration().getId() == null) {
+                throw invalid();
+            }
+            registrations.put(payment.getRegistration().getId(), payment.getRegistration());
+        }
+        for (PaymentAllocation allocation : allocations) {
+            if (allocation == null || allocation.getRegistration() == null
+                    || allocation.getRegistration().getId() == null) {
+                throw invalid();
+            }
+            Registration registration = allocation.getRegistration();
+            registrations.put(registration.getId(), registration);
+        }
+
+        // 부모 결제 잠금을 확보한 호출자 안에서 신청의 현재 저장값을 검증한다.
+        for (Registration registration : registrations.values()) {
+            entityManager.refresh(registration, LockModeType.PESSIMISTIC_WRITE);
+            registration.validateOnlineRegistrationProcessingAllowed();
+        }
     }
 
     /** 잠긴 신청·예약과 불변 귀속을 검증하고 최초 납부 대상만 반환한다. */

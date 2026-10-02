@@ -27,7 +27,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 외부 요청 시작과 결과 반영을 각각 독립된 트랜잭션으로 처리한다. HTTP는 호출하지 않는다. */
+/* 외부 환불 시작과 결과 반영을 분리하며 외부 결제 신청은 요청 시작 단계에서만 제한한다. */
 @Service
 @RequiredArgsConstructor
 @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -40,7 +40,7 @@ public class RefundExecutionTransactionService {
     private final PaymentProcessLogCommandRepository logs;
     private final ServerTimeProvider time;
 
-    /** 시작 시각을 커밋한 호출자 한 명에게만 불변 실행 정보를 반환한다. */
+    /* 외부 결제 제한을 통과하고 시작 시각을 커밋한 호출자에게만 실행 정보를 반환한다. */
     public Optional<RefundExecutionTicket> begin(String eventId, String organizationId, Refund refund) {
         PaymentCancel cancel = locks.lock(eventId, organizationId, refund.paymentId(), refund.paymentCancelId());
         if (cancel.getStatus() == null) { throw invalid(); }
@@ -71,6 +71,12 @@ public class RefundExecutionTransactionService {
         List<RefundExecutionTicket.Share> shares = loadShares(cancel);
         validateAllocationBudgets(cancel, shares);
         List<Registration> targets = lockAndValidateRegistrations(eventId, organizationId, payment, shares);
+        // 외부 호출 시작만 제한하며 이미 수신한 환불 결과의 반영 경로에는 적용하지 않는다.
+        targets.forEach(Registration::validateOnlineRegistrationProcessingAllowed);
+        if (payment.getRegistration() != null) {
+            payment.getRegistration().validateOnlineRegistrationProcessingAllowed();
+        }
+
         lockReservations(targets);
         TossCancelAttempt attempt = new TossCancelAttempt(cancel.getId(), payment.getPaymentKey(),
                 payment.getOrderId(), cancel.getIdempotencyKey(), cancel.getCancelReason(),

@@ -36,6 +36,9 @@ public class ModificationRefundPreparationService {
      * 재조회는 같은 부모 잠금을 재사용하며 수정 중 엔티티를 refresh하지 않는다.
      */
     public List<Refund> prepare(String eventId, String organizationId, List<Registration> registrations) {
+        // 외부 단말기 결제는 온라인 환불 준비와 환불 로그 생성 대상에서 제외한다.
+        registrations.forEach(Registration::validateOnlineRegistrationProcessingAllowed);
+
         boolean required = registrations.stream().anyMatch(r -> r.getPaidAmount().compareTo(r.getContractAmount()) > 0);
         if (!required) { return List.of(); }
         List<Payment> payments = organizationId == null

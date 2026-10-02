@@ -455,8 +455,10 @@ class OrgRegistrationModificationAccessValidatorTest {
         when(organization.getLoginId())
                 .thenReturn("group-login");
 
+        // Spy 호출은 다른 mock의 stubbing을 시작하기 전에 완료한다.
+        String encodedPassword = passwordEncoder.encode("password");
         when(organization.getPassword())
-                .thenReturn(passwordEncoder.encode("password"));
+                .thenReturn(encodedPassword);
     }
 
 

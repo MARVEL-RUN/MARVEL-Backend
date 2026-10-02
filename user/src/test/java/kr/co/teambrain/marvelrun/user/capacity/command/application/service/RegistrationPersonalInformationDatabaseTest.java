@@ -15,6 +15,11 @@ import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.Regi
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.RegistrationCreateResponse;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.*;
+import kr.co.teambrain.marvelrun.user.event.query.dto.RegistrationQueryResponse;
+import kr.co.teambrain.marvelrun.user.event.query.dto.RegistrationPaymentAction;
+import kr.co.teambrain.marvelrun.user.event.query.repository.RegistrationQueryRepository;
+import kr.co.teambrain.marvelrun.user.event.query.service.RegistrationQueryService;
+import kr.co.teambrain.marvelrun.user.event.query.support.RegistrationPaymentQueryResolver;
 import kr.co.teambrain.marvelrun.user.payment.command.application.creator.AdditionalPaymentTargetResolver;
 import org.hibernate.resource.jdbc.spi.StatementInspector;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,10 +62,13 @@ import static org.mockito.Mockito.*;
         RegistrationModificationSettlementService.class,
         ReservationCapacityDiffService.class, CapacityModificationService.class, ReservationRemovalService.class,
         org.springframework.boot.autoconfigure.validation.ValidationAutoConfiguration.class,
-        AdditionalPaymentTargetResolver.class,RegistrationModificationTransactionService.class})
+        AdditionalPaymentTargetResolver.class,RegistrationModificationTransactionService.class,
+        RegistrationQueryRepository.class, RegistrationQueryService.class, RegistrationPaymentQueryResolver.class})
 @TestPropertySource(properties = "spring.jpa.properties.hibernate.session_factory.statement_inspector="
         + "kr.co.teambrain.marvelrun.user.capacity.command.application.service.RegistrationPersonalInformationDatabaseTest$SqlCapture")
 class RegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupport {
+    @Autowired
+    private RegistrationQueryService queries;
     @Autowired
     private RegistrationModificationTransactionService commands;
     @MockitoSpyBean
@@ -69,6 +77,57 @@ class RegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupport
     private RegistrationUniqueInfoValidator uniqueInfo;
     @MockitoSpyBean
     private RegistrationPersonalInformationService informationService;
+
+    /* 외부 결제 여부를 실제 DB 프로젝션부터 응답까지 전달하고 정상적인 본인 조회를 허용한다. */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void personalLookupExposesExternalPaymentWithoutChangingStoredData(boolean external) {
+        // 실제 승인 fixture를 만든 뒤 외부 결제의 nullable PG 필드 조건을 구성한다.
+        RegistrationCreateResponse created = personal(categoryA, "S", "1990-01-01");
+        mockApprovalSuccess();
+        payments.confirm(confirmRequest(created.paymentId()));
+        jdbc.update("update registration set external_payment=? where id=?", external, created.registrationId());
+        if (external) {
+            jdbc.update("update payment set payment_key=null,toss_status=null,receipt_url=null,approval_transaction_key=null where id=?",
+                    created.paymentId());
+        }
+        Map<String, Object> before = registration(created.registrationId());
+        Map<String, List<Map<String, Object>>> resourcesBefore = resources();
+        RegistrationAccessRequest access = request(created.registrationId(), categoryA, "S", "무관", "무관").access();
+
+        // 기존 조회 인증을 유지하고 외부 결제 값과 표시 상태를 확인한다.
+        List<RegistrationQueryResponse> response = queries.personal(eventId, access);
+        assertThat(response).hasSize(1);
+        assertThat(response.getFirst().externalPayment()).isEqualTo(external);
+        assertThat(response.getFirst().registrationStatus().name()).isEqualTo("CONFIRMED");
+        assertThat(response.getFirst().paymentStatus().name()).isEqualTo("COMPLETED");
+        assertThat(response.getFirst().paymentAction()).isEqualTo(RegistrationPaymentAction.NONE);
+        assertThat(registration(created.registrationId())).isEqualTo(before);
+        assertThat(resources()).isEqualTo(resourcesBefore);
+    }
+
+    /* 정보만 변경하는 분기와 종목까지 변경하는 분기 모두 외부 결제 신청을 보존한다. */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void rejectsExternalPaymentBeforeClassifyingModification(boolean full) {
+        // 유효한 수정 요청을 준비하고 외부 결제 표시만 켠다.
+        RegistrationCreateResponse created = personal(categoryA, "S", "1990-01-01");
+        mockApprovalSuccess();
+        payments.confirm(confirmRequest(created.paymentId()));
+        jdbc.update("update registration set external_payment=1 where id=?", created.registrationId());
+        RegistrationModificationRequest request = request(created.registrationId(),
+                full ? categoryB : categoryA, "S", "외부결제변경시도", "수정주소");
+        Map<String, Object> before = registration(created.registrationId());
+        Map<String, List<Map<String, Object>>> resourcesBefore = resources();
+        clearInvocations(toss, classifier, informationService);
+
+        // 분류와 실제 변경 전에 거절되며 주문·정원·예약과 개인정보를 보존한다.
+        expectError(ErrorCode.EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED,
+                () -> commands.modifyPersonal(eventId, created.registrationId(), request));
+        assertThat(registration(created.registrationId())).isEqualTo(before);
+        assertThat(resources()).isEqualTo(resourcesBefore);
+        verifyNoInteractions(toss, classifier, informationService);
+    }
 
     /** 스키마 변경은 테스트가 수행하지 않는다. 미적용이면 안전성 검증을 건너뛰지 않고 실패시킨다. */
     @BeforeEach

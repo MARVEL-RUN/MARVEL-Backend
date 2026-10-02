@@ -41,6 +41,57 @@ class UnifiedPaymentDatabaseTest extends CapacityMvpTestSupport {
     @Autowired
     private PaymentRetryPreparationService retries;
 
+    /* 외부 결제의 승인·재결제 요청은 완료 주문 및 변조된 대기 주문에서도 PG 호출 전에 차단한다. */
+    @ParameterizedTest
+    @ValueSource(strings = {"READY", "COMPLETED"})
+    void rejectsExternalPaymentConfirmationAndRetryWithoutChangingResources(String paymentState) {
+        // 정상 fixture의 상태와 외부 결제 여부를 명시적으로 설정한다.
+        RegistrationCreateResponse created = personal(categoryA, "S", "1990-01-01");
+        if (paymentState.equals("COMPLETED")) {
+            mockApprovalSuccess();
+            payments.confirm(confirmRequest(created.paymentId()));
+        }
+        String id = created.registrationId();
+        jdbc.update("update registration set external_payment=1 where id=?", id);
+        RegistrationAccessRequest access = new RegistrationAccessRequest(
+                s("select name from registration where id=?", id), "1990-01-01", "010-0000-0000", "Test1234!");
+        List<Map<String, Object>> before = reservationSnapshot(id);
+        int orderCount = n("select count(*) from payment where registration_id=?", id);
+        BigDecimal paid = money(id);
+        clearInvocations(toss);
+
+        // 원 주문 상태와 관계없이 새 처리 시작만 거절한다.
+        expectError(ErrorCode.EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED,
+                () -> payments.confirm(confirmRequest(created.paymentId())));
+        expectError(ErrorCode.EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED,
+                () -> retries.preparePersonal(eventId, id, created.paymentId(), access));
+
+        // 거절된 요청이 예약·주문·금액을 바꾸거나 PG를 호출하지 않아야 한다.
+        assertThat(reservationSnapshot(id)).isEqualTo(before);
+        assertThat(n("select count(*) from payment where registration_id=?", id)).isEqualTo(orderCount);
+        assertThat(s("select process_status from payment where id=?", created.paymentId())).isEqualTo(paymentState);
+        assertThat(money(id)).isEqualByComparingTo(paid);
+        verifyNoInteractions(toss);
+    }
+
+    /* 직접 신청 FK가 없는 단체 주문도 배분 대상에 외부 결제 참가자가 있으면 승인하지 않는다. */
+    @Test
+    void rejectsExternalPaymentInMixedOrderAllocations() {
+        // 혼합 주문의 기존 참가자 하나만 외부 결제로 전환한다.
+        Fixture fixture = prepareMixedOrder();
+        jdbc.update("update registration set external_payment=1 where id=?", fixture.existingId());
+        List<Map<String, Object>> before = reservationSnapshot(fixture.newId());
+
+        // 단체 승인과 재준비 모두 배분된 외부 참가자를 확인해야 한다.
+        expectError(ErrorCode.EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED,
+                () -> payments.confirm(confirmRequest(fixture.paymentId())));
+        expectError(ErrorCode.EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED,
+                () -> retries.prepareOrganization(eventId, fixture.organizationId(), fixture.paymentId(), groupAccess(fixture)));
+        assertThat(reservationSnapshot(fixture.newId())).isEqualTo(before);
+        assertThat(s("select process_status from payment where id=?", fixture.paymentId())).isEqualTo("READY");
+        verifyNoInteractions(toss);
+    }
+
     /** 신규 참가비와 기존 참가자의 추가금을 한 번 승인하고 중복 결과 반영을 막는다. */
     @Test
     void mixedOrderConfirmsOnlyNewReservationAndCreditsEachParticipantOnce() {

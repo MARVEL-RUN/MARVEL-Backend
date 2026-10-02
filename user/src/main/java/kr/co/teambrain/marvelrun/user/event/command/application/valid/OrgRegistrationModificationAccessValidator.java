@@ -85,6 +85,9 @@ public class OrgRegistrationModificationAccessValidator {
                 request.registrations()
         );
 
+        // 외부 결제 구성원의 변경·제거가 포함되는 단체 변경을 차단한다.
+        currentRegistrations.forEach(Registration::validateOnlineRegistrationProcessingAllowed);
+
         return new OrgRegistrationModificationAccessContext(
                 organization.getEvent(),
                 organization,
