@@ -61,7 +61,7 @@ public class RegistrationExcelController {
         );
     }
 
-    /** 선택 ID가 있으면 해당 항목만, 없으면 해당 대회의 전체 목록을 다운로드한다. */
+    /** 선택 ID가 있으면 삭제 여부와 관계없이 해당 신청을, 없으면 대회의 삭제되지 않은 신청을 다운로드한다. */
     @PostMapping("/excel/download")
     public void downloadSelected(
             @RequestParam("eventId") String eventId,
