@@ -31,7 +31,7 @@ import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-/** KMA의 SXSSF 출력 방식을 사용해 마블런 신청 정보를 엑셀로 생성한다. */
+/** 신청 조회 범위에 따라 명단과 한글 신청 상태를 SXSSF 엑셀로 생성한다. */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -47,35 +47,39 @@ public class RegistrationExcelService {
             "이메일", "대회명", "단체명", "단체장명", "단체장 번호", "종목명", "기념품(사이즈)",
             "신청일시", "계약금액", "신청상태", "우편번호", "주소", "상세주소",
             "보호자명", "보호자 번호", "보호자 관계", "보호자 동의",
-            "필수약관 동의", "마케팅 동의", "마케팅 채널 동의"
+            "필수약관 동의", "마케팅 동의", "마케팅 채널 동의", "현재 명단 제외 여부"
     };
 
-    /** 검색 조건 및 선택 ID를 함께 적용하고 삭제되지 않은 신청만 출력한다. */
+    /** 선택 ID가 있으면 삭제된 신청도 포함하며, 전체·검색 다운로드는 삭제된 신청을 제외한다. */
     public void download(
             RegistrationSearchCondition condition,
             String organizationId,
             List<String> registrationIds,
             HttpServletResponse response
     ) throws IOException {
+        // 대회가 지정된 다운로드만 허용한다.
         if (!StringUtils.hasText(condition.eventId())) {
             throw new CustomException(ErrorCode.EVENT_NOT_FOUND);
         }
 
+        // 명시적으로 선택한 신청에만 삭제 여부 제한을 해제한다.
+        boolean hasSelectedRegistrations = registrationIds != null && !registrationIds.isEmpty();
         Specification<Registration> specification = RegistrationSpecification.searchWith(condition);
         specification = specification.and((root, query, cb) -> {
             root.fetch("event", JoinType.LEFT);
             root.fetch("user", JoinType.LEFT);
-            return cb.isFalse(root.get("softDeleted"));
+            return hasSelectedRegistrations ? cb.conjunction() : cb.isFalse(root.get("softDeleted"));
         });
         if (StringUtils.hasText(organizationId)) {
             specification = specification.and((root, query, cb) ->
                     cb.equal(root.get("organization").get("id"), organizationId));
         }
-        if (registrationIds != null && !registrationIds.isEmpty()) {
+        if (hasSelectedRegistrations) {
             specification = specification.and((root, query, cb) ->
                     root.get("id").in(registrationIds));
         }
 
+        // 기존 최신 신청순을 유지하여 신청마다 한 행을 출력한다.
         List<Registration> registrations = registrationQueryRepository.findAll(
                 specification,
                 Sort.by(Sort.Order.desc("registrationDate"), Sort.Order.desc("id"))
@@ -107,12 +111,13 @@ public class RegistrationExcelService {
         return names;
     }
 
-    /** 문자열은 문자 셀로, 금액과 일시는 각각 숫자 및 날짜 셀로 출력한다. */
+    /** 신청별 한글 상태·명단 제외 여부를 출력하고 금액·일시의 셀 자료형을 보존한다. */
     private void writeWorkbook(
             List<Registration> registrations,
             Map<String, String> souvenirNames,
             HttpServletResponse response
     ) throws IOException {
+        // 대용량 출력용 워크북과 열 서식을 준비한다.
         SXSSFWorkbook workbook = new SXSSFWorkbook(100);
         try (workbook) {
             workbook.setCompressTempFiles(true);
@@ -137,6 +142,7 @@ public class RegistrationExcelService {
             sheet.setColumnWidth(13, 36 * 256);
             sheet.setColumnWidth(18, 50 * 256);
 
+            // 조회 순서대로 개인정보와 운영 상태를 행에 기록한다.
             int rowNumber = 1;
             for (Registration registration : registrations) {
                 Organization organization = registration.getOrganization();
@@ -171,17 +177,19 @@ public class RegistrationExcelService {
                         registration.getEventCategory() == null ? "" : registration.getEventCategory().getName(),
                         souvenirText(registration.getSouvenirJson(), souvenirNames),
                         registration.getRegistrationDate(), registration.getContractAmount(),
-                        registration.getStatus() == null ? "" : registration.getStatus().name(),
+                        registration.getStatus() == null ? "" : registration.getStatus().getDisplayName(),
                         zipcode, address, addressDetail, registration.getGuardianName(),
                         registration.getGuardianPhNum(), registration.getGuardianRelationship(),
                         registration.isGuardianConsent(), registration.getTermsEssentialAgreed(),
-                        registration.getTermsMarketingAgreed(), registration.getTermsMarketingChannelAgreed()
+                        registration.getTermsMarketingAgreed(), registration.getTermsMarketingChannelAgreed(),
+                        registration.isSoftDeleted()
                 };
                 Row row = sheet.createRow(rowNumber++);
                 for (int index = 0; index < values.length; index++) {
                     writeCell(row.createCell(index), values[index], moneyStyle, dateStyle, index == 15);
                 }
             }
+            // 추가된 열까지 필터를 적용하고 다운로드 응답을 작성한다.
             sheet.setAutoFilter(new org.apache.poi.ss.util.CellRangeAddress(
                     0, registrations.size(), 0, HEADERS.length - 1));
             String timestamp = LocalDateTime.now(ZoneId.of("Asia/Seoul"))
