@@ -34,6 +34,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/* 관리자 신청 목록·상세·통계를 조회하고 상세에 외부 결제 구분을 제공한다. */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -148,6 +149,7 @@ public class RegistrationQueryService {
         return convertToDetailDto(registration, payment);
     }
 
+    /* 신청 정보와 결제 표시값을 변환하며 외부 결제 여부는 저장된 값을 그대로 제공한다. */
     private RegistrationDetailResponse convertToDetailDto(Registration registration, Payment payment) {
         boolean isOrganization = registration.getOrganization() != null;
 
@@ -216,6 +218,7 @@ public class RegistrationQueryService {
                 ? payment.getPaymentMethod().name() : "-";
 
         return RegistrationDetailResponse.builder()
+                .externalPayment(registration.isExternalPayment())
                 .name(registration.getName())
                 .orgName(orgName)
                 .courseName(registration.getEventCategory().getName())

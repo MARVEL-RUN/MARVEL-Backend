@@ -31,6 +31,9 @@ import kr.co.teambrain.marvelrun.admin.payment.command.evidence.*;
 import kr.co.teambrain.marvelrun.admin.payment.command.evidence.AdminRefundEvidenceModels;
 import kr.co.teambrain.marvelrun.admin.payment.query.AdminPaymentQueryRepository;
 import kr.co.teambrain.marvelrun.admin.payment.command.dto.AdminPaymentRefundRequest;
+import kr.co.teambrain.marvelrun.admin.payment.command.dto.AdminPaymentPartialRefundRequest;
+import kr.co.teambrain.marvelrun.admin.event.query.service.RegistrationQueryService;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationDetailResponse;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import jakarta.validation.ValidatorFactory;
@@ -91,7 +94,7 @@ import static org.mockito.Mockito.*;
         "spring.datasource.hikari.maximum-pool-size=4"})
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@Import({AdminUnpaidRegistrationCancellationService.class, RegistrationCommandService.class, AdminRefundEvidenceStore.class, AdminRefundEvidenceService.class, AdminRefundEvidenceMatcher.class, AdminPaymentQueryRepository.class, AdminRefundPreparationService.class, AdminRefundPreparationTransactionService.class, AdminRefundPreparationStore.class,
+@Import({RegistrationQueryService.class, AdminUnpaidRegistrationCancellationService.class, RegistrationCommandService.class, AdminRefundEvidenceStore.class, AdminRefundEvidenceService.class, AdminRefundEvidenceMatcher.class, AdminPaymentQueryRepository.class, AdminRefundPreparationService.class, AdminRefundPreparationTransactionService.class, AdminRefundPreparationStore.class,
         AdminRefundAccessService.class, AdminRefundLockRepository.class, AdminRefundTime.class,
         RegistrationPolicyCandidateValidator.class, RegistrationPolicyValidator.class, RegistrationPolicyLoader.class,
         RegistrationPricingService.class, CapacityRequirementResolver.class, ReservationCapacityDiffService.class,
@@ -100,6 +103,54 @@ import static org.mockito.Mockito.*;
         ModificationRefundExecutor.class, AdminRefundExecutionService.class,
         AdminRefundBatchStore.class, AdminRefundBatchSelection.class, AdminRefundBatchService.class, AdminRefundBatchWorker.class, AdminRefundPreparationDatabaseTest.InputValidation.class})
 class AdminRefundPreparationDatabaseTest {
+    @Autowired RegistrationQueryService registrationQueries;
+
+    /* 실제 상세 변환에서 일반 신청과 외부 신청의 구분값을 그대로 반환한다. */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void detailReturnsStoredExternalPaymentFlag(boolean external) {
+        // 동일한 정상 신청 fixture에서 외부 결제 표시만 변경한다.
+        jdbc.update("update registration set external_payment=? where id=?", external, registrationId);
+
+        // DB 조회와 실제 DTO 변환을 통해 값이 누락되지 않는지 확인한다.
+        RegistrationDetailResponse response = registrationQueries.getRegistrationDetail(registrationId);
+        assertThat(response.externalPayment()).isEqualTo(external);
+        assertThat(response.amount()).isEqualByComparingTo("70000");
+    }
+
+    /* 외부 결제는 전액 환불과 금액 증감·동일 금액 변경을 모두 업무 변경 전에 차단한다. */
+    @ParameterizedTest
+    @CsvSource({"true,40000", "false,40000", "false,70000", "false,90000"})
+    void externalPaymentBlocksRefundAndFinancialChanges(boolean fullRefund, int nextAmount) {
+        // PG 키가 있는 fixture도 외부 표시 자체로 차단하여 키 누락 검증에 의존하지 않는다.
+        jdbc.update("update registration set external_payment=1 where id=?", registrationId);
+        jdbc.update("update event_category set amount=? where id=?", nextAmount, categoryB);
+        Map<String, Object> before = jdbc.queryForMap("select * from registration where id=?", registrationId);
+        List<Map<String, Object>> reservationBefore = jdbc.queryForList("select * from reservation where id=?", reservationId);
+
+        // 실제 배치 서비스로 두 API가 사용하는 변경 준비 경로를 호출한다.
+        Response response = fullRefund
+                ? batches.full(eventId, "fixture-admin", new AdminPaymentRefundRequest(
+                        id(), "외부 결제 차단 확인", List.of(registrationId), List.of()))
+                : batches.partial(eventId, "fixture-admin", new AdminPaymentPartialRefundRequest(
+                        id(), "외부 결제 차단 확인", List.of(target(true))));
+
+        // 요청 결과는 기록하지만 신청·납부·정원·예약과 환불 원장은 변경하지 않는다.
+        assertThat(response.items()).hasSize(1);
+        assertThat(response.items().getFirst().status()).isEqualTo("BLOCKED");
+        assertThat(response.items().getFirst().errorCode()).isEqualTo("EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED");
+        assertThat(jdbc.queryForMap("select * from registration where id=?", registrationId)).isEqualTo(before);
+        assertThat(jdbc.queryForList("select * from reservation where id=?", reservationId)).isEqualTo(reservationBefore);
+        assertThat(amount("contract_amount")).isEqualByComparingTo("70000");
+        assertThat(amount("paid_amount")).isEqualByComparingTo("70000");
+        assertThat(cancelCount()).isZero();
+        assertThat(count(total)).isEqualTo(1);
+        assertThat(count(capacityA)).isEqualTo(1);
+        assertThat(count(capacityB)).isZero();
+        assertThat(count(shirt)).isEqualTo(1);
+        verifyNoInteractions(toss);
+    }
+
     /** 슬라이스 테스트에서도 실제 Jakarta Validation을 사용한다. */
     @TestConfiguration
     static class InputValidation {
