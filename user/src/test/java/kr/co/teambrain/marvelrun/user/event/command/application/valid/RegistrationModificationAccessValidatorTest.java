@@ -3,6 +3,7 @@ package kr.co.teambrain.marvelrun.user.event.command.application.valid;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
+import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorResponse;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationModificationAccessContext;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
@@ -14,6 +15,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -63,6 +66,41 @@ class RegistrationModificationAccessValidatorTest {
             validator;
 
 
+    /* 인증된 외부 결제 신청도 변경 Context를 만들지 않으며 잘못된 인증은 기존 오류를 유지한다. */
+    @Test
+    void rejectsExternalPaymentAfterIdentityVerification() {
+        // 실제 엔티티와 해시로 인증·외부 결제 검증을 함께 확인한다.
+        Registration external = Registration.builder().id(REGISTRATION_ID).externalPayment(true)
+                .name("외부결제자").birth("1990-01-01").phNum("010-1111-2222")
+                .password(passwordEncoder.encode("password")).build();
+        when(registrationCommandRepository.findActivePersonalModificationTarget(EVENT_ID, REGISTRATION_ID))
+                .thenReturn(Optional.of(external));
+
+        // 유효한 인증만 외부 결제 전용 오류로 거절한다.
+        assertThatThrownBy(() -> validator.validate(EVENT_ID, REGISTRATION_ID,
+                request(access("외부결제자", "1990-01-01", "010-1111-2222", "password")), NOW))
+                .isInstanceOfSatisfying(CustomException.class, exception -> assertThat(exception.getErrorCode())
+                        .isEqualTo(ErrorCode.EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED));
+        assertThatThrownBy(() -> validator.validate(EVENT_ID, REGISTRATION_ID,
+                request(access("외부결제자", "1990-01-01", "010-1111-2222", "wrong")), NOW))
+                .isInstanceOfSatisfying(CustomException.class, exception -> assertThat(exception.getErrorCode())
+                        .isEqualTo(ErrorCode.REGISTRATION_ACCESS_DENIED));
+    }
+
+    /* 제한 오류는 기존 응답 변환기를 통해 HTTP 409와 전용 코드를 반환한다. */
+    @Test
+    void exposesExternalPaymentRestrictionAsConflict() {
+        // 기존 예외 응답 체계가 새 업무 코드를 다른 오류로 마스킹하지 않는지 확인한다.
+        ResponseEntity<ErrorResponse> response =
+                ErrorResponse.error(
+                        new CustomException(ErrorCode.EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED));
+
+        // 프론트가 외부 신청 제한을 구별할 수 있는 계약을 확인한다.
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo("EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED");
+    }
+
     /**
      * 수정 요청에 다시 전달된 개인 본인확인 정보가
      * 현재 Registration 값과 모두 일치하면 Context를 생성한다.
@@ -101,8 +139,10 @@ class RegistrationModificationAccessValidatorTest {
         when(registration.getPhNum())
                 .thenReturn("010-1111-2222");
 
+        // Spy 호출은 다른 mock의 stubbing을 시작하기 전에 완료한다.
+        String encodedPassword = passwordEncoder.encode("password");
         when(registration.getPassword())
-                .thenReturn(passwordEncoder.encode("password"));
+                .thenReturn(encodedPassword);
 
         when(registration.getEvent())
                 .thenReturn(event);
@@ -316,8 +356,10 @@ class RegistrationModificationAccessValidatorTest {
         when(registration.getPhNum())
                 .thenReturn("010-1111-2222");
 
+        // Spy 호출은 다른 mock의 stubbing을 시작하기 전에 완료한다.
+        String encodedPassword = passwordEncoder.encode("password");
         when(registration.getPassword())
-                .thenReturn(passwordEncoder.encode("password"));
+                .thenReturn(encodedPassword);
     }
 
 

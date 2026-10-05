@@ -62,6 +62,7 @@ public class RegistrationCommandService {
         registration.resetPasswordByAdmin(passwordEncoder.encode(request.newPassword()));
     }
 
+    /** 기본정보를 정정하되 이미 결제한 신청의 가격 구분 변경을 차단한다. */
     public void modifyRegistrationBasicInfo(String registrationId, AdminRegistrationModifyRequest request) {
         Registration registration = registrationCommandRepository.findById(registrationId)
                 .orElseThrow(() -> new CustomException(ErrorCode.REGISTRATION_NOT_FOUND));
@@ -86,6 +87,12 @@ public class RegistrationCommandService {
         LocalDate oldBirth = LocalDate.parse(registration.getBirth(), DateTimeFormatter.ISO_DATE);
         boolean wasChildPrice = eventDate.isBefore(oldBirth.plusYears(13));
         boolean willBeChildPrice = eventDate.isBefore(modifiedBirth.plusYears(13));
+
+        // 2026-10-03 외부 접수는 2013-11-01 포함 기준이다. 다른 기준의 외부 접수 재사용 시 반드시 재검토한다.
+        if (registration.isExternalPayment()) {
+            wasChildPrice = !oldBirth.isBefore(childCutoff);
+            willBeChildPrice = !modifiedBirth.isBefore(childCutoff);
+        }
 
         if (wasChildPrice != willBeChildPrice) {
             throw new CustomException(ErrorCode.PRICE_TIER_CHANGE_NOT_ALLOWED);

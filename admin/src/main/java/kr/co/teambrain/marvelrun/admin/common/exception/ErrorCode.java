@@ -7,6 +7,12 @@ import org.springframework.http.HttpStatus;
 @Getter
 public enum ErrorCode {
 
+    EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED(HttpStatus.CONFLICT,
+            "외부 결제로 등록된 신청은 결제 관련 정보 변경 및 환불을 처리할 수 없습니다."),
+
+    OFFLINE_REGISTRATION_IMPORT_VALIDATION_FAILED(HttpStatus.BAD_REQUEST,
+            "외부 결제 신청 파일의 오류를 수정해주세요."),
+
     // 사용자 금융 경로와 동일한 오류 식별자. 결제 상태 enum 추가가 아니다.
     CONCURRENT_MODIFICATION(HttpStatus.CONFLICT, "다른 요청이 처리 중입니다."),
     REGISTRATION_MODIFICATION_PAYMENT_CONFLICT(HttpStatus.CONFLICT, "관련 결제 처리가 완료되지 않았습니다."),

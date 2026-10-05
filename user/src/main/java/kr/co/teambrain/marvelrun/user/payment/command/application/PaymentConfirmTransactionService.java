@@ -100,6 +100,11 @@ public class PaymentConfirmTransactionService {
             );
         }
 
+        // 외부 결제는 주문 상태와 관계없이 PG 승인 시작 대상에서 제외한다.
+        List<PaymentAllocation> allocations = paymentAllocationCommandRepository
+                .findAllForPaymentUpdate(payment.getId());
+        allocationSupport.validateOnlinePaymentRegistrations(payment, allocations);
+
         if (
                 payment.getProcessStatus()
                         != PaymentProcessStatus.READY
@@ -146,9 +151,6 @@ public class PaymentConfirmTransactionService {
          * 내부 flush는 커밋이 아니므로,
          * 이후 Payment 상태 변경이나 로그 저장 실패 시 함께 롤백된다.
          */
-
-        List<PaymentAllocation> allocations = paymentAllocationCommandRepository
-                .findAllForPaymentUpdate(payment.getId());
 
         validateAllocationsBeforeConfirm(payment, allocations, event);
 

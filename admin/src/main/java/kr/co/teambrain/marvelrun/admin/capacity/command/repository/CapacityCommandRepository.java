@@ -26,6 +26,11 @@ import java.util.List;
 public interface CapacityCommandRepository
         extends JpaRepository<Capacity, String> {
 
+    /** 최종 검증은 실제 확보 UPDATE와 동일한 자원 ID 순서로 잠근다. */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from Capacity c where c.event.id=:eventId and c.id in :ids order by c.id")
+    List<Capacity> findAllForUpdate(@Param("eventId") String eventId, @Param("ids") Collection<String> ids);
+
     /**
      * 대회 전체 정원과 신청 종목에 연결된 정원 후보를 조회한다.
      *

@@ -43,7 +43,9 @@ public record RegistrationDetailResponse(
         String eventCategoryId,
 
         /** 저장된 전체 기념품 선택 ID·사이즈. 표시명에서 ID를 추정하지 않는다. */
-        List<SouvenirJson> selectedSouvenirList
+        List<SouvenirJson> selectedSouvenirList,
+
+        boolean externalPayment       // 외부 결제 여부. 결제 관련 정보 변경·환불 제한 안내용
         
 ) {
 }

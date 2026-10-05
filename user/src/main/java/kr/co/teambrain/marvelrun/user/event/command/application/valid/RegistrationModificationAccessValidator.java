@@ -15,7 +15,7 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDateTime;
 import java.util.Objects;
 
-/** 개인 신청 수정 대상과 본인정보를 확인하고 저장 해시로 비밀번호를 검증한다. */
+/* 수정 대상의 본인확인을 수행하고 외부 결제 신청의 온라인 변경을 차단한다. */
 @Component
 @RequiredArgsConstructor
 public class RegistrationModificationAccessValidator {
@@ -61,6 +61,9 @@ public class RegistrationModificationAccessValidator {
                 registration,
                 request.access()
         );
+
+        // 본인확인을 마친 외부 결제 신청은 기본정보만 변경하는 요청도 차단한다.
+        registration.validateOnlineRegistrationProcessingAllowed();
 
         return new RegistrationModificationAccessContext(
                 registration.getEvent(),

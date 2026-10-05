@@ -33,7 +33,7 @@ public class RegistrationQueryRepository {
                    r.guardianPhNum as guardianPhNum, r.status as status,
                    r.contractAmount as contractAmount, r.paidAmount as paidAmount,
                    r.softDeleted as deleted, v.status as reservationStatus,
-                   e.paymentDeadline as paymentDeadline
+                   e.paymentDeadline as paymentDeadline, r.externalPayment as externalPayment
             from Registration r join r.event e join r.eventCategory c
             left join Reservation v on v.registration.id = r.id
             """;
@@ -158,6 +158,6 @@ public class RegistrationQueryRepository {
                 t.get("status", RegistrationStatus.class),
                 t.get("contractAmount", BigDecimal.class), t.get("paidAmount", BigDecimal.class),
                 t.get("deleted", Boolean.class), t.get("reservationStatus", ReservationStatus.class),
-                t.get("paymentDeadline", LocalDateTime.class));
+                t.get("paymentDeadline", LocalDateTime.class), t.get("externalPayment", Boolean.class));
     }
 }

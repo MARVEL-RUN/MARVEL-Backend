@@ -99,7 +99,7 @@ public class RegistrationQueryService {
             result.add(new RegistrationQueryResponse(row.id(), row.name(), row.email(), row.birth(), row.phNum(), row.gender(),
                     row.categoryId(), row.categoryName(), selections(row, names), row.address(), row.addressDetail(),
                     row.guardianConsent(), row.guardianName(), row.guardianPhNum(), row.guardianRelationShip(), row.status(), row.contractAmount(), row.paidAmount(),
-                    payment.status(), payment.refundStatus(), payment.action(), payment.warning(), payment.paymentId(), payment.orderId()));
+                    payment.status(), payment.refundStatus(), payment.action(), payment.warning(), payment.paymentId(), payment.orderId(), row.externalPayment()));
         }
         return List.copyOf(result);
     }

@@ -30,6 +30,26 @@ class RegistrationPasswordChangeServiceTest {
     private final RegistrationPasswordChangeService service =
             new RegistrationPasswordChangeService(registrations, organizations, encoder);
 
+    /* 외부 결제의 생년월일 초기 비밀번호도 본인확인 후 변경할 수 있다. */
+    @Test
+    void allowsExternalPaymentParticipantToChangePassword() {
+        // 외부 신청의 기존 해시와 저장소 응답을 준비한다.
+        Registration personal = Registration.builder().externalPayment(true)
+                .password(encoder.encode("19900101")).build();
+        when(registrations.findPersonalPasswordChangeTarget("event", "target"))
+                .thenReturn(Optional.of(personal));
+
+        // 참가·결제 제한과 별개로 비밀번호를 변경한다.
+        change(false, "19900101", "NewPassword2!");
+
+        // 외부 결제 표시는 보존하고 새 비밀번호만 유효해야 한다.
+        assertThat(personal.isExternalPayment()).isTrue();
+        assertThat(encoder.matches("NewPassword2!", personal.getPassword())).isTrue();
+        assertThat(encoder.matches("19900101", personal.getPassword())).isFalse();
+        verify(registrations).flush();
+        verifyNoInteractions(organizations);
+    }
+
     /** 개인·단체 모두 새 원문만 검증되고 계정 외 저장소에는 변경을 전파하지 않는다. */
     @ParameterizedTest
     @ValueSource(booleans = {false, true})

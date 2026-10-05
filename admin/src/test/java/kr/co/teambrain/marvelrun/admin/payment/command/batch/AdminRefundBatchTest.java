@@ -1,6 +1,9 @@
 package kr.co.teambrain.marvelrun.admin.payment.command.batch;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
+import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
+import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.payment.command.evidence.*;
 import kr.co.teambrain.marvelrun.admin.payment.command.evidence.AdminRefundEvidenceModels;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -22,6 +25,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -42,6 +46,21 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /** 배치 접수 계약과 실패 경계를 한 클래스에서 검증한다. 금융 동작은 기존 DB 테스트를 확장한다. */
 class AdminRefundBatchTest {
+    /* 외부 결제 사전검증 실패를 기존 배치 BLOCKED 결과로 전달하고 실행기를 호출하지 않는다. */
+    @Test
+    void externalPaymentRestrictionIsReportedWithoutExecutingRefund() {
+        // 공통 준비 단계에서 발생하는 실제 업무 예외를 전달한다.
+        when(store.claim("batch")).thenReturn(work);
+        when(preparation.prepareFull(eq("event"), isNull(), eq(List.of("r")), any()))
+                .thenThrow(new CustomException(ErrorCode.EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED));
+
+        // 별도 응답 계약을 만들지 않고 기존 결과 저장 흐름을 사용한다.
+        worker.processOne("batch");
+        verify(store).finish(eq(work), eq("BLOCKED"), eq("EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED"), any());
+        verifyNoInteractions(execution);
+        verify(store, never()).prepared(any(), any());
+    }
+
     private static final ValidatorFactory VALIDATION=Validation.buildDefaultValidatorFactory();
     private final AdminRefundBatchStore store=mock(AdminRefundBatchStore.class);
     private final AdminRefundPreparationService preparation=mock(AdminRefundPreparationService.class);
@@ -112,33 +131,65 @@ class AdminRefundBatchTest {
         verifyNoInteractions(preparation,execution);
     }
 
-    /** 수기 환불 금액은 무시하지 않고 HTTP 400으로 거절한다. 정상 birth 후보는 서비스로 전달한다. */
-    @Test void controllerRejectsAmountAndAcceptsBirthCandidate() throws Exception {
-        AdminRefundBatchService service=mock(AdminRefundBatchService.class);
-        ObjectMapper mapper=new ObjectMapper().findAndRegisterModules();
-        MockMvc mvc=MockMvcBuilders.standaloneSetup(new AdminRefundBatchController(service,store,mapper)).build();
-        CustomAdminDetail detail=new CustomAdminDetail("admin","관리자","ADMIN");
-        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(detail,null,detail.getAuthorities()));
-        String body="""
+    /* 유효한 선언 필드는 DTO로 전달하며 미정의 추가 필드를 금액 입력 계약으로 사용하지 않는다. */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void controllerBindsDeclaredRequestFields(boolean extraField) throws Exception {
+        // 운영과 동일하게 명시적인 DTO를 받는 컨트롤러를 구성한다.
+        AdminRefundBatchService service = mock(AdminRefundBatchService.class);
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new AdminRefundBatchController(service, store)).build();
+        CustomAdminDetail detail = new CustomAdminDetail("admin", "관리자", "ADMIN");
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(detail, null, detail.getAuthorities()));
+        String body = """
                 {"requestId":"request","reason":"생일 정정","targets":[
                  {"registrationId":"r","eventCategoryId":"c","birth":"2015-01-01",
                   "selectedSouvenirList":[{"souvenirId":"s","selectedSize":"M"}]}]}
                 """;
-        mvc.perform(post("/v1/admin/events/event/payment-partial-refunds").contentType(MediaType.APPLICATION_JSON)
-                .content(body.replace("\"birth\":", "\"refundAmount\":10000,\"birth\":")))
-                .andExpect(status().isBadRequest());
-        verifyNoInteractions(service);
-        mvc.perform(post("/v1/admin/events/event/payment-partial-refunds").contentType(MediaType.APPLICATION_JSON).content(body))
+        if (extraField) {
+            body = body.replace("\"birth\":", "\"refundAmount\":10000,\"birth\":");
+        }
+
+        // 미정의 필드 거절 정책을 새로 만들지 않고 기존 DTO 바인딩을 검증한다.
+        mvc.perform(post("/v1/admin/events/event/payment-partial-refunds")
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk());
-        ArgumentCaptor<AdminPaymentPartialRefundRequest> request=ArgumentCaptor.forClass(AdminPaymentPartialRefundRequest.class);
-        verify(service).partial(eq("event"),eq("admin"),request.capture());
-        assertThat(request.getValue().targets().getFirst().birth()).isEqualTo("2015-01-01");
+        ArgumentCaptor<AdminPaymentPartialRefundRequest> request = ArgumentCaptor.forClass(AdminPaymentPartialRefundRequest.class);
+        verify(service).partial(eq("event"), eq("admin"), request.capture());
+        assertThat(request.getValue()).isEqualTo(new AdminPaymentPartialRefundRequest(
+                "request", "생일 정정", List.of(new AdminPaymentPartialRefundTarget("r", "c",
+                List.of(new SouvenirJson("s", "M")), "2015-01-01", true))));
     }
 
+    /* 필수값 누락과 잘못된 JSON은 기본 MVC·DTO 검증에서 거절한다. */
+    @ParameterizedTest
+    @ValueSource(strings = {"REQUEST_ID", "REGISTRATION_ID", "MALFORMED"})
+    void controllerRejectsMissingRequiredFieldsAndMalformedJson(String invalid) throws Exception {
+        // 실제 @Valid 경계를 사용하며 금융 서비스는 호출 여부만 검증한다.
+        AdminRefundBatchService service = mock(AdminRefundBatchService.class);
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new AdminRefundBatchController(service, store)).build();
+        String body = """
+                {"requestId":"request","reason":"변경","targets":[
+                 {"registrationId":"r","eventCategoryId":"c",
+                  "selectedSouvenirList":[{"souvenirId":"s","selectedSize":"M"}]}]}
+                """;
+        body = switch (invalid) {
+            case "REQUEST_ID" -> body.replace("\"requestId\":\"request\",", "");
+            case "REGISTRATION_ID" -> body.replace("\"registrationId\":\"r\",", "");
+            case "MALFORMED" -> "{";
+            default -> throw new AssertionError("정의되지 않은 테스트 사례");
+        };
+
+        // 본인 인증이나 업무 처리 전에 구조·필수값 검증으로 종료되어야 한다.
+        mvc.perform(post("/v1/admin/events/event/payment-partial-refunds")
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(service, store);
+    }
     /** 일반 사용자 형태의 principal은 관리자 환불을 실행할 수 없다. */
     @Test void controllerRejectsNonAdminPrincipal() throws Exception {
         AdminRefundBatchService service=mock(AdminRefundBatchService.class);
-        AdminRefundBatchController controller=new AdminRefundBatchController(service,store,new ObjectMapper());
+        AdminRefundBatchController controller=new AdminRefundBatchController(service,store);
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken("user",null,List.of()));
         assertThatThrownBy(() -> controller.summary("event","batch")).isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
         verifyNoInteractions(service,store);
