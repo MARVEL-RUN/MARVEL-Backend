@@ -61,7 +61,7 @@ public class AdminRefundPreparationTransactionService {
                 targets, command);
     }
 
-    /** 실제 계산 전 전체 접근을 검증하고, 실제 변경 전 전체 원귀속을 대사한다. */
+    /* 잠금 조회 후 외부 결제를 차단하고 계산·변경 전에 접근과 원귀속을 검증한다. */
     private AdminRefundPrepared prepare(String eventId, String organizationId, List<String> ids,
             List<AdminPaymentPartialRefundTarget> targets, AdminRefundCommandContext command) {
         Objects.requireNonNull(command, "관리자 추적정보");
@@ -72,6 +72,12 @@ public class AdminRefundPreparationTransactionService {
         Organization organization = organizationId == null ? null : store.current(Organization.class, organizationId);
         List<Registration> registrations = scope.registrations().stream()
                 .map(row -> store.current(Registration.class, row.id())).toList();
+
+        // 외부 결제는 금액 증감 여부와 관계없이 변경·환불을 차단하며 기본정보 수정 API는 별도로 유지한다.
+        if (registrations.stream().anyMatch(Registration::isExternalPayment)) {
+            throw new CustomException(ErrorCode.EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED);
+        }
+
         if (command.expectedRegistrationVersion() != null
                 && (registrations.size() != 1 || !Objects.equals(registrations.getFirst().getVersion(), command.expectedRegistrationVersion()))) {
             throw new CustomException(ErrorCode.CONCURRENT_MODIFICATION);
