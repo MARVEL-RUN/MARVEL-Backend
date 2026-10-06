@@ -250,6 +250,8 @@ public class OfflineRegistrationImportValidator {
             result.addError(row.rowNumber(), "size", "INVALID_SIZE", "참가 구분에 맞는 사이즈를 선택해주세요.");
         }
         if (result.errorCount() != before) { return null; }
+
+        // 입력 날짜와 시각은 현장 KST로 보존하고 UTC 변환은 Context의 명시적 접근자로 제공한다.
         return new OfflineRegistrationContext(row.rowNumber(), row.cellValue("C").trim(), birth,
                 row.cellValue("D").replace("-", ""), "남성".equals(row.cellValue("E")) ? GenderClass.M : GenderClass.F,
                 row.cellValue("F").trim(), row.cellValue("G").trim(), price.categoryId(),

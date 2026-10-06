@@ -37,17 +37,18 @@ import static lombok.AccessLevel.PROTECTED;
 @NoArgsConstructor(access = PROTECTED)
 public class Registration extends RegistrationBase<User, Event, EventCategory, Organization, Souvenir> {
 
-    /** 외부 결제 입력을 확정 신청으로 생성하며 생성시각은 실제 저장시각으로 유지한다. */
+    /** 외부 결제 신청의 동의시각을 현장 KST로 기록하며 자동 생성시각은 저장 후 별도로 보정한다. */
     public static Registration createOfflinePaidRegistration(Event event, EventCategory category,
             OfflineRegistrationContext context,
-            String encodedPassword, LocalDateTime now) {
+            String encodedPassword) {
+        // 신청자 정보와 현장에서 동의한 시각을 함께 구성한다.
         return Registration.builder().event(event).eventCategory(category).souvenirJson(context.souvenirs())
                 .externalPayment(true).password(encodedPassword).name(context.name()).birth(context.birth().toString())
                 .phNum(context.phone()).gender(context.gender()).address(context.address()).addressDetail(context.addressDetail())
                 .guardianConsent(context.guardianConsent()).guardianName(context.guardianName().isBlank() ? null : context.guardianName())
                 .guardianPhNum(context.guardianPhone()).guardianRelationship(context.guardianRelationship())
                 .termsEssentialAgreed(true).termsMarketingAgreed(context.marketingConsent())
-                .termsMarketingChannelAgreed(context.marketingConsent()).termsAgreedAt(now)
+                .termsMarketingChannelAgreed(context.marketingConsent()).termsAgreedAt(context.paidAtKst())
                 .email(context.email()).note(context.note()).status(RegistrationStatus.CONFIRMED)
                 .contractAmount(context.amount()).paidAmount(context.amount()).softDeleted(false).build();
     }

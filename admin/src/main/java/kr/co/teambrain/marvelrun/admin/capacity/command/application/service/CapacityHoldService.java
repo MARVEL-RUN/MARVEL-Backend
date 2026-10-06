@@ -29,7 +29,7 @@ public class CapacityHoldService {
     private final ReservationCommandRepository reservations;
     private final ReservationItemCommandRepository items;
 
-    /** 원자적 수량 확보에 실패하면 호출 트랜잭션 전체를 취소한다. */
+    /** 수량은 실제 처리시각에 확보하고 외부결제 HOLD 이력은 참가자의 현장 KST로 기록한다. */
     public List<Reservation> holdRegistrationCapacities(String eventId, List<CapacityHoldRequest> requests,
             List<Map<String, Integer>> requirements, LocalDateTime now) {
         // 요청과 필요량의 대응을 확인한 후 자원 순서대로 확보한다.
@@ -53,7 +53,9 @@ public class CapacityHoldService {
                 items.save(ReservationItem.create(reservation, capacities.getReferenceById(entry.getKey()), entry.getValue()));
                 history.add(new ReservationHistoryEntry.Item(entry.getKey(), entry.getValue()));
             }
-            reservation.appendHistory(ReservationHistoryEntry.Action.HOLD, now, null, "관리자 신규 신청 자원 확보", history);
+            LocalDateTime occurredAt = reservation.getRegistration().isExternalPayment()
+                    ? reservation.getRegistration().getTermsAgreedAt() : now;
+            reservation.appendHistory(ReservationHistoryEntry.Action.HOLD, occurredAt, null, "관리자 신규 신청 자원 확보", history);
             created.add(reservation);
         }
         return created;

@@ -26,7 +26,7 @@ import java.util.*;
 public class ReservationPaymentService {
     private final CapacityCommandRepository capacities;
 
-    /** 참가자별 결제 귀속을 확인한 뒤 수량과 예약을 함께 확정한다. */
+    /** 결제 귀속과 수량을 확정하고 외부결제 확정 이력은 참가자의 현장 KST로 기록한다. */
     public void confirmRegistrationPayments(String eventId, List<Reservation> reservations,
             List<Payment> payments, List<Map<String, Integer>> requirements, LocalDateTime now) {
         // 수량 이동과 상태 전이는 하나의 트랜잭션으로 보장한다.
@@ -50,7 +50,9 @@ public class ReservationPaymentService {
             }
             reservation.startPayment();
             reservation.consumeAfterPayment();
-            reservation.appendHistory(ReservationHistoryEntry.Action.PAYMENT_CONFIRMED, now, payment.getId(),
+            LocalDateTime occurredAt = reservation.getRegistration().isExternalPayment()
+                    ? reservation.getRegistration().getTermsAgreedAt() : now;
+            reservation.appendHistory(ReservationHistoryEntry.Action.PAYMENT_CONFIRMED, occurredAt, payment.getId(),
                     "외부 단말기 결제 완료 관리자 등록", List.of());
         }
     }

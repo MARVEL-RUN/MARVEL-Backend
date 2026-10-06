@@ -148,8 +148,10 @@ class OfflineRegistrationImportTest {
         assertThat(result.errors()).isEmpty();
         assertThat(result.contexts()).extracting(OfflineRegistrationContext::amount)
                 .containsExactly(new BigDecimal("35000"), new BigDecimal("20000"));
-        assertThat(result.contexts().get(0).approvedAt().toLocalTime()).isEqualTo(LocalTime.MIDNIGHT);
-        assertThat(result.contexts().get(1).approvedAt().toLocalTime()).isEqualTo(LocalTime.of(23, 59, 59));
+        assertThat(result.contexts().get(0).paidAtKst()).isEqualTo(LocalDateTime.of(2026, 10, 3, 0, 0));
+        assertThat(result.contexts().get(0).approvedAtUtc()).isEqualTo(LocalDateTime.of(2026, 10, 2, 15, 0));
+        assertThat(result.contexts().get(1).paidAtKst()).isEqualTo(LocalDateTime.of(2026, 10, 3, 23, 59, 59));
+        assertThat(result.contexts().get(1).approvedAtUtc()).isEqualTo(LocalDateTime.of(2026, 10, 3, 14, 59, 59));
     }
 
     /** 파일 첫 오류 이후에도 마지막 행의 독립 오류를 수집한다. */
@@ -269,17 +271,36 @@ class OfflineRegistrationImportTest {
         for (OfflineRegistrationContext context : List.of(context(7, "19900101"), context(8, "20131101"))) {
             BCryptPasswordEncoder encoder = new BCryptPasswordEncoder(4);
             Registration registration = Registration.createOfflinePaidRegistration(mock(Event.class), mock(EventCategory.class),
-                    context, encoder.encode(context.birth().format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)), LocalDateTime.now());
-            Payment payment = Payment.createOfflineCompletedPayment(registration, context.approvedAt());
+                    context, encoder.encode(context.birth().format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)));
+            Payment payment = Payment.createOfflineCompletedPayment(registration, context.approvedAtUtc());
             assertThat(registration.isExternalPayment()).isTrue();
             assertThat(registration.getTermsMarketingAgreed()).isEqualTo(registration.getTermsMarketingChannelAgreed());
             assertThat(payment.getAmount()).isEqualByComparingTo(context.amount());
-            assertThat(payment.getApprovedAt()).isEqualTo(context.approvedAt());
+            assertThat(registration.getTermsAgreedAt()).isEqualTo(context.paidAtKst());
+            assertThat(payment.getApprovedAt()).isEqualTo(LocalDateTime.of(2026, 10, 2, 15, 0));
             assertThat(payment.getPaymentKey()).isNull();
             assertThat(payment.getReceiptUrl()).isNull();
             assertThat(payment.getTossStatus()).isNull();
             assertThat(encoder.matches(context.birth().format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE), registration.getPassword())).isTrue();
         }
+    }
+
+    /** 보정 대상을 찾지 못하면 저장 성공으로 응답하지 않는다. */
+    @Test
+    void rejectsMissingTimestampCorrectionTarget() {
+        // 갱신 대상 누락을 모사하고 후속 원장 갱신이 실행되지 않는지 확인한다.
+        org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate jdbc =
+                mock(org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate.class);
+        when(jdbc.batchUpdate(anyString(), any(org.springframework.jdbc.core.namedparam.SqlParameterSource[].class)))
+                .thenReturn(new int[]{0});
+        OfflineRegistrationTimestampRepository repository = new OfflineRegistrationTimestampRepository(jdbc);
+
+        // 업무 예외는 상위 적재 트랜잭션 전체의 롤백 대상이다.
+        assertThatThrownBy(() -> repository.correctOfflineRegistrationTimestamps("event", List.of(
+                new OfflineRegistrationTimestampRepository.TimestampTarget("registration", "payment", "reservation",
+                        LocalDateTime.of(2026, 10, 3, 0, 0)))))
+                .isInstanceOf(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class);
+        verify(jdbc, times(1)).batchUpdate(anyString(), any(org.springframework.jdbc.core.namedparam.SqlParameterSource[].class));
     }
 
     /** 실제 V3에서 오류를 발견하면 저장 서비스와 비밀번호 해시 작업을 호출하지 않는다. */
@@ -337,7 +358,8 @@ class OfflineRegistrationImportTest {
     @org.springframework.context.annotation.Import({OfflineRegistrationPersistenceService.class,
             RegistrationCapacityService.class, OfflineRegistrationCapacityService.class, CapacityRequirementResolver.class,
             CapacityHoldService.class, ReservationPaymentService.class, OfflineRegistrationImportValidator.class,
-            RegistrationPolicyLoader.class, RegistrationPolicyValidator.class, DatabaseConfiguration.class})
+            RegistrationPolicyLoader.class, RegistrationPolicyValidator.class,
+            OfflineRegistrationTimestampRepository.class, DatabaseConfiguration.class})
     class DatabaseTransactions {
         @org.springframework.beans.factory.annotation.Autowired
         private OfflineRegistrationPersistenceService persistence;
@@ -345,6 +367,8 @@ class OfflineRegistrationImportTest {
         private org.springframework.jdbc.core.JdbcTemplate jdbc;
         @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
         private ReservationPaymentService reservationPayments;
+        @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+        private OfflineRegistrationTimestampRepository timestamps;
         private String eventId;
         private String categoryId;
         private String souvenirId;
@@ -396,8 +420,8 @@ class OfflineRegistrationImportTest {
             assertThat(jdbc.queryForObject("select count(*) from registration where event_id=? and external_payment=1 and status='CONFIRMED'", Integer.class, eventId)).isEqualTo(1);
             assertThat(jdbc.queryForObject("select count(*) from payment p join registration r on r.id=p.registration_id where r.event_id=? and p.process_status='COMPLETED' and p.payment_key is null and p.toss_status is null", Integer.class, eventId)).isEqualTo(1);
             assertThat(jdbc.queryForObject("select count(*) from capacity where event_id=? and held_count=0 and confirmed_count=1", Integer.class, eventId)).isEqualTo(3);
-            // 생성일이 오늘이어도 외부 결제는 어제 승인일 보고서에 포함되어야 한다.
-            LocalDate approvedDate = result.contexts().getFirst().approvedAt().toLocalDate();
+            // 정오 fixture는 UTC와 KST 날짜가 같아 기존 일별 집계 회귀를 함께 확인한다.
+            LocalDate approvedDate = result.contexts().getFirst().paidAtKst().toLocalDate();
             kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationDailyReportQueryRepository report =
                     new kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationDailyReportQueryRepository(
                             new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(jdbc));
@@ -405,6 +429,86 @@ class OfflineRegistrationImportTest {
                     .containsExactly(new kr.co.teambrain.marvelrun.admin.event.query.dto.PaymentDailyCountRow(approvedDate, 1));
             assertThatThrownBy(() -> persistence.persistOfflinePaidRegistrations(eventId, databaseInput("participant"), Map.of(7, "encoded"), LocalDateTime.now()))
                     .isInstanceOf(OfflineRegistrationImportException.class);
+        }
+
+        /** 커밋 후 재조회로 참가자별 KST 보존과 UTC 변환 및 공유 정원 시각 유지를 확인한다. */
+        @Test
+        void preservesParticipantTimestampsAfterCommit() throws Exception {
+            // 서로 다른 현장 시각을 가진 두 명이 같은 정원을 사용한다.
+            jdbc.update("update capacity set limit_count=2 where event_id=?", eventId);
+            List<Map<String, Object>> capacityBefore = jdbc.queryForList(
+                    "select id,created_at from capacity where event_id=? order by id", eventId);
+            OfflineRegistrationImportResult result = new OfflineRegistrationImportResult();
+            LocalDateTime first = LocalDateTime.of(2026, 1, 1, 0, 0, 1);
+            LocalDateTime second = LocalDateTime.of(2026, 1, 1, 14, 30, 25);
+            result.addRegistrationContext(databaseContext("midnight", 7, first));
+            result.addRegistrationContext(databaseContext("afternoon", 8, second));
+            LocalDateTime importedAt = LocalDateTime.now().withNano(0);
+
+            // 실제 트랜잭션 종료 뒤 JDBC로 읽어 JPA 자동 시각이 다시 덮지 않았음을 검사한다.
+            OfflineRegistrationImportResponse response = persistence.persistOfflinePaidRegistrations(
+                    eventId, result, Map.of(7, "encoded", 8, "encoded"), importedAt);
+            assertThat(response.savedCount()).isEqualTo(2);
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper()
+                    .registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+            for (OfflineRegistrationContext context : result.contexts()) {
+                Map<String, LocalDateTime> row = jdbc.queryForObject("""
+                        select r.registration_date,r.terms_agreed_at,r.modified_at,
+                               p.approved_at,p.created_at payment_created,p.updated_at payment_updated,
+                               rv.created_at reservation_created,rv.updated_at reservation_updated
+                        from registration r join payment p on p.registration_id=r.id
+                        join reservation rv on rv.registration_id=r.id where r.event_id=? and r.name=?
+                        """, (rs, rowIndex) -> {
+                            Map<String, LocalDateTime> values = new HashMap<>();
+                            for (String column : List.of("registration_date", "terms_agreed_at", "modified_at",
+                                    "approved_at", "payment_created", "payment_updated", "reservation_created", "reservation_updated")) {
+                                values.put(column, rs.getTimestamp(column).toLocalDateTime());
+                            }
+                            return values;
+                        }, eventId, context.name());
+                for (String column : List.of("registration_date", "terms_agreed_at", "payment_created",
+                        "payment_updated", "reservation_created", "reservation_updated")) {
+                    assertThat(row.get(column)).isEqualTo(context.paidAtKst());
+                }
+                assertThat(row.get("approved_at"))
+                        .isEqualTo(context.paidAtKst().minusHours(9));
+                assertThat(row.get("modified_at")).isNotEqualTo(context.paidAtKst());
+                String json = jdbc.queryForObject("""
+                        select cast(rv.history as char) from reservation rv
+                        join registration r on r.id=rv.registration_id where r.event_id=? and r.name=?
+                        """, String.class, eventId, context.name());
+                kr.co.teambrain.marvelrun.common.json_object.ReservationHistoryEntry[] history = mapper.readValue(json,
+                        kr.co.teambrain.marvelrun.common.json_object.ReservationHistoryEntry[].class);
+                assertThat(history).extracting(kr.co.teambrain.marvelrun.common.json_object.ReservationHistoryEntry::action)
+                        .containsExactly(kr.co.teambrain.marvelrun.common.json_object.ReservationHistoryEntry.Action.HOLD,
+                                kr.co.teambrain.marvelrun.common.json_object.ReservationHistoryEntry.Action.PAYMENT_CONFIRMED);
+                assertThat(history).extracting(kr.co.teambrain.marvelrun.common.json_object.ReservationHistoryEntry::occurredAt)
+                        .containsOnly(context.paidAtKst());
+            }
+
+            // 공유 정원의 생성일은 보존하고 갱신일은 실제 업로드 처리시각을 유지한다.
+            assertThat(jdbc.queryForList("select id,created_at from capacity where event_id=? order by id", eventId))
+                    .isEqualTo(capacityBefore);
+            assertThat(jdbc.queryForList("select updated_at from capacity where event_id=?", java.sql.Timestamp.class, eventId))
+                    .allSatisfy(value -> assertThat(value.toLocalDateTime()).isEqualTo(importedAt));
+        }
+
+        /** 최종 SQL 보정 이후 실패해도 원장과 정원 변경이 함께 취소된다. */
+        @Test
+        void rollsBackAllWritesWhenTimestampCorrectionFails() {
+            // 보정 SQL을 실제 실행한 뒤 실패시켜 JDBC와 JPA가 같은 트랜잭션인지 검증한다.
+            doAnswer(invocation -> {
+                invocation.callRealMethod();
+                throw new kr.co.teambrain.marvelrun.admin.common.exception.CustomException(
+                        kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode.CONCURRENT_MODIFICATION);
+            }).when(timestamps).correctOfflineRegistrationTimestamps(eq(eventId), anyList());
+
+            // 이미 flush한 원장과 확정 점유도 커밋되지 않아야 한다.
+            assertThatThrownBy(() -> persistence.persistOfflinePaidRegistrations(eventId,
+                    databaseInput("timestamp rollback"), Map.of(7, "encoded"), LocalDateTime.now()))
+                    .isInstanceOf(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class);
+            assertThat(jdbc.queryForObject("select count(*) from registration where event_id=?", Integer.class, eventId)).isZero();
+            assertThat(jdbc.queryForObject("select sum(held_count+confirmed_count) from capacity where event_id=?", Integer.class, eventId)).isZero();
         }
 
         /** 정원 확보 뒤 발생한 실패도 먼저 flush한 신청과 결제까지 모두 롤백한다. */
@@ -453,11 +557,16 @@ class OfflineRegistrationImportTest {
         /** 실제 FK에 대응하는 외부 결제 저장 입력을 구성한다. */
         private OfflineRegistrationImportResult databaseInput(String name) {
             OfflineRegistrationImportResult result = new OfflineRegistrationImportResult();
-            result.addRegistrationContext(new OfflineRegistrationContext(7, name, LocalDate.of(1990, 1, 1),
+            result.addRegistrationContext(databaseContext(name, 7, LocalDate.now().minusDays(1).atTime(12, 0)));
+            return result;
+        }
+
+        /** 실제 FK와 참가자별 현장 KST를 가진 검증 완료 입력을 구성한다. */
+        private OfflineRegistrationContext databaseContext(String name, int rowNumber, LocalDateTime paidAtKst) {
+            return new OfflineRegistrationContext(rowNumber, name, LocalDate.of(1990, 1, 1),
                     "01012345678", GenderClass.M, "test", "없음", categoryId,
                     List.of(new SouvenirJson(souvenirId, "M")), "", "", "", false, false, "", "", new BigDecimal("35000"),
-                    LocalDateTime.now().minusDays(1), false));
-            return result;
+                    paidAtKst, false);
         }
 
         /** 테스트 자원의 실제 카운터 한도를 한 자리로 제한한다. */
