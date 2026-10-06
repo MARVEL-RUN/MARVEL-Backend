@@ -11,6 +11,7 @@ import org.springframework.context.annotation.Configuration;
 
 import java.util.List;
 
+/** 환경별 Swagger 요청 서버와 JWT 인증 방식을 정의한다. */
 @Configuration
 public class SwaggerConfig {
 
@@ -18,12 +19,14 @@ public class SwaggerConfig {
             "bearerAuth";
 
 
+    /** 로컬·테스트·운영 도메인에 현재 모듈의 context path를 붙여 API 문서를 구성한다. */
     @Bean
     public OpenAPI customOpenAPI(
             @Value("${server.servlet.context-path:}")
             String contextPath
     ) {
 
+        // 각 환경의 API 기본 주소와 공통 인증 설정을 구성한다.
         return new OpenAPI()
                 .servers(
                         List.of(
@@ -43,6 +46,15 @@ public class SwaggerConfig {
                                         )
                                         .description(
                                                 "Test"
+                                        ),
+
+                                new Server()
+                                        .url(
+                                                "https://marvelrunkorea2026.com"
+                                                        + contextPath
+                                        )
+                                        .description(
+                                                "Production"
                                         )
                         )
                 )
