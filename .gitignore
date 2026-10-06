@@ -47,6 +47,7 @@ out/
 .codex/
 /.work-command-list/
 /docs/
+_**.md
 AGENTS.md
 analysis/
 # Local comparison snapshot
