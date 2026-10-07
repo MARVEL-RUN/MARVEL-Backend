@@ -1,6 +1,19 @@
 package kr.co.teambrain.marvelrun.admin.event.query.controller;
 
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
+import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationDeliveryExcelRequest;
+import kr.co.teambrain.marvelrun.admin.event.query.service.RegistrationDeliveryExcelService;
+import kr.co.teambrain.marvelrun.admin.event.query.support.TemporaryExcelResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.MediaType;
+import org.springframework.http.ContentDisposition;
+import org.springframework.validation.BindingResult;
+import org.springdoc.core.annotations.ParameterObject;
 import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationSearchCondition;
@@ -27,7 +40,7 @@ import java.time.LocalDate;
 import org.springframework.format.annotation.DateTimeFormat;
 
 
-/** 관리자 신청 목록의 전체·검색 결과·선택 항목을 엑셀로 다운로드한다. */
+/** 관리자 신청 목록·일별 집계·최초 승인일 기준 배송 명단을 엑셀로 다운로드한다. */
 @RestController
 @RequestMapping("/v1/admin/registrations")
 @RequiredArgsConstructor
@@ -36,6 +49,42 @@ public class RegistrationExcelController {
     private final ServerTimeProvider serverTimeProvider;
 
     private final RegistrationExcelService registrationExcelService;
+
+    /** 최초 참가비 승인 기준 배송 명단을 두 단계로 생성한다. */
+    private final RegistrationDeliveryExcelService registrationDeliveryExcelService;
+
+    /** 관리자 요청 한 번에 정상·불명확 개인·단체 명단을 함께 다운로드한다. */
+    @Operation(summary = "최초 참가비 승인일 기준 배송 명단 엑셀 다운로드",
+            description = "KST 시작 포함·종료 제외입니다. 개인/단체 정상·불명확 4개 시트를 반환합니다. "
+                    + "승인일 확인 불가 대상은 기간 판정 불가 사유로 불명확명단에 포함합니다. UUID는 출력하지 않습니다.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "개인·단체 정상·불명확 XLSX 파일",
+            content = @io.swagger.v3.oas.annotations.media.Content(mediaType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    schema = @io.swagger.v3.oas.annotations.media.Schema(type = "string", format = "binary")))
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "필수 시각·형식·기간 오류",
+            content = @io.swagger.v3.oas.annotations.media.Content(mediaType = "application/json",
+                    schema = @io.swagger.v3.oas.annotations.media.Schema(implementation = kr.co.teambrain.marvelrun.admin.common.exception.ErrorResponse.class)))
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "대회 없음",
+            content = @io.swagger.v3.oas.annotations.media.Content(mediaType = "application/json",
+                    schema = @io.swagger.v3.oas.annotations.media.Schema(implementation = kr.co.teambrain.marvelrun.admin.common.exception.ErrorResponse.class)))
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "500", description = "조회·파일 생성 실패",
+            content = @io.swagger.v3.oas.annotations.media.Content(mediaType = "application/json",
+                    schema = @io.swagger.v3.oas.annotations.media.Schema(implementation = kr.co.teambrain.marvelrun.admin.common.exception.ErrorResponse.class)))
+    @GetMapping(value = "/{eventId}/delivery-list/excel/download")
+    public ResponseEntity<Resource> downloadRegistrationDeliveryExcel(
+            @PathVariable String eventId, @Valid @ModelAttribute @ParameterObject RegistrationDeliveryExcelRequest period,
+            BindingResult bindingResult, HttpServletRequest request) {
+        // 기존 API의 예외 계약은 건드리지 않고 이 요청의 바인딩 오류만 업무 오류로 변환한다.
+        if (bindingResult.hasErrors()) { throw new CustomException(ErrorCode.DELIVERY_EXCEL_PERIOD_INVALID); }
+        TemporaryExcelResource file = registrationDeliveryExcelService.createRegistrationDeliveryExcel(eventId, period);
+        file.attachTo(request);
+
+        // 파일 생성과 DB 조회가 끝난 뒤 동기 응답 변환기로 전송한다.
+        return ResponseEntity.ok().contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .contentLength(file.contentLength())
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(file.getFilename(), StandardCharsets.UTF_8).build().toString())
+                .header(HttpHeaders.CACHE_CONTROL, "no-store").header(HttpHeaders.PRAGMA, "no-cache")
+                .header("X-Content-Type-Options", "nosniff").body(file);
+    }
 
     /** 날짜별 신청·결제 인원을 조회한다. */
     private final RegistrationDailyReportService registrationDailyReportService;

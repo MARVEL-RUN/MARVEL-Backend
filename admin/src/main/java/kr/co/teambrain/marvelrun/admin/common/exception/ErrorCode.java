@@ -181,6 +181,10 @@ public enum ErrorCode {
     DUPLICATE_REGISTRATION(HttpStatus.BAD_REQUEST, "동일한 정보(이름, 연락처, 생년월일)를 가진 다른 활성 참가자가 이미 존재합니다."),
     DUPLICATE_GROUP_NAME(HttpStatus.BAD_REQUEST, "이미 해당 대회에 동일한 이름의 단체가 존재합니다."),
 
+    /** 배송 명단의 필수 KST 시분초 범위가 올바르지 않다. */
+    DELIVERY_EXCEL_PERIOD_INVALID(HttpStatus.BAD_REQUEST,
+            "조회 시작·종료 시각을 KST yyyy-MM-dd'T'HH:mm:ss 형식으로 입력하고 시작을 종료보다 앞서 지정해 주세요."),
+
     // 통계관련
     /** 통계 조회 범위는 접수 시작 이후부터 오늘까지 최대 366일이다. */
     REPORT_DATE_RANGE_INVALID(HttpStatus.BAD_REQUEST, "조회 기간은 접수 시작일부터 오늘 사이의 최대 366일이어야 합니다."),
