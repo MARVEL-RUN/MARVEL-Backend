@@ -6,6 +6,8 @@ import kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organizat
 import kr.co.teambrain.marvelrun.admin.payment.command.application.domain.PaymentAllocation;
 import kr.co.teambrain.marvelrun.admin.payment.command.application.domain.PaymentCancelAllocation;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.report.RegistrationDeliveryReportModels.*;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.PaymentDailyCountRow;
+import kr.co.teambrain.marvelrun.admin.event.query.report.RegistrationDailyReportRow;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.*;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.*;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_cancel.*;
@@ -25,7 +27,7 @@ import java.time.LocalDateTime;
 import java.util.*;
 import static org.assertj.core.api.Assertions.*;
 
-/** 명시적으로 활성화한 테스트 MySQL에서 실제 귀속 SQL·커서·읽기 일관성을 검증한다. PG는 호출하지 않는다. */
+/** 명시적으로 활성화한 테스트 MySQL에서 배송·데일리의 귀속 및 승인일 SQL을 검증한다. PG는 호출하지 않는다. */
 @Tag("delivery-db")
 @EnabledIfEnvironmentVariable(named="MARVELRUN_DELIVERY_DB_TEST",matches="true")
 @ActiveProfiles("delivery-test")
@@ -35,11 +37,12 @@ import static org.assertj.core.api.Assertions.*;
         "spring.sql.init.mode=never","spring.flyway.enabled=false","spring.liquibase.enabled=false",
         "spring.datasource.hikari.maximum-pool-size=4"})
 @AutoConfigureTestDatabase(replace=AutoConfigureTestDatabase.Replace.NONE)
-@Import(RegistrationDeliveryQueryRepository.class)
+@Import({RegistrationDeliveryQueryRepository.class, RegistrationDailyReportQueryRepository.class})
 class RegistrationDeliveryQueryRepositoryDatabaseTest {
     @Autowired EntityManager em;
     @Autowired JdbcTemplate jdbc;
     @Autowired RegistrationDeliveryQueryRepository repository;
+    @Autowired RegistrationDailyReportQueryRepository dailyRepository;
     @Autowired PlatformTransactionManager manager;
     private String eventId;
     private String categoryId;
@@ -102,12 +105,49 @@ class RegistrationDeliveryQueryRepositoryDatabaseTest {
         Map<String,List<PaymentFact>> facts=repository.findPaymentFacts(List.of(existing.getId(),added.getId()));
         assertThat(facts.get(added.getId())).allMatch(p -> !p.refundUnsettled());
         assertThat(facts.get(existing.getId())).anyMatch(PaymentFact::refundUnsettled);
+        Map<String,List<RefundFact>> refundHistory=repository.findUnclearRefundHistory(List.of(existing.getId(),added.getId()));
+        assertThat(refundHistory).doesNotContainKey(added.getId());
+        assertThat(refundHistory.get(existing.getId())).hasSize(1);
+        assertThat(refundHistory.get(existing.getId()).getFirst().amount()).isEqualByComparingTo("10000");
+        assertThat(refundHistory.get(existing.getId()).getFirst().status()).isEqualTo("UNKNOWN");
 
         // 같은 환불이 완료되어도 기존 참가자 귀속에만 반영한다.
         jdbc.update("update payment_cancel set status='DONE' where id=?",cancellation.getId());
         Map<String,List<PaymentFact>> completed=repository.findPaymentFacts(List.of(existing.getId(),added.getId()));
         assertThat(completed.get(added.getId())).allMatch(p -> p.refundedAmount().signum()==0);
         assertThat(completed.get(existing.getId())).anyMatch(p -> p.refundedAmount().compareTo(new BigDecimal("10000"))==0);
+    }
+
+    /** 배분 없는 단체 환불은 금액 미확인으로, 직접 개인 환불은 해당 개인 금액으로 조회한다. */
+    @Test
+    void refundHistoryDistinguishesMissingGroupAttributionAndDirectPersonalRefund() {
+        Organization group=organization();
+        Registration member=registration(group,RegistrationStatus.CONFIRMED,false);
+        Payment groupPayment=payment(null,group,PaymentPurpose.REGISTRATION_TRY,PaymentProcessStatus.COMPLETED,START,"80000");
+        allocate(groupPayment,member,PaymentPurpose.REGISTRATION_TRY,"40000");
+        PaymentCancel groupCancel=PaymentCancel.builder().payment(groupPayment).cancelAmount(new BigDecimal("80000"))
+                .cancelType(PaymentCancelType.FULL).purpose(PaymentCancelPurpose.REGISTRATION_CANCELLATION)
+                .status(PaymentCancelStatus.UNKNOWN).cancelReason("테스트").idempotencyKey(id()).build();
+        em.persist(groupCancel);
+        Registration personal=registration(null,RegistrationStatus.CONFIRMED,false);
+        Payment personalPayment=payment(personal,null,PaymentPurpose.REGISTRATION_TRY,PaymentProcessStatus.COMPLETED,START,"40000");
+        PaymentCancel personalCancel=PaymentCancel.builder().payment(personalPayment).cancelAmount(new BigDecimal("10000"))
+                .cancelType(PaymentCancelType.PARTIAL).purpose(PaymentCancelPurpose.PRICE_ADJUSTMENT)
+                .status(PaymentCancelStatus.DONE).cancelReason("테스트").idempotencyKey(id()).build();
+        em.persist(personalCancel);
+        em.flush();
+
+        // KST 저장값을 조회 단계에서 재보정하지 않는다.
+        jdbc.update("update payment_cancel set requested_at=?,canceled_at=? where id=?",
+                START.plusHours(9),START.plusHours(10),personalCancel.getId());
+        Map<String,List<RefundFact>> history=repository.findUnclearRefundHistory(List.of(member.getId(),personal.getId()));
+        assertThat(history.get(member.getId())).hasSize(1);
+        assertThat(history.get(member.getId()).getFirst().amount()).isNull();
+        RefundFact direct=history.get(personal.getId()).getFirst();
+        assertThat(direct.amount()).isEqualByComparingTo("10000");
+        assertThat(direct.requestedKst()).isEqualTo(START.plusHours(9));
+        assertThat(direct.canceledKst()).isEqualTo(START.plusHours(10));
+        assertThat(repository.findUnclearRefundHistory(List.of())).isEmpty();
     }
 
     /** 현재 상세 조회와 history 선택 조회 및 대회 범위 자원 매핑 SQL을 검증한다. */
@@ -186,6 +226,83 @@ class RegistrationDeliveryQueryRepositoryDatabaseTest {
         } finally {
             independent.executeWithoutResult(status -> jdbc.update("delete from event where id=?",isolated));
         }
+    }
+
+    /** 개인·단체·외부·레거시의 승인일 변환과 그래프의 시작 포함·종료 제외를 실제 SQL로 검증한다. */
+    @Test
+    void dailyReportAndGraphUseKstApprovalsInsteadOfOrderCreation() {
+        // 서로 다른 결제 귀속과 KST 자정 전후의 승인 원장을 구성한다.
+        LocalDateTime startKst = START.plusHours(9);
+        LocalDateTime endKst = startKst.plusDays(1);
+        Registration personal = registration(null, RegistrationStatus.CONFIRMED, false);
+        Payment first = payment(personal, null, PaymentPurpose.REGISTRATION_TRY,
+                PaymentProcessStatus.COMPLETED, START.minusSeconds(1), "40000");
+        allocate(first, personal, PaymentPurpose.REGISTRATION_TRY, "40000");
+        payment(personal, null, PaymentPurpose.ADDITIONAL_PAYMENT,
+                PaymentProcessStatus.COMPLETED, START.plusHours(2), "10000");
+        payment(personal, null, PaymentPurpose.REGISTRATION_TRY,
+                PaymentProcessStatus.READY, START.minusDays(1), "40000");
+        Organization group = organization();
+        Registration member = registration(group, RegistrationStatus.CONFIRMED, false);
+        Payment grouped = payment(null, group, PaymentPurpose.REGISTRATION_TRY,
+                PaymentProcessStatus.COMPLETED, START, "40000");
+        allocate(grouped, member, PaymentPurpose.REGISTRATION_TRY, "40000");
+        Registration offline = registration(null, RegistrationStatus.CONFIRMED, false);
+        payment(offline, null, PaymentPurpose.REGISTRATION_TRY,
+                PaymentProcessStatus.COMPLETED, START, "40000");
+        Organization legacyGroup = organization();
+        registration(legacyGroup, RegistrationStatus.CONFIRMED, false);
+        payment(null, legacyGroup, PaymentPurpose.REGISTRATION_TRY,
+                PaymentProcessStatus.COMPLETED, START.plusHours(1), "40000");
+        Registration atEnd = registration(null, RegistrationStatus.CONFIRMED, false);
+        payment(atEnd, null, PaymentPurpose.REGISTRATION_TRY,
+                PaymentProcessStatus.COMPLETED, START.plusDays(1), "40000");
+        Registration unknown = registration(null, RegistrationStatus.CONFIRMED, false);
+        payment(unknown, null, PaymentPurpose.REGISTRATION_TRY,
+                PaymentProcessStatus.COMPLETED, null, "40000");
+        em.flush();
+
+        // 주문일은 승인일과 다르게 고정하고 외부결제는 승인일 보완으로만 조회되게 한다.
+        jdbc.update("update registration set registration_date=? where event_id=?", startKst, eventId);
+        jdbc.update("update registration set external_payment=true,registration_date=? where id=?",
+                startKst.minusDays(20), offline.getId());
+        jdbc.update("update payment set created_at=? where registration_id in (select id from registration where event_id=?) or organization_id in (select id from organization where event_id=?)",
+                startKst.minusDays(2), eventId, eventId);
+
+        // 엑셀 원본은 승인일 NULL을 보존하고 직접·Allocation 중복은 신청 1행으로 합친다.
+        List<RegistrationDailyReportRow> rows = dailyRepository.findReportRows(eventId, startKst, endKst);
+        assertThat(rows).hasSize(6);
+        assertThat(rows).extracting(RegistrationDailyReportRow::firstPaidAt)
+                .containsExactlyInAnyOrder(startKst.minusSeconds(1), startKst, startKst,
+                        startKst.plusHours(1), endKst, null);
+        assertThat(dailyRepository.findPaymentDailyCounts(eventId, startKst, endKst))
+                .containsExactly(new PaymentDailyCountRow(startKst.toLocalDate(), 3L));
+
+        // 배송과 데일리에 모두 귀속이 있는 단체원은 같은 KST 승인일을 사용한다.
+        Candidate delivery = repository.findDeliveryCandidates(eventId, START, START.plusDays(1), null, 100)
+                .stream().filter(row -> row.id().equals(member.getId())).findFirst().orElseThrow();
+        assertThat(delivery.firstApprovedUtc().plusHours(9)).isEqualTo(startKst);
+    }
+
+    /** 외부결제의 신청일이 범위 밖이면 UTC로 환산한 승인 경계에서만 보완 포함한다. */
+    @Test
+    void externalDailyFallbackUsesUtcBoundariesForKstRange() {
+        // 세 신청 모두 신청일 필터를 통과하지 않도록 설정한다.
+        LocalDateTime startKst = START.plusHours(9);
+        for (LocalDateTime approval : List.of(START.minusSeconds(1), START, START.plusDays(1))) {
+            Registration row = registration(null, RegistrationStatus.CONFIRMED, false);
+            payment(row, null, PaymentPurpose.REGISTRATION_TRY,
+                    PaymentProcessStatus.COMPLETED, approval, "40000");
+        }
+        em.flush();
+        jdbc.update("update registration set external_payment=true,registration_date=? where event_id=?",
+                startKst.minusDays(20), eventId);
+
+        // 시작과 정확히 같은 승인만 남고 직전·종료와 같은 승인은 제외된다.
+        assertThat(dailyRepository.findReportRows(eventId, startKst, startKst.plusDays(1)))
+                .extracting(RegistrationDailyReportRow::firstPaidAt).containsExactly(startKst);
+        assertThat(dailyRepository.findPaymentDailyCounts(eventId, startKst, startKst.plusDays(1)))
+                .containsExactly(new PaymentDailyCountRow(startKst.toLocalDate(), 1L));
     }
 
     /** 실제 스키마의 필수 대회 값만 테스트 전용 식별자로 생성한다. */

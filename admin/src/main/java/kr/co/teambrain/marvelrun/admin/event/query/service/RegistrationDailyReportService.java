@@ -54,7 +54,7 @@ public class RegistrationDailyReportService {
             registrationDailyReportQueryRepository;
 
     /**
-     * 현재 유효 입금자를 최초 완료 결제일 기준으로 일별 집계한다.
+     * 현재 유효 입금자를 최초 완료 승인일(KST) 기준으로 일별 집계한다.
      *
      * 금융 귀속과 날짜별 인원 계산은 DB에서 집합 연산으로 수행하고,
      * Java에서는 빈 날짜 보완 및 누계만 계산한다.
@@ -318,7 +318,7 @@ public class RegistrationDailyReportService {
 //    }
 
 
-    /** 통계와 동일한 상태 제외 기준으로 신청자를 집계하고, 최초 완료 결제일별 입금 현황을 엑셀로 생성한다. */
+    /** 통계와 동일한 상태 제외 기준으로 신청자를 집계하고, 최초 완료 승인일(KST)별 입금 현황을 엑셀로 생성한다. */
     public SXSSFWorkbook getDailyPaymenterExcelReport(
             Event event,
             LocalDate startDate,
@@ -468,8 +468,8 @@ public class RegistrationDailyReportService {
             }
 
             /**
-             * 추가결제가 있어도 입금자 귀속일은
-             * 최초 COMPLETED 결제일을 유지한다.
+             * 입금자 귀속일은 조회된 COMPLETED 결제들의 최초 승인일(KST)이다.
+             * 신청일과 분리하며 Repository가 변환한 시각을 다시 보정하지 않는다.
              */
             LocalDate firstPaidDate =
                     row.firstPaidAt().toLocalDate();

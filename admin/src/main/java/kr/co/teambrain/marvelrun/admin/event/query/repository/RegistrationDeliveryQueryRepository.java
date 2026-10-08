@@ -123,6 +123,48 @@ public class RegistrationDeliveryQueryRepository {
         return result;
     }
 
+    /** 불명확 신청의 환불만 읽으며 단체 귀속이 없으면 전체 금액을 개인 금액으로 대체하지 않는다. */
+    public Map<String,List<RefundFact>> findUnclearRefundHistory(List<String> ids) {
+        if (ids.isEmpty()) { return Map.of(); }
+
+        // 배분된 금액을 우선하고 배분 자체가 없는 직접 개인 환불만 전체 금액을 사용한다.
+        String sql = """
+            with linked_payments as (
+                select distinct a.registration_id,p.id payment_id
+                from payment_allocation a join payment p on p.id=a.payment_id
+                where a.registration_id in (:ids)
+                union
+                select p.registration_id,p.id from payment p
+                where p.registration_id in (:ids)
+                  and not exists(select 1 from payment_allocation a where a.payment_id=p.id)
+            ), attributed as (
+                select ca.payment_cancel_id,a.registration_id,sum(ca.allocated_amount) amount
+                from payment_cancel_allocation ca
+                join payment_allocation a on a.id=ca.payment_allocation_id
+                where a.registration_id in (:ids)
+                group by ca.payment_cancel_id,a.registration_id
+            )
+            select l.registration_id,pc.id,pc.purpose,pc.status,pc.requested_at,pc.canceled_at,
+                case when a.registration_id is not null then a.amount
+                     when p.registration_id=l.registration_id then pc.cancel_amount
+                     else null end participant_amount
+            from linked_payments l join payment p on p.id=l.payment_id
+            join payment_cancel pc on pc.payment_id=p.id
+            left join attributed a on a.payment_cancel_id=pc.id and a.registration_id=l.registration_id
+            where a.registration_id is not null
+               or not exists(select 1 from payment_cancel_allocation ca where ca.payment_cancel_id=pc.id)
+            order by l.registration_id,pc.id
+            """;
+        Map<String,List<RefundFact>> result = new HashMap<>();
+        jdbc.query(sql,Map.of("ids",ids),(org.springframework.jdbc.core.RowCallbackHandler) rs -> {
+            RefundFact fact = new RefundFact(rs.getString("registration_id"),rs.getString("id"),
+                    rs.getString("purpose"),rs.getString("status"),rs.getBigDecimal("participant_amount"),
+                    time(rs,"requested_at"),time(rs,"canceled_at"));
+            result.computeIfAbsent(fact.registrationId(),ignored -> new ArrayList<>()).add(fact);
+        });
+        return result;
+    }
+
     /** 현재 예약 상세 또는 불명확 대상의 이력을 한 배치로 읽는다. 정상 대상에는 history를 요청하지 않는다. */
     public Map<String, List<ReservationFact>> findReservations(List<String> ids, boolean includeHistory) {
         if (ids.isEmpty()) { return Map.of(); }

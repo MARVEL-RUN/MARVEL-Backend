@@ -9,6 +9,7 @@ import kr.co.teambrain.marvelrun.admin.event.query.dto.report.RegistrationDelive
 import kr.co.teambrain.marvelrun.admin.event.query.dto.report.RegistrationDeliveryReportModels.*;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationDeliveryQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationReservationHistoryResolver;
+import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationDeliveryUnclearReviewFormatter;
 import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationReservationHistoryResolver.*;
 import kr.co.teambrain.marvelrun.admin.event.query.support.TemporaryExcelResource;
 import kr.co.teambrain.marvelrun.admin.event.query.util.RegistrationDeliveryClassifier;
@@ -38,6 +39,7 @@ public class RegistrationDeliveryExcelService {
     private final RegistrationReservationHistoryResolver resolver;
     private final RegistrationDeliveryExcelWriter writer;
     private final ServerTimeProvider timeProvider;
+    private final RegistrationDeliveryUnclearReviewFormatter unclearReviewFormatter;
 
     /** 생성 중의 결제·수정이 배치에 섞이지 않도록 독립적인 반복 읽기 트랜잭션을 사용한다. */
     @Transactional(readOnly=true, isolation=Isolation.REPEATABLE_READ, propagation=Propagation.REQUIRES_NEW)
@@ -121,9 +123,11 @@ public class RegistrationDeliveryExcelService {
             if (finalDecision.unclear()) { pending.add(output); } else { workbook.appendDeliveryRow(output); }
         }
 
-        // 2단계: 불명확 대상의 과거 자원만 추가 조회하고 같은 스냅샷에서 해석한다.
+        // 2단계: 불명확 대상의 과거 자원과 개별 환불을 같은 스냅샷에서 조회한다.
         if (pending.isEmpty()) { return; }
-        Map<String,List<ReservationFact>> histories=repository.findReservations(pending.stream().map(r -> r.candidate().id()).toList(),true);
+        List<String> pendingIds=pending.stream().map(r -> r.candidate().id()).toList();
+        Map<String,List<ReservationFact>> histories=repository.findReservations(pendingIds,true);
+        Map<String,List<RefundFact>> refunds=repository.findUnclearRefundHistory(pendingIds);
         Map<String,HistoryInput> inputs=new HashMap<>();
         Set<String> historicalIds=new HashSet<>();
         for (ExportRow row:pending) {
@@ -142,7 +146,13 @@ public class RegistrationDeliveryExcelService {
                         reason.equals("신청자·종목·배송지 정보 확인 필요") || reason.equals("최초 승인일 확인 불가·기간 판정 불가"));
             HistoryResult result=resolver.resolveRegistrationHistory(inputs.get(row.candidate().id()),capacities,
                     payments.getOrDefault(row.candidate().id(),List.of()),currentConfirmed);
-            workbook.appendDeliveryRow(new ExportRow(row.candidate(),row.current(),row.classification(),result));
+            // 설명용 금융 이력을 합치되 기존 명단 분류와 확정 정보 판정은 유지한다.
+            List<PaymentFact> participantPayments=payments.getOrDefault(row.candidate().id(),List.of());
+            List<ReviewEvent> events=resolver.describeUnclearReservationHistory(inputs.get(row.candidate().id()),
+                    capacities,participantPayments);
+            UnclearReview review=unclearReviewFormatter.formatUnclearRegistrationReview(row.classification(),result,
+                    events,participantPayments,refunds.getOrDefault(row.candidate().id(),List.of()));
+            workbook.appendDeliveryRow(new ExportRow(row.candidate(),row.current(),row.classification(),result,review));
         }
     }
 
