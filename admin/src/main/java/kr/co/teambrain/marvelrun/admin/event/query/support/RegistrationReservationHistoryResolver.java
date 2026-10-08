@@ -165,6 +165,36 @@ public class RegistrationReservationHistoryResolver {
         return new HistoryResult(restored.previous(),restored.result(),restored.reason(),text);
     }
 
+    /** 복원 판정과 별도로 시간순 표시용 이력을 만들고 금융 원장과 중복되는 승인 기록을 구분한다. */
+    public List<ReviewEvent> describeUnclearReservationHistory(HistoryInput input,
+            Map<String,CapacityInfo> capacities, List<PaymentFact> payments) {
+        if (!input.error().isBlank()) { return List.of(new ReviewEvent(null,input.error())); }
+
+        // 당시 구성만 표시하고 현재 선택값으로 과거 기록을 채우지 않는다.
+        List<ReviewEvent> events = new ArrayList<>();
+        for (ReservationHistoryEntry entry : input.entries()) {
+            boolean matchedApproval = entry.action() == ReservationHistoryEntry.Action.PAYMENT_CONFIRMED
+                    && payments.stream().anyMatch(p -> Objects.equals(entry.paymentId(),p.paymentId())
+                        && "REGISTRATION_TRY".equals(p.purpose())
+                        && "COMPLETED".equals(p.processStatus()) && p.approvedUtc() != null);
+            if (matchedApproval) { continue; }
+            String description = actionName(entry.action());
+            if (entry.action() == ReservationHistoryEntry.Action.PAYMENT_CONFIRMED) {
+                description = "예약상 결제 확정 기록 (금융 원장 승인 시각과 별도)";
+            }
+            if (entry.action() == ReservationHistoryEntry.Action.HOLD
+                    || entry.action() == ReservationHistoryEntry.Action.REHOLD
+                    || entry.action() == ReservationHistoryEntry.Action.MODIFY) {
+                HistoryResult selection = interpret(entry.items().stream()
+                        .map(item -> new CapacityItem(item.capacityId(),item.quantity())).toList(),capacities);
+                description += ": " + describe(selection.previous());
+                if (!selection.reason().isBlank()) { description += " [" + selection.reason() + "]"; }
+            }
+            events.add(new ReviewEvent(entry.occurredAt(),description));
+        }
+        return List.copyOf(events);
+    }
+
     /** 자원 목록을 종목·기념품·사이즈로 해석하며 부분 판별 결과를 보존한다. */
     private HistoryResult interpret(List<CapacityItem> items, Map<String,CapacityInfo> capacities) {
         List<String> reasons = new ArrayList<>();

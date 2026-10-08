@@ -54,24 +54,28 @@ public class RegistrationDeliveryExcelWriter {
                 if (i%2==1) { columns.add("단체명"); }
                 columns.addAll(List.of("종목명","기념품명","기념품사이즈","주소","상세주소","최초 결제일시(KST)","신청일시(KST)","신청상태"));
                 if (i>=2) {
-                    columns.set(i%2==1 ? 4 : 3,"신규 종목명");
-                    columns.set(i%2==1 ? 5 : 4,"신규 기념품명");
-                    columns.set(i%2==1 ? 6 : 5,"신규 기념품사이즈");
-                    columns.addAll(List.of("기존 종목명","기존 기념품명","기존 기념품사이즈","불명확 사유",
-                            "기존정보 판별결과","판별 불가 사유","자원 변경 이력"));
+                    columns.set(i%2==1 ? 4 : 3,"현재 신청 종목명");
+                    columns.set(i%2==1 ? 5 : 4,"현재 신청 기념품명");
+                    columns.set(i%2==1 ? 6 : 5,"현재 신청 기념품사이즈");
+                    columns.addAll(List.of("최근 확정 종목명","최근 확정 기념품명","최근 확정 기념품사이즈","불명확 사유",
+                            "최근 확정 정보 판별결과","확인 불가 사유","관리자 확인사항","변경·결제·환불 이력(KST)"));
                 }
                 headers.add(columns);
                 top(sheet,0,event.name()+" / 대회 시작: "+format(event.startDate()));
                 top(sheet,1,"조회 기간(KST): ["+format(request.startAt())+", "+format(request.endAt())+") · 시작 포함/종료 제외");
                 top(sheet,2,"생성 시각(KST): "+format(now)+" · 조회 중 변경은 다음 다운로드에 반영");
                 top(sheet,3,""); top(sheet,4,"최초 승인일 미확인 대상은 조회 기간 포함 여부를 판정할 수 없습니다.");
-                top(sheet,5,i>=2 ? "현재 변경 정보와 최근 확정 정보는 다를 수 있습니다. 판별 불가 및 수정 이력을 확인하세요." : "미정산·확인 필요 대상은 불명확명단을 확인하세요.");
+                top(sheet,5,i>=2 ? "현재 신청 정보는 미정산 선택값일 수 있습니다. 이력의 시간 순서만으로 수정과 결제의 연결을 확정할 수 없습니다. 요청 시점과 현재 상태를 구분해 확인하세요." : "미정산·확인 필요 대상은 불명확명단을 확인하세요.");
                 Row header = sheet.createRow(6);
                 for (int c=0;c<columns.size();c++) {
                     Cell cell=header.createCell(c); cell.setCellValue(columns.get(c)); cell.setCellStyle(headingStyle);
                     sheet.setColumnWidth(c,24*256);
                 }
-                if (i>=2) { sheet.setColumnWidth(columns.size()-1,60*256); }
+                if (i>=2) {
+                    sheet.setColumnWidth(columns.size()-2,60*256);
+                    sheet.setColumnWidth(columns.size()-1,80*256);
+                    sheet.getRow(5).setHeightInPoints(32);
+                }
                 for (int r=0;r<6;r++) { sheet.addMergedRegion(new CellRangeAddress(r,r,0,columns.size()-1)); }
                 sheet.createFreezePane(0,7);
             }
@@ -92,11 +96,13 @@ public class RegistrationDeliveryExcelWriter {
                     row.registrationAt(),RegistrationStatus.valueOf(row.status()).getDisplayName()));
             if (sheetIndex>=2) {
                 HistoryResult history=export.history();
-                values.addAll(Arrays.asList(history.previous().category(),history.previous().souvenirs(),history.previous().sizes(),
-                        String.join(" / ",export.classification().reasons()),history.result(),history.reason()));
+                values.addAll(Arrays.asList(displaySelection(history.previous().category()),
+                        displaySelection(history.previous().souvenirs()),displaySelection(history.previous().sizes()),
+                        String.join(" / ",export.classification().reasons()),history.result(),history.reason(),
+                        export.review().instructions()));
                 if (!"확인 가능".equals(history.result())) { undecidable[sheetIndex]++; }
                 // Excel의 셀 문자열 한도를 넘는 이력도 버리지 않고 계속 열로 나눈다.
-                String text=clean(history.text());
+                String text=clean(export.review().timeline());
                 if (text.isEmpty()) { values.add(""); }
                 for (int start=0;start<text.length();) {
                     int end=Math.min(start+30000,text.length());
@@ -109,7 +115,7 @@ public class RegistrationDeliveryExcelWriter {
             int lineCount=1;
             for (int c=0;c<values.size();c++) {
                 if (c>=headers.get(sheetIndex).size()) {
-                    headers.get(sheetIndex).add("자원 변경 이력 계속 "+(c+1));
+                    headers.get(sheetIndex).add("변경·결제·환불 이력 계속 "+(c+1));
                     Cell header=template.getSheetAt(sheetIndex).getRow(6).createCell(c);
                     header.setCellValue(headers.get(sheetIndex).get(c)); header.setCellStyle(headingStyle);
                     sheets[sheetIndex].setColumnWidth(c,50*256);
@@ -130,7 +136,7 @@ public class RegistrationDeliveryExcelWriter {
         public void writeDeliveryWorkbook(OutputStream output) throws IOException {
             for (int i=0;i<4;i++) {
                 template.getSheetAt(i).getRow(3).getCell(0).setCellValue("시트 인원: "+(next[i]-7)
-                        +" / 기존정보 일부·전체 판별 불가: "+undecidable[i]+" / 기간 판정 불가: "+unknownDates[i]);
+                        +" / 최근 확정 정보 일부·전체 판별 불가: "+undecidable[i]+" / 기간 판정 불가: "+unknownDates[i]);
                 sheets[i].setAutoFilter(new CellRangeAddress(6,Math.max(6,next[i]-1),0,headers.get(i).size()-1));
             }
             workbook.write(output);
@@ -145,6 +151,13 @@ public class RegistrationDeliveryExcelWriter {
         @Override public void close() throws IOException {
             try { workbook.close(); } finally { workbook.dispose(); }
         }
+    }
+
+    /** 복원된 명칭을 훼손하지 않고 판별 실패 항목만 관리자용 표기로 바꾼다. */
+    private static String displaySelection(String value) {
+        return Arrays.stream(value.split("\\n",-1))
+                .map(part -> "판별 불가".equals(part) ? "확인 불가" : part)
+                .collect(java.util.stream.Collectors.joining("\n"));
     }
 
     /** 안내용 일시는 초까지 명시한다. */

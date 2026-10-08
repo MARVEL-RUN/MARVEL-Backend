@@ -12,6 +12,7 @@ import kr.co.teambrain.marvelrun.admin.event.query.dto.report.RegistrationDelive
 import kr.co.teambrain.marvelrun.admin.event.query.dto.report.RegistrationDeliveryReportModels.*;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationDeliveryQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationReservationHistoryResolver;
+import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationDeliveryUnclearReviewFormatter;
 import kr.co.teambrain.marvelrun.admin.event.query.support.TemporaryExcelResource;
 import kr.co.teambrain.marvelrun.admin.event.query.util.RegistrationDeliveryClassifier;
 import org.apache.poi.ss.usermodel.Row;
@@ -89,6 +90,10 @@ class RegistrationDeliveryExcelTest {
                     "org","달리기팀","category","C","[]","단체 주소","단체 상세",UTC.plusHours(9),UTC,new BigDecimal("60000"),new BigDecimal("40000"));
             book.appendDeliveryRow(new ExportRow(group,new Selection("C","티셔츠","L"),new Classification(false,List.of("추가결제 필요")),
                     new HistoryResult(Selection.unknown(),"판별 불가","최근 확정 시점 구분 불가","변경".repeat(18000))));
+            book.appendDeliveryRow(new ExportRow(candidate("ADDITIONAL_PAYMENT_REQUIRED",false,UTC),
+                    new Selection("B","티셔츠","FREE"),new Classification(false,List.of("추가결제 필요")),
+                    new HistoryResult(new Selection("A","티셔츠","판별 불가"),"일부 판별 불가","과거 사이즈 기록 부족",""),
+                    new UnclearReview("[참가자 확인] 기존 사이즈 확인","최초 확보 / 사이즈 확인 불가")));
             book.writeDeliveryWorkbook(bytes);
         }
         try (XSSFWorkbook actual=new XSSFWorkbook(new ByteArrayInputStream(bytes.toByteArray()))) {
@@ -101,8 +106,17 @@ class RegistrationDeliveryExcelTest {
             assertThat(data.getCell(3).getStringCellValue()).isEqualTo("달리기팀");
             assertThat(data.getCell(7).getStringCellValue()).isEqualTo("단체 주소");
             StringBuilder history=new StringBuilder();
-            for (int i=18;i<data.getLastCellNum();i++) { history.append(data.getCell(i).getStringCellValue()); }
+            for (int i=19;i<data.getLastCellNum();i++) { history.append(data.getCell(i).getStringCellValue()); }
             assertThat(history.toString()).isEqualTo("변경".repeat(18000));
+            assertThat(unclear.getRow(6).getCell(4).getStringCellValue()).isEqualTo("현재 신청 종목명");
+            assertThat(unclear.getRow(6).getCell(12).getStringCellValue()).isEqualTo("최근 확정 종목명");
+            assertThat(data.getCell(12).getStringCellValue()).isEqualTo("확인 불가");
+            assertThat(unclear.getRow(6).getCell(18).getStringCellValue()).isEqualTo("관리자 확인사항");
+            Row partial=actual.getSheetAt(2).getRow(7);
+            assertThat(partial.getCell(11).getStringCellValue()).isEqualTo("A");
+            assertThat(partial.getCell(12).getStringCellValue()).isEqualTo("티셔츠");
+            assertThat(partial.getCell(13).getStringCellValue()).isEqualTo("확인 불가");
+            assertThat(partial.getCell(5).getStringCellValue()).isEqualTo("FREE");
             for (Sheet sheet:actual) { for (Row row:sheet) { row.forEach(cell -> assertThat(cell.toString()).doesNotContain("secret-uuid")); } }
         }
     }
@@ -162,13 +176,15 @@ class RegistrationDeliveryExcelTest {
                 "category-cap",new CapacityInfo("category-cap","CATEGORY",null,null,"",List.of("category"),List.of("A"))));
         RegistrationDeliveryExcelService service=new RegistrationDeliveryExcelService(repository,new RegistrationDeliveryClassifier(),
                 new RegistrationReservationHistoryResolver(JsonMapper.builder().findAndAddModules().build()),new RegistrationDeliveryExcelWriter(),
-                new ServerTimeProvider(Clock.fixed(Instant.parse("2026-10-07T00:00:00Z"),ZoneId.of("Asia/Seoul"))));
+                new ServerTimeProvider(Clock.fixed(Instant.parse("2026-10-07T00:00:00Z"),ZoneId.of("Asia/Seoul"))),
+                new RegistrationDeliveryUnclearReviewFormatter());
         try (TemporaryExcelResource resource=service.createRegistrationDeliveryExcel("event",PERIOD);
              InputStream input=resource.getInputStream(); XSSFWorkbook book=new XSSFWorkbook(input)) {
             assertThat(book.getSheetAt(0).getLastRowNum()).isEqualTo(7);
             assertThat(book.getSheetAt(2).getLastRowNum()).isEqualTo(6);
         }
         verify(repository,never()).findReservations(anyList(),eq(true));
+        verify(repository,never()).findUnclearRefundHistory(anyList());
         assertThatThrownBy(() -> service.createRegistrationDeliveryExcel("event",new RegistrationDeliveryExcelRequest(PERIOD.endAt(),PERIOD.startAt())))
                 .isInstanceOfSatisfying(CustomException.class,e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.DELIVERY_EXCEL_PERIOD_INVALID));
     }
@@ -184,9 +200,13 @@ class RegistrationDeliveryExcelTest {
         when(repository.findReservations(anyList(),eq(false))).thenReturn(Map.of("registration",List.of(reservation())));
         when(repository.findReservations(anyList(),eq(true))).thenReturn(Map.of("registration",List.of(
                 new ReservationFact("registration","reservation","CONSUMED","not-json",reservation().items()))));
+        when(repository.findUnclearRefundHistory(List.of("registration"))).thenReturn(Map.of("registration",List.of(
+                new RefundFact("registration","refund","PRICE_ADJUSTMENT","UNKNOWN",new BigDecimal("1000"),
+                        UTC.plusHours(10),null))));
         RegistrationDeliveryExcelService service=new RegistrationDeliveryExcelService(repository,new RegistrationDeliveryClassifier(),
                 new RegistrationReservationHistoryResolver(JsonMapper.builder().findAndAddModules().build()),new RegistrationDeliveryExcelWriter(),
-                new ServerTimeProvider(Clock.system(ZoneId.of("Asia/Seoul"))));
+                new ServerTimeProvider(Clock.system(ZoneId.of("Asia/Seoul"))),
+                new RegistrationDeliveryUnclearReviewFormatter());
 
         // 최초 분류의 불명확 사유와 이력 해석 실패 사유를 서로 다른 열에 남긴다.
         try (TemporaryExcelResource resource=service.createRegistrationDeliveryExcel("event",PERIOD);
@@ -196,8 +216,13 @@ class RegistrationDeliveryExcelTest {
             assertThat(row.getCell(0).getStringCellValue()).isEqualTo("테스트");
             assertThat(row.getCell(14).getStringCellValue()).contains("추가결제 필요");
             assertThat(row.getCell(16).getStringCellValue()).contains("JSON 해석 불가");
+            assertThat(row.getCell(2).getStringCellValue()).isEqualTo("01012345678");
+            assertThat(row.getCell(17).getStringCellValue()).contains("[내부 확인]","[참가자 확인]");
+            assertThat(row.getCell(18).getStringCellValue()).contains("최초 참가비","결제 완료","JSON 해석 불가",
+                    "차액환불 / 신청 귀속 1000원 / 환불 요청 (현재 상태: 결과 미확정)").doesNotContain("환불 완료");
         }
         verify(repository).findReservations(List.of("registration"),true);
+        verify(repository).findUnclearRefundHistory(List.of("registration"));
     }
 
     /** 기존 컨트롤러의 다른 의존성은 실행하지 않는 MVC 검증 준비다. */

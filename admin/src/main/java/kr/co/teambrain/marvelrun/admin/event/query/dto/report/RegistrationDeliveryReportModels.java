@@ -49,7 +49,23 @@ public final class RegistrationDeliveryReportModels {
     /** 이력에서 복원한 기존 구성과 관리자가 확인할 근거다. */
     public record HistoryResult(Selection previous, String result, String reason, String text) { }
 
+    /** 신청별 환불 귀속과 KST 요청·완료 시각이다. 귀속 불명 금액은 null로 유지한다. */
+    public record RefundFact(String registrationId, String refundId, String purpose, String status,
+            BigDecimal amount, LocalDateTime requestedKst, LocalDateTime canceledKst) { }
+
+    /** 정렬 가능한 관리자 표시용 이력이다. 시각 미확인은 null로 유지한다. */
+    public record ReviewEvent(LocalDateTime occurredKst, String description) { }
+
+    /** 불명확명단에만 사용하는 확인사항과 통합 이력이다. */
+    public record UnclearReview(String instructions, String timeline) { }
+
     /** 최종 엑셀 한 행의 자료다. */
     public record ExportRow(Candidate candidate, Selection current, Classification classification,
-            HistoryResult history) { }
+            HistoryResult history, UnclearReview review) {
+        /** 정상 행과 기존 이력만 제공하는 호출부의 입력을 보존한다. */
+        public ExportRow(Candidate candidate, Selection current, Classification classification, HistoryResult history) {
+            this(candidate,current,classification,history,
+                    new UnclearReview("",history == null ? "" : history.text()));
+        }
+    }
 }

@@ -77,6 +77,60 @@ class RegistrationReservationHistoryResolverTest {
         assertThat(resolver.readHistory("[null]").error()).contains("필수 정보");
     }
 
+    /** 자원 이력과 금융 원장의 같은 최초 승인을 중복 표시하지 않는다. */
+    @Test
+    void reviewEventsKeepCompositionAndAvoidDuplicateApproval() {
+        RegistrationReservationHistoryResolver.HistoryInput input =
+                new RegistrationReservationHistoryResolver.HistoryInput(initial(),"");
+        List<ReviewEvent> events=resolver.describeUnclearReservationHistory(input,capacities(),payments());
+        assertThat(events).hasSize(1);
+        assertThat(events.getFirst().description()).contains("최초 확보","A / 티셔츠 / S").doesNotContain("payment","catA");
+        assertThat(resolver.describeUnclearReservationHistory(resolver.readHistory("not-json"),capacities(),payments())
+                .getFirst().occurredKst()).isNull();
+    }
+
+    /** 승인 UTC만 보정하고 환불 KST는 유지하며, 미확정 현재 상태를 완료 이력으로 만들지 않는다. */
+    @Test
+    void reviewCombinesFinancialTimelineWithoutGuessingSettlement() {
+        RegistrationDeliveryUnclearReviewFormatter formatter=new RegistrationDeliveryUnclearReviewFormatter();
+        HistoryResult history=new HistoryResult(new Selection("A","티셔츠","판별 불가"),
+                "일부 판별 불가","과거 선택 사이즈 기록 부족 또는 복수 후보","");
+        List<PaymentFact> facts=new ArrayList<>(payments());
+        facts.add(new PaymentFact("registration","additional","ADDITIONAL_PAYMENT","UNKNOWN",null,
+                new BigDecimal("10000"),BigDecimal.ZERO,false,false,null));
+        List<RefundFact> refunds=List.of(
+                new RefundFact("registration","done","PRICE_ADJUSTMENT","DONE",new BigDecimal("2000"),
+                        time.plusMinutes(1),time.plusMinutes(2)),
+                new RefundFact("registration","unknown","PRICE_ADJUSTMENT","UNKNOWN",null,time.plusMinutes(3),null));
+        UnclearReview result=formatter.formatUnclearRegistrationReview(
+                new Classification(false,List.of("추가결제 필요")),history,
+                List.of(new ReviewEvent(time.minusMinutes(1),"수정: B / 티셔츠 / L")),facts,refunds);
+
+        // 확인 불가 항목만 연락 대상으로 안내하고 단체 전체 금액이나 내부 ID를 노출하지 않는다.
+        assertThat(result.instructions()).contains("[내부 확인]","[참가자 확인] 기존 기념품 사이즈 확인","단체 환불")
+                .doesNotContain("[참가자 확인] 기존 참가 종목 확인");
+        assertThat(result.timeline()).contains("2026-10-01 12:00:00 최초 참가비",
+                "2026-10-01 12:02:00 차액환불 / 신청 귀속 2000원 / 환불 완료",
+                "금액 확인 불가 / 환불 요청 (현재 상태: 결과 미확정)",
+                "[시각 확인 불가] 추가결제").doesNotContain("registration","additional","21:02");
+        assertThat(result.timeline().indexOf("수정: B")).isLessThan(result.timeline().indexOf("최초 참가비"));
+        assertThat(result.timeline().indexOf("최초 참가비")).isLessThan(result.timeline().indexOf("환불 완료"));
+    }
+
+    /** 승인·환불 완료 시각이 없으면 요청 시각으로 대체하지 않는다. */
+    @Test
+    void reviewKeepsMissingCompletionTimesUnknown() {
+        PaymentFact missing=new PaymentFact("r","p","REGISTRATION_TRY","COMPLETED",null,
+                BigDecimal.ZERO,BigDecimal.ZERO,false,false,null);
+        UnclearReview review=new RegistrationDeliveryUnclearReviewFormatter().formatUnclearRegistrationReview(
+                new Classification(false,List.of("최초 승인일 확인 불가·기간 판정 불가")),
+                new HistoryResult(new Selection("A","",""),"확인 가능","",""),List.of(),List.of(missing),
+                List.of(new RefundFact("r","c","PRICE_ADJUSTMENT","DONE",BigDecimal.ONE,time,null)));
+        assertThat(review.timeline()).contains("[시각 확인 불가] 최초 참가비",
+                "[시각 확인 불가] 차액환불 / 신청 귀속 1원 / 환불 완료");
+        assertThat(review.timeline()).contains("2026-10-01 12:00:00 차액환불 / 신청 귀속 1원 / 환불 요청");
+    }
+
     /** 테스트 공통 이력에 실제 확정 결제 증거를 연결한다. */
     private HistoryResult resolve(List<ReservationHistoryEntry> entries,Map<String,CapacityInfo> capacities) {
         return resolver.resolveRegistrationHistory(new RegistrationReservationHistoryResolver.HistoryInput(entries,""),capacities,payments());
