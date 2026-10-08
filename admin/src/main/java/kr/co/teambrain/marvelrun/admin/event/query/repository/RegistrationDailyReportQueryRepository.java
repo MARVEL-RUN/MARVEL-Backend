@@ -14,7 +14,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 일별 신청·결제 보고서 전용 조회 Repository다.
+ * 일별 엑셀과 결제 그래프의 신청·입금 데이터를 조회한다.
+ * UTC로 저장된 완료 결제 승인일을 KST로 변환하여 동일한 날짜 기준을 제공한다.
  *
  * Payment / PaymentAllocation을 신청별로 먼저 집계하여
  * Registration마다 금융 테이블을 반복 탐색하는 correlated subquery를 제거한다.
@@ -30,23 +31,7 @@ public class RegistrationDailyReportQueryRepository {
      * 직접 결제와 Allocation 결제를 registration_id 기준으로 평탄화한다.
      *
      * normal_first_payment:
-     * 정상 금융 원장이 존재하는 신청자의 최초 COMPLETED 결제일.
-     *
-     * allocation_exists:
-     * legacy fallback에서 "Allocation 자체가 없어야 한다"는 기존 조건 보존용.
-     *
-     * legacy_single_payment:
-     * COMPLETED 단체 Payment가 정확히 1건인 단체만 조회한다.
-     *
-     * resolved_registration:
-     * 정상 금융 원장을 우선 사용하고 없을 때만 기존 legacy 조건을 적용한다.
-     */
-    /**
-     * 보고서 대상 Registration을 먼저 제한한 뒤,
-     * 직접 결제와 Allocation 결제를 registration_id 기준으로 평탄화한다.
-     *
-     * normal_first_payment:
-     * 정상 금융 원장이 존재하는 신청자의 최초 COMPLETED 결제일.
+     * 정상 금융 원장이 존재하는 신청자의 최초 COMPLETED 승인일(KST).
      *
      * allocation_exists:
      * legacy fallback에서 "Allocation 자체가 없어야 한다"는 기존 조건 보존용.
@@ -76,7 +61,8 @@ public class RegistrationDailyReportQueryRepository {
                OR (r.external_payment = 1 AND EXISTS (
                    SELECT 1 FROM payment external_p
                    WHERE external_p.registration_id = r.id AND external_p.process_status = 'COMPLETED'
-                     AND external_p.approved_at >= :registrationStart AND external_p.approved_at < :endExclusive
+                     AND external_p.approved_at >= DATE_SUB(:registrationStart, INTERVAL 9 HOUR)
+                     AND external_p.approved_at < DATE_SUB(:endExclusive, INTERVAL 9 HOUR)
                )))
     ),
 
@@ -86,7 +72,7 @@ public class RegistrationDailyReportQueryRepository {
          */
         SELECT
             p.registration_id AS registration_id,
-            CASE WHEN r.external_payment = 1 THEN p.approved_at ELSE p.created_at END AS paid_at
+            DATE_ADD(p.approved_at, INTERVAL 9 HOUR) AS paid_at
         FROM payment p
         INNER JOIN event_registrations r
             ON r.id = p.registration_id
@@ -103,7 +89,7 @@ public class RegistrationDailyReportQueryRepository {
          */
         SELECT
             pa.registration_id AS registration_id,
-            CASE WHEN r.external_payment = 1 THEN p.approved_at ELSE p.created_at END AS paid_at
+            DATE_ADD(p.approved_at, INTERVAL 9 HOUR) AS paid_at
         FROM payment_allocation pa
         INNER JOIN event_registrations r
             ON r.id = pa.registration_id
@@ -114,7 +100,8 @@ public class RegistrationDailyReportQueryRepository {
 
     normal_first_payment AS (
         /**
-         * 정상 금융 귀속이 확인되는 신청자의 최초 완료 결제일이다.
+         * 정상 금융 귀속이 확인되는 완료 결제의 최초 승인일(KST)이다.
+         * 승인일 누락은 주문 생성일로 대체하지 않으며 기존 결제 목적 범위는 유지한다.
          */
         SELECT
             source.registration_id,
@@ -154,7 +141,7 @@ public class RegistrationDailyReportQueryRepository {
          */
         SELECT
             p.organization_id,
-            MIN(p.created_at) AS first_paid_at
+            MIN(DATE_ADD(p.approved_at, INTERVAL 9 HOUR)) AS first_paid_at
         FROM payment p
         INNER JOIN event_organizations eo
             ON eo.organization_id = p.organization_id
@@ -212,7 +199,7 @@ public class RegistrationDailyReportQueryRepository {
     """;
 
     /**
-     * 엑셀 집계용 신청자별 데이터를 조회한다.
+     * 엑셀 집계용 신청자별 데이터와 최초 완료 승인일(KST)을 조회한다.
      */
     public List<RegistrationDailyReportRow> findReportRows(
             String eventId,
@@ -267,7 +254,7 @@ public class RegistrationDailyReportQueryRepository {
     }
 
     /**
-     * 그래프용 결제자 수를 DB에서 최초 결제일별로 직접 집계한다.
+     * 그래프용 결제자 수를 DB에서 최초 완료 승인일(KST)별로 직접 집계한다.
      *
      * Java로 전체 Registration을 가져오지 않는다.
      */
