@@ -2,16 +2,19 @@ package kr.co.teambrain.marvelrun.user.capacity.command.application.service;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
-import java.util.List;
-import java.util.Map;
+import java.util.ArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_cancel.PaymentCancelStatus;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult;
@@ -41,6 +44,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.AopTestUtils;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -72,9 +76,9 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
         // 취소 요청 실패로 신청·순납부액·자원이 변경되거나 취소 원장이 생기지 않아야 한다.
         expectError(ErrorCode.EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED, () -> cancel(target));
         assertThat(resourceSnapshot()).isEqualTo(before);
-        assertThat(s("select status from registration where id=?", externalId)).isEqualTo("CONFIRMED");
-        assertThat(n("select is_del from registration where id=?", externalId)).isZero();
-        assertThat(n("select count(*) from payment_cancel where payment_id=?", target.paymentId())).isZero();
+        assertThat(queryStringValue("select status from registration where id=?", externalId)).isEqualTo("CONFIRMED");
+        assertThat(queryIntegerValue("select is_del from registration where id=?", externalId)).isZero();
+        assertThat(queryIntegerValue("select count(*) from payment_cancel where payment_id=?", target.paymentId())).isZero();
         verifyNoInteractions(toss, cancelClient);
     }
 
@@ -103,10 +107,29 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
                     .isEqualByComparingTo(first.members().get(index).balance());
         }
         for (String id : target.ids()) { assertCanceled(id); }
-        counters(total, 0, 0);
-        counters(shirtS, 0, 0);
-        assertThat(s("select process_status from payment where id = ?", target.paymentId())).isEqualTo("INVALIDATED");
+        assertCapacityCounts(total, 0, 0);
+        assertCapacityCounts(shirtS, 0, 0);
+        assertThat(queryStringValue("select process_status from payment where id = ?", target.paymentId())).isEqualTo("INVALIDATED");
         verifyNoInteractions(cancelClient, toss);
+    }
+
+    /** 유료 개인·단체 취소는 REFUND 구간 정책에 걸리면 자원과 원장 변경 전에 차단한다. */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void refundPeriodPolicyBlocksCancellationWithoutSideEffects(boolean group) {
+        Target target = target(group, true);
+        // Hibernate 실제 생성시각 대신 이 테스트 대회의 신청일을 정책 검증용 고정시각에 맞춘다.
+        jdbc.update("update registration set registration_date=? where event_id=?", NOW, eventId);
+        jdbc.update("insert into registration_action_policy(id,event_id,action_type,registration_start_at,registration_end_at,effective_from,enabled) values(?,?,'REFUND',?,?,?,true)",
+                UUID.randomUUID().toString(), eventId, NOW.minusDays(1), NOW.plusDays(1), NOW);
+        List<Map<String, Object>> before = resourceSnapshot();
+        expectError(ErrorCode.REGISTRATION_REFUND_POLICY_BLOCKED, () -> cancel(target));
+        assertThat(resourceSnapshot()).isEqualTo(before);
+        assertThat(queryIntegerValue("select count(*) from payment_cancel where payment_id=?", target.paymentId())).isZero();
+        for (String id : target.ids()) {
+            assertThat(queryStringValue("select status from registration where id=?", id)).isEqualTo("CONFIRMED");
+        }
+        verifyNoInteractions(cancelClient);
     }
 
     /** 한 단체 원결제는 구성원 수와 무관하게 한 번 환불하고 원결제·원귀속 금액을 보존한다. */
@@ -114,21 +137,21 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
     @ValueSource(booleans = {false, true})
     void paidCancellationRefundsOriginalOnceAndPreservesLedger(boolean group) {
         Target target = target(group, true);
-        BigDecimal originalAmount = amount("select amount from payment where id = ?", target.paymentId());
+        BigDecimal originalAmount = queryDecimalValue("select amount from payment where id = ?", target.paymentId());
         mockCancelSuccess();
         RegistrationModificationSettlementResult result = cancel(target);
         assertThat(result.refunds()).hasSize(1);
         assertThat(result.refunds().get(0).status()).isEqualTo(PaymentCancelStatus.DONE);
-        assertThat(s("select purpose from payment_cancel where id=?", result.refunds().get(0).paymentCancelId()))
+        assertThat(queryStringValue("select purpose from payment_cancel where id=?", result.refunds().get(0).paymentCancelId()))
                 .isEqualTo("REGISTRATION_CANCELLATION");
         assertThat(result.refunds().get(0).amount()).isEqualByComparingTo(originalAmount);
         assertThat(result.orders()).isEmpty();
         for (String id : target.ids()) { assertCanceled(id); }
-        counters(total, 0, 0);
-        assertThat(amount("select amount from payment where id = ?", target.paymentId())).isEqualByComparingTo(originalAmount);
-        assertThat(amount("select sum(allocated_amount) from payment_allocation where payment_id = ?", target.paymentId()))
+        assertCapacityCounts(total, 0, 0);
+        assertThat(queryDecimalValue("select amount from payment where id = ?", target.paymentId())).isEqualByComparingTo(originalAmount);
+        assertThat(queryDecimalValue("select sum(allocated_amount) from payment_allocation where payment_id = ?", target.paymentId()))
                 .isEqualByComparingTo(originalAmount);
-        assertThat(n("select count(*) from payment_cancel_allocation a join payment_cancel c on c.id=a.payment_cancel_id where c.payment_id=?",
+        assertThat(queryIntegerValue("select count(*) from payment_cancel_allocation a join payment_cancel c on c.id=a.payment_cancel_id where c.payment_id=?",
                 target.paymentId())).isEqualTo(target.ids().size());
         List<Map<String, Object>> resources = resourceSnapshot();
         // 완료된 취소 재조회는 접수 마감 이후에도 허용하되 PG를 다시 부르지 않는다.
@@ -155,9 +178,9 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
         assertThat(first.members().get(0).contractAmount()).isEqualByComparingTo("0");
         assertThat(first.members().get(0).paidAmount()).isEqualByComparingTo("40000");
         assertThat(repeated.refunds().get(0).status().name()).isEqualTo(state);
-        assertThat(s("select status from reservation where registration_id=?", target.ids().get(0))).isEqualTo("RELEASED");
-        counters(total, 0, 0);
-        assertThat(n("select count(*) from payment_cancel where payment_id=?", target.paymentId())).isEqualTo(1);
+        assertThat(queryStringValue("select status from reservation where registration_id=?", target.ids().get(0))).isEqualTo("RELEASED");
+        assertCapacityCounts(total, 0, 0);
+        assertThat(queryIntegerValue("select count(*) from payment_cancel where payment_id=?", target.paymentId())).isEqualTo(1);
         verify(cancelClient, times(1)).cancel(any());
     }
 
@@ -170,7 +193,7 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
         String additionalId = tx.execute(status -> {
             jdbc.update("update registration set contract_amount=60000, status='ADDITIONAL_PAYMENT_REQUIRED', version=version+1 where id=?", id);
             em.clear();
-            return settlement.settle(eventId, null, List.of(id), NOW).orders().get(0).paymentId();
+            return settlement.settleRegistrationModification(eventId, null, List.of(id), NOW).orders().get(0).paymentId();
         });
         payments.confirm(confirmRequest(additionalId));
         AtomicInteger calls = new AtomicInteger();
@@ -183,7 +206,7 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
         assertThat(result.refunds()).hasSize(2);
         BigDecimal completed = result.refunds().stream().filter(r -> r.status() == PaymentCancelStatus.DONE)
                 .map(RegistrationModificationSettlementResult.Refund::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
-        assertThat(amount("select paid_amount from registration where id=?", id))
+        assertThat(queryDecimalValue("select paid_amount from registration where id=?", id))
                 .isEqualByComparingTo(new BigDecimal("60000").subtract(completed));
         assertThat(result.members().get(0).status()).isEqualTo(failSecond
                 ? RegistrationStatus.CANCELLATION_PENDING : RegistrationStatus.CANCELED);
@@ -191,7 +214,7 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
                 .isEqualTo(failSecond ? 1L : 0L);
         cancel(target);
         verify(cancelClient, times(2)).cancel(any());
-        counters(total, 0, 0);
+        assertCapacityCounts(total, 0, 0);
     }
 
     /** 승인 시작 뒤에는 취소가 승인 중 예약과 주문을 변경하지 못한다. */
@@ -205,7 +228,7 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
         }
         List<Map<String, Object>> before = resourceSnapshot();
         expectError(ErrorCode.REGISTRATION_MODIFICATION_PAYMENT_CONFLICT, () -> cancel(target));
-        assertThat(n("select is_del from registration where id=?", target.ids().get(0))).isEqualTo(0);
+        assertThat(queryIntegerValue("select is_del from registration where id=?", target.ids().get(0))).isEqualTo(0);
         assertThat(resourceSnapshot()).isEqualTo(before);
         verifyNoInteractions(cancelClient, toss);
     }
@@ -218,11 +241,11 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
             jdbc.update("update registration set contract_amount=30000, status='PARTIAL_REFUND_REQUIRED', version=version+1 where id=?",
                     target.ids().get(0));
             em.clear();
-            settlement.settle(eventId, target.organizationId(), target.ids(), NOW);
+            settlement.settleRegistrationModification(eventId, target.organizationId(), target.ids(), NOW);
         });
         List<Map<String, Object>> before = resourceSnapshot();
         expectError(ErrorCode.PAYMENT_CANCEL_CONFLICT, () -> cancel(target));
-        assertThat(n("select count(*) from registration where organization_id=? and is_del=0", target.organizationId())).isEqualTo(2);
+        assertThat(queryIntegerValue("select count(*) from registration where organization_id=? and is_del=0", target.organizationId())).isEqualTo(2);
         assertThat(resourceSnapshot()).isEqualTo(before);
         verifyNoInteractions(cancelClient);
     }
@@ -241,11 +264,11 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
         }).when(actual).prepare(anyString(), anyString(), anyList());
         expectError(ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR, () -> cancel(target));
         assertThat(resourceSnapshot()).isEqualTo(before);
-        assertThat(n("select count(*) from registration where organization_id=? and is_del=0", target.organizationId())).isEqualTo(2);
-        assertThat(n("select count(*) from payment_cancel where payment_id=?", target.paymentId())).isZero();
-        assertThat(s("select process_status from payment where id=?", target.paymentId())).isEqualTo(paid ? "COMPLETED" : "READY");
+        assertThat(queryIntegerValue("select count(*) from registration where organization_id=? and is_del=0", target.organizationId())).isEqualTo(2);
+        assertThat(queryIntegerValue("select count(*) from payment_cancel where payment_id=?", target.paymentId())).isZero();
+        assertThat(queryStringValue("select process_status from payment where id=?", target.paymentId())).isEqualTo(paid ? "COMPLETED" : "READY");
         for (String id : target.ids()) {
-            assertThat(amount("select contract_amount from registration where id=?", id)).isEqualByComparingTo("40000");
+            assertThat(queryDecimalValue("select contract_amount from registration where id=?", id)).isEqualByComparingTo("40000");
         }
         verifyNoInteractions(cancelClient);
     }
@@ -259,12 +282,12 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
             jdbc.update("update payment set process_status='INVALIDATED', version=version+1 where id=?", target.paymentId());
             jdbc.update("update registration set contract_amount=0, version=version+1 where id=?", id);
             em.clear();
-            settlement.settle(eventId, null, List.of(id), NOW);
+            settlement.settleRegistrationModification(eventId, null, List.of(id), NOW);
         });
-        assertThat(s("select status from reservation where registration_id=?", id)).isEqualTo("CONSUMED");
+        assertThat(queryStringValue("select status from reservation where registration_id=?", id)).isEqualTo("CONSUMED");
         assertThat(cancel(target).refunds()).isEmpty();
         assertCanceled(id);
-        counters(total, 0, 0);
+        assertCapacityCounts(total, 0, 0);
         verifyNoInteractions(cancelClient, toss);
     }
 
@@ -295,22 +318,22 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
         expectError(ErrorCode.EVENT_NOT_FOUND, () -> commands.cancelPersonal("missing-event", personal.ids().get(0),
                 personalAccess(personal.ids().get(0))));
         assertThat(resourceSnapshot()).isEqualTo(before);
-        assertThat(n("select count(*) from registration where event_id=? and is_del=0", eventId)).isEqualTo(3);
+        assertThat(queryIntegerValue("select count(*) from registration where event_id=? and is_del=0", eventId)).isEqualTo(3);
         verifyNoInteractions(cancelClient, toss);
     }
 
-    /** 정원 마감 상태에서는 기간 내 취소를 허용하지만 접수 마감 정각부터 새 취소를 차단한다. */
+    /** 환불 없는 미결제 취소는 정원 마감과 접수 마감 이후에도 허용한다. */
     @Test
-    void closedCapacityAllowsCancellationButDeadlineDoesNot() {
+    void unpaidCancellationRemainsAllowedAfterDeadline() {
         Target first = target(false, false);
         Target second = target(false, false);
         jdbc.update("update event set event_status='CLOSED' where id=?", eventId);
         cancel(first);
         when(time.currentDateTime()).thenReturn(NOW.plusDays(1));
-        expectError(ErrorCode.EVENT_REGISTRATION_CLOSED, () -> cancel(second));
-        assertThat(n("select is_del from registration where id=?", second.ids().get(0))).isZero();
+        cancel(second);
+        assertThat(queryIntegerValue("select is_del from registration where id=?", second.ids().get(0))).isEqualTo(1);
         cancel(first);
-        counters(total, 1, 0);
+        assertCapacityCounts(total, 0, 0);
         verifyNoInteractions(cancelClient, toss);
     }
 
@@ -326,7 +349,7 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService workers = Executors.newFixedThreadPool(2);
         try {
-            java.util.concurrent.Callable<RegistrationModificationSettlementResult> action = () -> {
+            Callable<RegistrationModificationSettlementResult> action = () -> {
                 if (!start.await(10, TimeUnit.SECONDS)) { throw new AssertionError("시작 신호 대기 초과"); }
                 return group ? commands.cancelOrganization(eventId, target.organizationId(), organizationAccess)
                         : commands.cancelPersonal(eventId, target.ids().get(0), personalAccess);
@@ -342,8 +365,8 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
             assertThat(workers.awaitTermination(15, TimeUnit.SECONDS)).isTrue();
         }
         for (String id : target.ids()) { assertCanceled(id); }
-        assertThat(n("select count(*) from payment_cancel where payment_id=?", target.paymentId())).isEqualTo(1);
-        counters(total, 0, 0);
+        assertThat(queryIntegerValue("select count(*) from payment_cancel where payment_id=?", target.paymentId())).isEqualTo(1);
+        assertCapacityCounts(total, 0, 0);
         verify(cancelClient, times(1)).cancel(any());
     }
 
@@ -352,10 +375,10 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void groupCancellationHandlesMixedOrderBeforeAndAfterApproval(boolean approveMixed) {
-        OrgRegistrationCreateResponse original = group(categoryA);
+        OrgRegistrationCreateResponse original = createOrganizationRegistration(categoryA);
         mockApprovalSuccess();
         payments.confirm(confirmRequest(original.paymentId()));
-        RegistrationCreateResponse added = personal(categoryA, "S", "1991-01-01");
+        RegistrationCreateResponse added = createPersonalRegistration(categoryA, "S", "1991-01-01");
         String existingId = original.registrationIds().get(0);
         // 수정 서비스 자체는 기존 회귀 테스트가 담당한다. 여기서는 이미 준비된 혼합 주문의 취소를 검증한다.
         String mixedId = tx.execute(status -> {
@@ -363,7 +386,7 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
             jdbc.update("update registration set organization_id=?, version=version+1 where id=?", original.organizationId(), added.registrationId());
             jdbc.update("update payment set process_status='INVALIDATED', version=version+1 where id=?", added.paymentId());
             em.clear();
-            return settlement.settle(eventId, original.organizationId(), List.of(existingId, added.registrationId()), NOW)
+            return settlement.settleRegistrationModification(eventId, original.organizationId(), List.of(existingId, added.registrationId()), NOW)
                     .orders().get(0).paymentId();
         });
         if (approveMixed) { payments.confirm(confirmRequest(mixedId)); }
@@ -374,10 +397,10 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
         assertThat(result.refunds()).hasSize(approveMixed ? 2 : 1);
         assertThat(result.refunds().stream().map(RegistrationModificationSettlementResult.Refund::amount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add)).isEqualByComparingTo(approveMixed ? "100000" : "40000");
-        assertThat(s("select process_status from payment where id=?", mixedId)).isEqualTo(approveMixed ? "COMPLETED" : "INVALIDATED");
+        assertThat(queryStringValue("select process_status from payment where id=?", mixedId)).isEqualTo(approveMixed ? "COMPLETED" : "INVALIDATED");
         assertCanceled(existingId);
         assertCanceled(added.registrationId());
-        counters(total, 0, 0);
+        assertCapacityCounts(total, 0, 0);
         verify(cancelClient, times(approveMixed ? 2 : 1)).cancel(any());
     }
 
@@ -391,8 +414,8 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
         RegistrationModificationSettlementResult replay = cancel(target);
         assertThat(replay.members().get(0).status()).isEqualTo(RegistrationStatus.CANCELLATION_PENDING);
         assertThat(replay.refunds().get(0).status()).isEqualTo(PaymentCancelStatus.PROCESSING);
-        assertThat(n("select count(*) from payment_cancel where payment_id=?", target.paymentId())).isEqualTo(1);
-        counters(total, 0, 0);
+        assertThat(queryIntegerValue("select count(*) from payment_cancel where payment_id=?", target.paymentId())).isEqualTo(1);
+        assertCapacityCounts(total, 0, 0);
         verifyNoInteractions(cancelClient);
     }
 
@@ -406,17 +429,17 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
         RegistrationModificationSettlementResult partial = tx.execute(status -> {
             jdbc.update("update registration set contract_amount=30000, status='PARTIAL_REFUND_REQUIRED', version=version+1 where id=?", id);
             em.clear();
-            return settlement.settle(eventId, null, List.of(id), NOW);
+            return settlement.settleRegistrationModification(eventId, null, List.of(id), NOW);
         });
         refundExecutor.execute(eventId, null, partial.refunds());
-        assertThat(amount("select paid_amount from registration where id=?", id)).isEqualByComparingTo("30000");
+        assertThat(queryDecimalValue("select paid_amount from registration where id=?", id)).isEqualByComparingTo("30000");
         RegistrationModificationSettlementResult result = cancel(target);
         assertThat(result.refunds()).hasSize(2);
         BigDecimal newRefund = result.refunds().stream()
                 .filter(r -> !r.paymentCancelId().equals(partial.refunds().get(0).paymentCancelId()))
                 .map(RegistrationModificationSettlementResult.Refund::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
         assertThat(newRefund).isEqualByComparingTo("30000");
-        assertThat(amount("select sum(cancel_amount) from payment_cancel where payment_id=? and status='DONE'", target.paymentId()))
+        assertThat(queryDecimalValue("select sum(cancel_amount) from payment_cancel where payment_id=? and status='DONE'", target.paymentId()))
                 .isEqualByComparingTo("40000");
         assertCanceled(id);
         verify(cancelClient, times(2)).cancel(any());
@@ -426,10 +449,10 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
     private Target target(boolean group, boolean paid) {
         Target target;
         if (group) {
-            OrgRegistrationCreateResponse created = group(categoryA, categoryA);
+            OrgRegistrationCreateResponse created = createOrganizationRegistration(categoryA, categoryA);
             target = new Target(created.organizationId(), created.registrationIds(), created.paymentId());
         } else {
-            RegistrationCreateResponse created = personal(categoryA, "S", "1990-01-01");
+            RegistrationCreateResponse created = createPersonalRegistration(categoryA, "S", "1990-01-01");
             target = new Target(null, List.of(created.registrationId()), created.paymentId());
         }
         if (paid) { mockApprovalSuccess(); payments.confirm(confirmRequest(target.paymentId())); }
@@ -445,13 +468,13 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
 
     /** 개인의 현재 DB 본인확인 정보를 만든다. */
     private RegistrationAccessRequest personalAccess(String id) {
-        return new RegistrationAccessRequest(s("select name from registration where id=?", id),
-                s("select birth from registration where id=?", id), s("select ph_num from registration where id=?", id), "Test1234!");
+        return new RegistrationAccessRequest(queryStringValue("select name from registration where id=?", id),
+                queryStringValue("select birth from registration where id=?", id), queryStringValue("select ph_num from registration where id=?", id), "Test1234!");
     }
 
     /** 단체의 현재 DB 본인확인 정보를 만든다. */
     private OrganizationAccessRequest organizationAccess(String id) {
-        return new OrganizationAccessRequest(s("select login_id from organization where id=?", id), "Test1234!");
+        return new OrganizationAccessRequest(queryStringValue("select login_id from organization where id=?", id), "Test1234!");
     }
 
     /** 원결제 이력을 고려한 검증된 성공 응답을 구성하고 외부 호출의 트랜잭션 분리를 확인한다. */
@@ -459,7 +482,7 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
         when(cancelClient.cancel(any())).thenAnswer(invocation -> {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
             TossCancelAttempt attempt = invocation.getArgument(0);
-            assertThat(n("select count(*) from payment_cancel where id=? and requested_at is not null and status='PROCESSING'",
+            assertThat(queryIntegerValue("select count(*) from payment_cancel where id=? and requested_at is not null and status='PROCESSING'",
                     attempt.paymentCancelId())).isEqualTo(1);
             return success(attempt);
         });
@@ -476,23 +499,23 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
 
     /** 취소 완료는 삭제 표기·계약금·순납부액·예약이 모두 일치해야 한다. */
     private void assertCanceled(String id) {
-        assertThat(n("select is_del from registration where id=?", id)).isEqualTo(1);
-        assertThat(s("select status from registration where id=?", id)).isEqualTo("CANCELED");
-        assertThat(amount("select contract_amount from registration where id=?", id)).isZero();
-        assertThat(amount("select paid_amount from registration where id=?", id)).isZero();
-        assertThat(s("select status from reservation where registration_id=?", id)).isEqualTo("RELEASED");
+        assertThat(queryIntegerValue("select is_del from registration where id=?", id)).isEqualTo(1);
+        assertThat(queryStringValue("select status from registration where id=?", id)).isEqualTo("CANCELED");
+        assertThat(queryDecimalValue("select contract_amount from registration where id=?", id)).isZero();
+        assertThat(queryDecimalValue("select paid_amount from registration where id=?", id)).isZero();
+        assertThat(queryStringValue("select status from reservation where registration_id=?", id)).isEqualTo("RELEASED");
     }
 
     /** 예약 version과 정원 카운터로 반환 중복·실패 롤백을 비교한다. */
     private List<Map<String, Object>> resourceSnapshot() {
-        java.util.ArrayList<Map<String, Object>> rows = new java.util.ArrayList<>(jdbc.queryForList(
+        ArrayList<Map<String, Object>> rows = new ArrayList<>(jdbc.queryForList(
                 "select id, held_count, confirmed_count, updated_at from capacity where event_id=? order by id", eventId));
         rows.addAll(jdbc.queryForList("select rv.id, rv.status, rv.version from reservation rv join registration r on r.id=rv.registration_id where r.event_id=? order by rv.id", eventId));
         return rows;
     }
 
     /** 금융 금액은 정수나 부동소수점으로 바꾸지 않고 조회한다. */
-    private BigDecimal amount(String sql, Object... args) { return jdbc.queryForObject(sql, BigDecimal.class, args); }
+    private BigDecimal queryDecimalValue(String sql, Object... args) { return jdbc.queryForObject(sql, BigDecimal.class, args); }
 
     /** 테스트가 생성한 신청 범위와 원주문을 보관한다. */
     private record Target(String organizationId, List<String> ids, String paymentId) { }

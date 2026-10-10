@@ -43,6 +43,7 @@ class OrgParticipantPasswordStorageTest {
     @Mock private ReservationCommandRepository reservations;
     @Mock private CapacityCommandRepository capacities;
     @Mock private CapacityHoldService hold;
+    @Mock private ReservationHistoryRecorder historyRecorder;
     @Mock private CapacityRequirementResolver requirements;
     @Mock private ReservationCapacityDiffService diff;
     @Mock private CapacityModificationService modification;
@@ -75,15 +76,15 @@ class OrgParticipantPasswordStorageTest {
                 new OrgRegistrationModificationCandidateContext.ParticipantCandidate(null, secondParticipant, category, List.of());
         OrgRegistrationModificationCandidateContext candidate = new OrgRegistrationModificationCandidateContext(
                 event, organization, List.of(existing), List.of(added, secondAdded), request, now);
-        when(candidateValidator.validate(access)).thenReturn(candidate);
+        when(candidateValidator.validateOrganizationModificationCandidates(access)).thenReturn(candidate);
         OrgRegistrationParticipantPricing price = new OrgRegistrationParticipantPricing(
                 added, RegistrationModificationPrice.forNew(BigDecimal.TEN));
         OrgRegistrationParticipantPricing secondPrice = new OrgRegistrationParticipantPricing(
                 secondAdded, RegistrationModificationPrice.forNew(BigDecimal.TEN));
-        when(pricing.repriceOrganization(candidate)).thenReturn(List.of(price, secondPrice));
+        when(pricing.calculateOrganizationRegistrationModificationPrices(candidate)).thenReturn(List.of(price, secondPrice));
         when(registrations.save(any(Registration.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        service.modify("event", "organization", request, now, access);
+        service.modifyOrganizationRegistration("event", "organization", request, now, access);
 
         ArgumentCaptor<Registration> saved = ArgumentCaptor.forClass(Registration.class);
         verify(registrations, times(2)).save(saved.capture());

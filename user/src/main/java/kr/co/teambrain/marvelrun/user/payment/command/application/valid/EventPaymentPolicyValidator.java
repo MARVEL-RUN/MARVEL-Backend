@@ -1,11 +1,13 @@
 package kr.co.teambrain.marvelrun.user.payment.command.application.valid;
 
+import java.time.LocalDateTime;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import org.springframework.stereotype.Component;
-
-import java.time.LocalDateTime;
 
 /**
  * 대회의 신규 결제 진행 가능 여부를 검증한다.
@@ -26,38 +28,20 @@ public class EventPaymentPolicyValidator {
             Event event,
             LocalDateTime now
     ) {
-        if (event == null || now == null) {
-            throw new CustomException(
-                    ErrorCode.PAYMENT_POLICY_CONFIGURATION_ERROR
-            );
-        }
-
-        LocalDateTime paymentDeadline =
-                event.getPaymentDeadline();
-
-        if (paymentDeadline == null) {
-            throw new CustomException(
-                    ErrorCode.PAYMENT_POLICY_CONFIGURATION_ERROR
-            );
-        }
-
-        if (!now.isBefore(paymentDeadline)) {
-            throw new CustomException(
-                    ErrorCode.EVENT_PAYMENT_CLOSED
-            );
-        }
+        RegistrationActionPolicyService.validateGlobalRegistrationActionPolicy(
+                event, RegistrationActionPolicyModels.Action.PAYMENT, now);
     }
     /**
-     * 확정 참가의 추가금은 신규 접수 결제 기한 이후에도 납부할 수 있다.
+     * 최초·추가·혼합 결제 모두 전역 결제 마감을 적용한다.
      * 호출자는 실제 Payment의 목적을 전달하고 귀속·CONSUMED 예약·부족액을 같은 Tx에서 검증한다.
      * 최초/혼합 주문은 기존 결제 기한을 그대로 적용한다.
      */
     public void validateForPurpose(Event event, LocalDateTime now,
-            kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose purpose) {
+            PaymentPurpose purpose) {
         if (event == null || now == null || purpose == null) {
             throw new CustomException(ErrorCode.PAYMENT_POLICY_CONFIGURATION_ERROR);
         }
-        if (purpose == kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose.ADDITIONAL_PAYMENT) { return; }
+
         validateNewPayment(event, now);
     }
 }

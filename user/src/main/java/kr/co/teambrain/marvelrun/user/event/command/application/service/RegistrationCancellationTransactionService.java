@@ -8,6 +8,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels.*;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
@@ -48,6 +50,7 @@ public class RegistrationCancellationTransactionService {
     private final RegistrationModificationSettlementService settlement;
     private final PaymentCancelCommandRepository cancellations;
     private final ServerTimeProvider time;
+    private final RegistrationActionPolicyService actionPolicies;
 
     /** 개인 신청을 현재 정보로 인증하며 단체 구성원의 개인 취소 진입을 차단한다. */
     @Transactional
@@ -61,7 +64,7 @@ public class RegistrationCancellationTransactionService {
             throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
         }
         RegistrationAccessVerifier.verifyPersonal(registration, access, passwordEncoder);
-        return prepare(event, null, List.of(registration), payments);
+        return prepareRegistrationCancellation(event, null, List.of(registration), payments);
     }
 
     /** 단체 인증 후 DB의 현재 구성원을 잠금 조회한다. 프론트의 명단·환불액을 받지 않는다. */
@@ -83,11 +86,11 @@ public class RegistrationCancellationTransactionService {
                 .setLockMode(LockModeType.PESSIMISTIC_WRITE).getResultList();
         for (Registration member : members) { entityManager.refresh(member, LockModeType.PESSIMISTIC_WRITE); }
         if (members.isEmpty()) { throw new CustomException(ErrorCode.REGISTRATION_NOT_FOUND); }
-        return prepare(event, organizationId, members, payments);
+        return prepareRegistrationCancellation(event, organizationId, members, payments);
     }
 
     /** 활성 신청만 새로 취소하고 이미 취소된 행은 재반환·재환불하지 않고 상태를 반환한다. */
-    private Prepared prepare(Event event, String organizationId, List<Registration> members, List<Payment> payments) {
+    private Prepared prepareRegistrationCancellation(Event event, String organizationId, List<Registration> members, List<Payment> payments) {
         // 인증 후 외부 결제 여부를 확인하며 취소 상태의 재요청에도 같은 제한을 적용한다.
         members.forEach(Registration::validateOnlineRegistrationProcessingAllowed);
 
@@ -97,7 +100,10 @@ public class RegistrationCancellationTransactionService {
             return new Prepared(snapshot(members, payments, List.of()), false);
         }
         LocalDateTime now = time.currentDateTime();
-        validateWindow(event, now);
+        List<Policy> policies = actionPolicies.loadEnabledRegistrationActionPolicies(event.getId());
+        for (Registration member : active) {
+            actionPolicies.validateRegistrationActionPolicy(event, member, Action.REFUND, now, policies);
+        }
         paymentGuard.prepareLockedPayments(payments);
         lockReservations(members);
         validateCanceled(members.stream().filter(Registration::isSoftDeleted).toList());
@@ -105,24 +111,9 @@ public class RegistrationCancellationTransactionService {
         List<String> activeIds = active.stream().map(Registration::getId).sorted().toList();
         removal.releaseAll(event.getId(), activeIds, now);
         for (Registration member : active) { member.cancelParticipation(); }
-        RegistrationModificationSettlementResult settled = settlement.settle(event.getId(), organizationId, activeIds, now);
+        RegistrationModificationSettlementResult settled = settlement.settleRegistrationModification(event.getId(), organizationId, activeIds, now, policies);
         entityManager.flush();
         return new Prepared(snapshot(members, payments, settled.refunds()), true);
-    }
-
-    /** 취소 허용 기간은 기존 접수 기간을 사용하고 정원 마감(CLOSED)만으로 취소를 막지는 않는다. */
-    private void validateWindow(Event event, LocalDateTime now) {
-        LocalDateTime start = event.getRegistStartDate();
-        LocalDateTime deadline = event.getRegistDeadline();
-        if (start == null || deadline == null || !start.isBefore(deadline)) {
-            throw new CustomException(ErrorCode.REGISTRATION_FINANCIAL_STATE_INVALID,
-                    "취소 기간 판단에 필요한 접수 기간 설정이 올바르지 않습니다.");
-        }
-        if (event.getEventStatus() != EventStatus.OPEN && event.getEventStatus() != EventStatus.CLOSED) {
-            throw new CustomException(ErrorCode.EVENT_NOT_OPEN);
-        }
-        if (now.isBefore(start)) { throw new CustomException(ErrorCode.EVENT_REGISTRATION_NOT_STARTED); }
-        if (!now.isBefore(deadline)) { throw new CustomException(ErrorCode.EVENT_REGISTRATION_CLOSED); }
     }
 
     /** 지원하는 현재 신청 상태와 금액만 취소한다. 미지정 관리자 상태는 임의 해석하지 않는다. */

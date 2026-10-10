@@ -1,5 +1,9 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.OrgRegistrationModificationCandidateContext;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationModificationCandidateContext;
@@ -7,18 +11,14 @@ import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
-import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrgRegistrationModificationRequest;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.OrgRegistrationModificationParticipantRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrganizationAccessRequest;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrgRegistrationModificationRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationAccessRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationModificationRequest;
-import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.OrgRegistrationModificationParticipantRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -170,14 +170,14 @@ class RegistrationModificationPricingServiceTest {
                 "테스트 주소",
                 "상세",
                 "테스트 단체장",
-                java.time.LocalDate.of(1990, 1, 1),
+                LocalDate.of(1990, 1, 1),
                 "010-0000-0000",
                 new OrganizationAccessRequest("login", "password"),
                 List.of(existingRequest, newRequest)),
                 NOW
         );
 
-        var results = service.repriceOrganization(context);
+        var results = service.calculateOrganizationRegistrationModificationPrices(context);
 
         assertThat(results).hasSize(2);
 

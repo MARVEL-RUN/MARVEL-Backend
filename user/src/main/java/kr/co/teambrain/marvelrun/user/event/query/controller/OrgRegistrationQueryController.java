@@ -26,6 +26,6 @@ public class OrgRegistrationQueryController {
     public ResponseEntity<List<OrgRegistrationQueryResponse>> lookup(
             @PathVariable("eventId") String eventId, @Valid @RequestBody OrganizationAccessRequest access) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
-                .header("Pragma", "no-cache").body(service.organization(eventId, access));
+                .header("Pragma", "no-cache").body(service.findOrganizationRegistrationDetails(eventId, access));
     }
 }

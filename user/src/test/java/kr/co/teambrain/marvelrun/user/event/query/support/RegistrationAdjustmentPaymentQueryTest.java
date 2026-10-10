@@ -13,25 +13,25 @@ import static org.assertj.core.api.Assertions.*;
 class RegistrationAdjustmentPaymentQueryTest {
     private final RegistrationPaymentQueryResolver resolver = new RegistrationPaymentQueryResolver();
     private final LocalDateTime now = LocalDateTime.of(2026,11,2,12,0);
-    @Test void missingOrderOffersAdditionalPreparationAfterDeadline() {
-        var result = resolver.resolve(List.of(member(true)),List.of(),List.of(),List.of(),now.minusDays(1),now);
-        assertThat(result.action()).isEqualTo(RegistrationPaymentAction.PREPARE_ADDITIONAL_PAYMENT);
+    @Test void additionalPaymentClosesAfterDeadline() {
+        var result = resolver.resolveRegistrationPaymentGuidance(List.of(member(true)),List.of(),List.of(),List.of(),now.minusDays(1),now);
+        assertThat(result.action()).isEqualTo(RegistrationPaymentAction.PAYMENT_CLOSED);
         assertThat(result.paymentId()).isNull(); assertThat(result.orderId()).isNull();
     }
     @Test void initialPaymentStillClosesAtDeadline() {
-        assertThat(resolver.resolve(List.of(member(false)),List.of(),List.of(),List.of(),now,now).action())
+        assertThat(resolver.resolveRegistrationPaymentGuidance(List.of(member(false)),List.of(),List.of(),List.of(),now,now).action())
                 .isEqualTo(RegistrationPaymentAction.PAYMENT_CLOSED);
     }
     @Test void matchingAdditionalReadyOrderUsesExistingPreparation() {
         Payment payment = new Payment("p","r","o",new BigDecimal("30000"),PaymentPurpose.ADDITIONAL_PAYMENT,PaymentProcessStatus.READY);
-        var result = resolver.resolve(List.of(member(true)),List.of(payment),
-                List.of(new Allocation("p","r",new BigDecimal("30000"),PaymentPurpose.ADDITIONAL_PAYMENT)),List.of(),now.minusDays(1),now);
+        var result = resolver.resolveRegistrationPaymentGuidance(List.of(member(true)),List.of(payment),
+                List.of(new Allocation("p","r",new BigDecimal("30000"),PaymentPurpose.ADDITIONAL_PAYMENT)),List.of(),now.plusDays(1),now);
         assertThat(result.action()).isEqualTo(RegistrationPaymentAction.PREPARE_PAYMENT);
         assertThat(result.paymentId()).isEqualTo("p");
     }
     @Test void unknownApprovalWinsOverAdditionalButton() {
         Payment payment = new Payment("p","r","o",new BigDecimal("30000"),PaymentPurpose.ADDITIONAL_PAYMENT,PaymentProcessStatus.UNKNOWN);
-        assertThat(resolver.resolve(List.of(member(true)),List.of(payment),List.of(),List.of(),now.minusDays(1),now).action())
+        assertThat(resolver.resolveRegistrationPaymentGuidance(List.of(member(true)),List.of(payment),List.of(),List.of(),now.minusDays(1),now).action())
                 .isEqualTo(RegistrationPaymentAction.WAIT);
     }
     /* 외부 신청에 미납 READY 주문이 남아 있더라도 온라인 결제 버튼을 안내하지 않는다. */
@@ -41,12 +41,12 @@ class RegistrationAdjustmentPaymentQueryTest {
         Member external = new Member("r", "외부결제자", null, "1990-01-01", "010-0000-0000", "test",
                 null, "c", "category", List.of(), null, null, null, false, null, null, null,
                 RegistrationStatus.ADDITIONAL_PAYMENT_REQUIRED, new BigDecimal("70000"),
-                new BigDecimal("40000"), false, ReservationStatus.CONSUMED, now.plusDays(1), true);
+                new BigDecimal("40000"), false, ReservationStatus.CONSUMED, now.plusDays(1), true, now.minusDays(2), null);
         Payment payment = new Payment("p", "r", "o", new BigDecimal("30000"),
                 PaymentPurpose.ADDITIONAL_PAYMENT, PaymentProcessStatus.READY);
 
         // 외부 결제는 현재 금융 상태를 반환하되 실행 가능한 주문 ID를 제공하지 않는다.
-        RegistrationPaymentQueryResolver.Result result = resolver.resolve(List.of(external), List.of(payment),
+        RegistrationPaymentQueryResolver.Result result = resolver.resolveRegistrationPaymentGuidance(List.of(external), List.of(payment),
                 List.of(new Allocation("p", "r", new BigDecimal("30000"), PaymentPurpose.ADDITIONAL_PAYMENT)),
                 List.of(), now.plusDays(1), now);
         assertThat(result.action()).isEqualTo(RegistrationPaymentAction.NONE);
@@ -58,6 +58,6 @@ class RegistrationAdjustmentPaymentQueryTest {
         return new Member("r","name",null,"1990-01-01","010-0000-0000","test",null,"c","category",List.of(),
                 null,null,null,false,null,null,null,additional ? RegistrationStatus.ADDITIONAL_PAYMENT_REQUIRED : RegistrationStatus.PAYMENT_PENDING,
                 new BigDecimal("70000"),additional ? new BigDecimal("40000") : BigDecimal.ZERO,false,
-                additional ? ReservationStatus.CONSUMED : ReservationStatus.HELD,now.minusDays(1), false);
+                additional ? ReservationStatus.CONSUMED : ReservationStatus.HELD,now.minusDays(1), false, now.minusDays(2), null);
     }
 }

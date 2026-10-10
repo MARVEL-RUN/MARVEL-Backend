@@ -30,7 +30,7 @@ class RegistrationCreateAllocationMvpDatabaseTest
     void personalApplicationCreatesSingleAllocation() {
 
         var result =
-                personal(
+                createPersonalRegistration(
                         categoryA,
                         "S",
                         "1990-01-01"
@@ -83,7 +83,7 @@ class RegistrationCreateAllocationMvpDatabaseTest
                 )
         ).isEqualByComparingTo(paymentAmount);
 
-        reservation(
+        assertReservationStateAndHistory(
                 result.registrationId(),
                 "HELD",
                 1,
@@ -100,7 +100,7 @@ class RegistrationCreateAllocationMvpDatabaseTest
     void groupApplicationCreatesAllocationForEveryRegistration() {
 
         var result =
-                group(
+                createOrganizationRegistration(
                         categoryA,
                         categoryB
                 );
@@ -180,7 +180,7 @@ class RegistrationCreateAllocationMvpDatabaseTest
         expectError(
                 ErrorCode.CAPACITY_ACQUIRE_FAILED,
                 () ->
-                        group(
+                        createOrganizationRegistration(
                                 categoryA,
                                 categoryB
                         )
@@ -188,7 +188,7 @@ class RegistrationCreateAllocationMvpDatabaseTest
 
         noApplications();
 
-        assertThat(n(
+        assertThat(queryIntegerValue(
                 """
                 select count(*)
                 from payment
@@ -207,25 +207,25 @@ class RegistrationCreateAllocationMvpDatabaseTest
                 eventId
         )).isZero();
 
-        counters(
+        assertCapacityCounts(
                 total,
                 0,
                 0
         );
 
-        counters(
+        assertCapacityCounts(
                 categoryACapacity,
                 0,
                 0
         );
 
-        counters(
+        assertCapacityCounts(
                 categoryBCapacity,
                 0,
                 0
         );
 
-        counters(
+        assertCapacityCounts(
                 shirtS,
                 0,
                 0
@@ -268,7 +268,7 @@ class RegistrationCreateAllocationMvpDatabaseTest
 
         assertThatThrownBy(
                 () ->
-                        group(
+                        createOrganizationRegistration(
                                 categoryA,
                                 categoryB
                         )
@@ -278,25 +278,25 @@ class RegistrationCreateAllocationMvpDatabaseTest
 
         noApplications();
 
-        counters(
+        assertCapacityCounts(
                 total,
                 0,
                 0
         );
 
-        counters(
+        assertCapacityCounts(
                 categoryACapacity,
                 0,
                 0
         );
 
-        counters(
+        assertCapacityCounts(
                 categoryBCapacity,
                 0,
                 0
         );
 
-        counters(
+        assertCapacityCounts(
                 shirtS,
                 0,
                 0

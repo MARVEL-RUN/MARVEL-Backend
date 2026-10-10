@@ -1,5 +1,12 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
@@ -9,6 +16,7 @@ import kr.co.teambrain.marvelrun.user.capacity.command.application.service.Capac
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.CapacityRequirementResolver;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.RegistrationCapacityService;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationCapacityDiffService;
+import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationHistoryRecorder;
 import kr.co.teambrain.marvelrun.user.capacity.command.repository.ReservationCommandRepository;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
@@ -26,12 +34,6 @@ import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationComma
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
-
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -75,10 +77,10 @@ class RegistrationPersonalModificationServiceTest {
     private final RegistrationModificationPaymentGuard paymentGuard =
             mock(RegistrationModificationPaymentGuard.class);
 
-    private final jakarta.persistence.EntityManager entityManager = mock(jakarta.persistence.EntityManager.class);
+    private final EntityManager entityManager = mock(EntityManager.class);
 
     private final RegistrationPersonalModificationService service =
-            new RegistrationPersonalModificationService(
+            new RegistrationPersonalModificationService(mock(ReservationHistoryRecorder.class),
                     registrationCapacityService,
                     accessValidator,
                     candidateValidator,
@@ -208,13 +210,13 @@ class RegistrationPersonalModificationServiceTest {
     @Test
     void staleComparedVersionStopsBeforeInvalidation() {
         when(registrationRepository.findById("registration")).thenReturn(Optional.of(registration));
-        assertThatThrownBy(() -> service.modify("event", "registration", request, now, 2L))
+        assertThatThrownBy(() -> service.modifyPersonalRegistration("event", "registration", request, now, 2L))
                 .isInstanceOfSatisfying(CustomException.class,
                         exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.CONCURRENT_MODIFICATION));
         InOrder order = inOrder(registrationCapacityService, paymentGuard, entityManager);
         order.verify(registrationCapacityService).lockEvent("event");
         order.verify(paymentGuard).lockPersonal("event", "registration");
-        order.verify(entityManager).refresh(registration, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+        order.verify(entityManager).refresh(registration, LockModeType.PESSIMISTIC_WRITE);
         verify(paymentGuard, never()).prepareLockedPayments(anyList());
         verifyNoInteractions(candidateValidator, pricingService, capacityModificationService);
         verify(registrationRepository, never()).flush();
@@ -231,9 +233,9 @@ class RegistrationPersonalModificationServiceTest {
                     .isEqualByComparingTo("50000");
             return null;
         }).when(capacityModificationService)
-                .moveAll("event", diffs, now);
+                .moveReservationCapacities("event", diffs, now);
 
-        var result = service.modify(
+        var result = service.modifyPersonalRegistration(
                 "event", "registration", request, now
         );
 
@@ -294,7 +296,7 @@ class RegistrationPersonalModificationServiceTest {
                 .repricePersonal(candidate);
 
         order.verify(capacityModificationService)
-                .moveAll("event", diffs, now);
+                .moveReservationCapacities("event", diffs, now);
 
         order.verify(registrationRepository)
                 .flush();
@@ -307,10 +309,10 @@ class RegistrationPersonalModificationServiceTest {
     void capacityFailureLeavesRegistrationUntouched() {
         doThrow(new CustomException(ErrorCode.CAPACITY_ACQUIRE_FAILED))
                 .when(capacityModificationService)
-                .moveAll("event", diffs, now);
+                .moveReservationCapacities("event", diffs, now);
 
         assertThatThrownBy(
-                () -> service.modify(
+                () -> service.modifyPersonalRegistration(
                         "event", "registration", request, now
                 )
         ).isInstanceOf(CustomException.class);
@@ -339,7 +341,7 @@ class RegistrationPersonalModificationServiceTest {
                 );
 
         assertThatThrownBy(
-                () -> service.modify(
+                () -> service.modifyPersonalRegistration(
                         "event", "registration", request, now
                 )
         ).isInstanceOf(CustomException.class);
@@ -368,7 +370,7 @@ class RegistrationPersonalModificationServiceTest {
         ).when(paymentGuard).prepareLockedPayments(List.of());
 
         assertThatThrownBy(
-                () -> service.modify(
+                () -> service.modifyPersonalRegistration(
                         "event", "registration", request, now
                 )
         ).isInstanceOf(CustomException.class);
@@ -398,7 +400,7 @@ class RegistrationPersonalModificationServiceTest {
         );
 
         assertThatThrownBy(
-                () -> service.modify(
+                () -> service.modifyPersonalRegistration(
                         "event", "registration", request, now
                 )
         ).isInstanceOf(CustomException.class);

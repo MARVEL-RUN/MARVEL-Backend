@@ -4,6 +4,11 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import jakarta.validation.Validation;
 import jakarta.validation.ValidatorFactory;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
@@ -19,24 +24,23 @@ import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inne
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.*;
 import kr.co.teambrain.marvelrun.user.event.command.repository.OrganizationCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 /** 실제 단체 분기·접근·최소 검증·보호를 연결하고 전체 수정 서비스의 호출 여부를 확인한다. */
 class OrgRegistrationPersonalInformationServiceTest {
-    private final org.springframework.security.crypto.password.PasswordEncoder passwordEncoder =
-            new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder(4);
+    private final PasswordEncoder passwordEncoder =
+            new BCryptPasswordEncoder(4);
     private static final ValidatorFactory INPUTS = Validation.buildDefaultValidatorFactory();
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 9, 20, 12, 0);
     private final RegistrationCommandRepository repository = mock(RegistrationCommandRepository.class);
@@ -48,14 +52,14 @@ class OrgRegistrationPersonalInformationServiceTest {
     private final ServerTimeProvider time = mock(ServerTimeProvider.class);
     private final OrgRegistrationModificationAccessValidator access = new OrgRegistrationModificationAccessValidator(passwordEncoder, organizations, repository);
     private final OrgRegistrationPersonalInformationValidator validator = new OrgRegistrationPersonalInformationValidator(
-            INPUTS.getValidator(), new RegistrationInformationPolicyValidator(new RegistrationPolicyValidator()),
+            INPUTS.getValidator(), new RegistrationInformationPolicyValidator(),
             new RegistrationUniqueInfoValidator(repository));
     private final RegistrationModificationTransactionService commands = new RegistrationModificationTransactionService(
             personal, full, settlement, time, mock(RegistrationModificationAccessValidator.class),
             mock(RegistrationPersonalInformationValidator.class), new RegistrationModificationClassifier(),
             mock(RegistrationPersonalInformationService.class), access, validator,
             new OrgRegistrationPersonalInformationService(new OrgRegistrationModificationGuard(entityManager, repository, access),
-                    validator, repository));
+                    validator, repository), mock(RegistrationActionPolicyService.class));
     private Organization organization;
     private List<Registration> members;
 
@@ -85,7 +89,7 @@ class OrgRegistrationPersonalInformationServiceTest {
         OrgRegistrationModificationParticipantRequest first = participant("a", "새 이름", "c");
         first = new OrgRegistrationModificationParticipantRequest(first.registrationId(), first.eventCategoryId(),
                 first.selectedSouvenirList(), first.name(), "010-2222-3333", first.birth(), GenderClass.F);
-        RegistrationModificationSettlementResult result = commands.modifyOrganization("e", "o",
+        RegistrationModificationSettlementResult result = commands.modifyOrganizationRegistration("e", "o",
                 request(first, participant("b", "b", "c")));
         assertThat(members.getFirst().getName()).isEqualTo("새 이름");
         assertThat(members.getFirst().getPhNum()).isEqualTo("010-2222-3333");
@@ -108,7 +112,7 @@ class OrgRegistrationPersonalInformationServiceTest {
     /** 변경 없음도 구성원 집합을 보호하지만 저장이나 금융 처리는 하지 않는다. */
     @Test
     void noChangeLocksMembersWithoutWriting() {
-        assertThat(commands.modifyOrganization("e", "o", request(participant("b", "b", "c"), participant("a", "a", "c")))
+        assertThat(commands.modifyOrganizationRegistration("e", "o", request(participant("b", "b", "c"), participant("a", "a", "c")))
                 .orders()).isEmpty();
         verify(repository).lockActiveOrganizationVersions("e", "o");
         verify(repository, never()).flush();
@@ -120,10 +124,10 @@ class OrgRegistrationPersonalInformationServiceTest {
     void mixedChangesUseFullPathBeforeInformationLocks() {
         OrgRegistrationModificationRequest request = request(participant("a", "정정", "c"), participant("b", "b", "other"));
         OrgRegistrationModificationResult fullResult = new OrgRegistrationModificationResult("o", List.of());
-        when(full.modify(eq("e"), eq("o"), same(request), eq(NOW), any())).thenReturn(fullResult);
-        commands.modifyOrganization("e", "o", request);
-        verify(full).modify(eq("e"), eq("o"), same(request), eq(NOW), any());
-        verify(settlement).settle("e", "o", List.of(), NOW);
+        when(full.modifyOrganizationRegistration(eq("e"), eq("o"), same(request), eq(NOW), any())).thenReturn(fullResult);
+        commands.modifyOrganizationRegistration("e", "o", request);
+        verify(full).modifyOrganizationRegistration(eq("e"), eq("o"), same(request), eq(NOW), any());
+        verify(settlement).settleRegistrationModification("e", "o", List.of(), NOW, List.of());
         verifyNoInteractions(entityManager);
         assertThat(members.getFirst().getName()).isEqualTo("a");
     }
@@ -135,10 +139,10 @@ class OrgRegistrationPersonalInformationServiceTest {
         OrgRegistrationModificationRequest request = add
                 ? request(participant("a", "a", "c"), participant("b", "b", "c"), participant(null, "new", "c"))
                 : request(participant("a", "a", "c"));
-        when(full.modify(eq("e"), eq("o"), same(request), eq(NOW), any()))
+        when(full.modifyOrganizationRegistration(eq("e"), eq("o"), same(request), eq(NOW), any()))
                 .thenReturn(new OrgRegistrationModificationResult("o", List.of()));
-        commands.modifyOrganization("e", "o", request);
-        verify(full).modify(eq("e"), eq("o"), same(request), eq(NOW), any());
+        commands.modifyOrganizationRegistration("e", "o", request);
+        verify(full).modifyOrganizationRegistration(eq("e"), eq("o"), same(request), eq(NOW), any());
         verifyNoInteractions(entityManager);
     }
 
@@ -161,7 +165,7 @@ class OrgRegistrationPersonalInformationServiceTest {
                 "테스트 주소",
                 "상세",
                 "테스트 단체장",
-                java.time.LocalDate.of(1990, 1, 1),
+                LocalDate.of(1990, 1, 1),
                 "010-0000-0000",
                 new OrganizationAccessRequest("wrong", "Test1234!"),
                 List.of(participant("a", "a", "c"), participant("b", "b", "c"))));
@@ -183,7 +187,7 @@ class OrgRegistrationPersonalInformationServiceTest {
     @Test
     void validatesEveryMemberBeforeWriting() {
         Registration blocked = member("b", organization.getEvent());
-        org.springframework.test.util.ReflectionTestUtils.setField(blocked, "status", RegistrationStatus.CANCELED);
+        ReflectionTestUtils.setField(blocked, "status", RegistrationStatus.CANCELED);
         when(repository.findAllActiveByEventAndOrganization("e", "o")).thenReturn(List.of(members.getFirst(), blocked));
         expect(ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET, request(participant("a", "정정", "c"), participant("b", "b", "c")));
         assertThat(members.getFirst().getName()).isEqualTo("a");
@@ -210,7 +214,7 @@ class OrgRegistrationPersonalInformationServiceTest {
                 "테스트 주소",
                 "상세",
                 "테스트 단체장",
-                java.time.LocalDate.of(1990, 1, 1),
+                LocalDate.of(1990, 1, 1),
                 "010-0000-0000",
                 new OrganizationAccessRequest("group-test", "Test1234!"),
                 List.of(participants));
@@ -218,7 +222,7 @@ class OrgRegistrationPersonalInformationServiceTest {
 
     /** 업무 오류와 부분 저장·전체 경로 미호출을 함께 확인한다. */
     private void expect(ErrorCode code, OrgRegistrationModificationRequest request) {
-        assertThatThrownBy(() -> commands.modifyOrganization("e", "o", request)).isInstanceOfSatisfying(CustomException.class,
+        assertThatThrownBy(() -> commands.modifyOrganizationRegistration("e", "o", request)).isInstanceOfSatisfying(CustomException.class,
                 exception -> assertThat(exception.getErrorCode()).isEqualTo(code));
         verify(repository, never()).flush();
         verifyNoInteractions(full, personal, settlement);

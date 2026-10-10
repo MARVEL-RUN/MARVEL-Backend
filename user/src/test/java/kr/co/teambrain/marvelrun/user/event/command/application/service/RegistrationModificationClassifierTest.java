@@ -1,26 +1,27 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import java.lang.reflect.RecordComponent;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Stream;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.OrgRegistrationModificationParticipantRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrgRegistrationModificationRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationAccessRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationModificationRequest;
-import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.OrgRegistrationModificationParticipantRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
-
-import java.lang.reflect.RecordComponent;
-import java.math.BigDecimal;
-import java.util.Arrays;
-import java.util.List;
-import java.util.stream.Stream;
 
 import static kr.co.teambrain.marvelrun.user.event.command.application.service.RegistrationModificationClassifier.Change.*;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,6 +30,18 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** 저장값과 요청만으로 분류하며 정책 변경 재검증이나 엔티티 변경이 없는지 확인한다. */
 class RegistrationModificationClassifierTest {
     private final RegistrationModificationClassifier classifier = new RegistrationModificationClassifier();
+
+    /** 단체 전체가 FULL이어도 무변경 구성원과 실제 자원 변경 대상을 개별로 구분한다. */
+    @Test
+    void fullOrganizationRequestKeepsIndividualChangeClassification() throws Exception {
+        OrgRegistrationModificationParticipantRequest changed = replace(member("r2"), "birth", "1990-01-02");
+        assertThat(classifier.classifyOrganization(List.of(current("r1"), current("r2")),
+                organization(member("r1"), changed, member(null)))).isEqualTo(FULL);
+        assertThat(classifier.classifyOrganizationParticipant(current("r1"), member("r1"))).isEqualTo(NONE);
+        assertThat(classifier.classifyOrganizationParticipant(current("r2"), changed)).isEqualTo(FULL);
+        assertThat(classifier.classifyOrganizationParticipant(current("r1"),
+                replace(member("r1"), "name", "정정 이름"))).isEqualTo(PERSONAL_INFORMATION);
+    }
 
     /** 정책에 사용되지 않는 개인정보 각각을 전체 수정으로 보내지 않는다. */
     @ParameterizedTest
@@ -259,7 +272,7 @@ class RegistrationModificationClassifierTest {
                 "테스트 주소",
                 "상세",
                 "테스트 단체장",
-                java.time.LocalDate.of(1990, 1, 1),
+                LocalDate.of(1990, 1, 1),
                 "010-0000-0000",
                 null,
                 List.of(members));
@@ -269,7 +282,7 @@ class RegistrationModificationClassifierTest {
     @ParameterizedTest
     @MethodSource("organizationProfileChanges")
     void organizationProfileChangesAreInformation(String field, Object value) throws Exception {
-        var org = kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization.builder()
+        var org = Organization.builder()
                 .id("o").guardianConsent(false).email("test@example.com")
                 .address("테스트 주소").addressDetail("상세").leaderName("테스트 단체장")
                 .leaderBirth("1990-01-01").leaderPhNum("010-0000-0000").build();
@@ -287,7 +300,7 @@ class RegistrationModificationClassifierTest {
         return Stream.of(Arguments.of("email", "changed@example.com"),
                 Arguments.of("address", "새 주소"), Arguments.of("addressDetail", "새 상세"),
                 Arguments.of("leaderName", "새 단체장"),
-                Arguments.of("leaderBirth", java.time.LocalDate.of(1991, 1, 1)),
+                Arguments.of("leaderBirth", LocalDate.of(1991, 1, 1)),
                 Arguments.of("leaderPhNum", "010-2222-3333"), Arguments.of("guardianConsent", true));
     }
 

@@ -1,21 +1,28 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.CapacityHoldService;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.CapacityRequirementResolver;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.RegistrationCapacityService;
+import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationHistoryRecorder;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationReleaseService;
 import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
-import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrgRegistrationCreateRequest;
-import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationCreateRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.OrgAccountRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.OrgProfileRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.OrgRegistrationParticipantRequest;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrgRegistrationCreateRequest;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationCreateRequest;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.loader.RegistrationPolicyLoader;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.OrgRegistrationApplyValidator;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationApplyValidator;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationPolicyValidator;
-import kr.co.teambrain.marvelrun.user.event.command.application.valid.loader.RegistrationPolicyLoader;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentAllocationCreator;
 import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentCreator;
 import kr.co.teambrain.marvelrun.user.payment.command.application.generator.PaymentOrderIdGenerator;
@@ -26,19 +33,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-
-import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
-import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 
 /**
  * 실제 test-marvelrun 정책·가격·Capacity 데이터를 사용하여
@@ -62,7 +64,9 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
         replace = AutoConfigureTestDatabase.Replace.NONE
 )
 @Import({
-        org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder.class,
+        ReservationHistoryRecorder.class,
+        RegistrationActionPolicyService.class,
+        BCryptPasswordEncoder.class,
         CapacityHoldService.class,
         CapacityRequirementResolver.class,
         RegistrationCapacityService.class,

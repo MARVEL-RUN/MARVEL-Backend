@@ -1,14 +1,17 @@
 package kr.co.teambrain.marvelrun.admin.user.query.dto;
 
-import lombok.Builder;
-import lombok.Getter;
-
 import java.time.LocalDateTime;
 import java.util.List;
+import kr.co.teambrain.marvelrun.admin.event.policy.RegistrationActionPolicyModels;
+import lombok.Builder;
+import lombok.Getter;
 
 @Getter
 @Builder
 public class OrganizationDetailResponse {
+    /** 사용자 관점의 기간·외부결제 제한이며 관리자 명령 권한과는 별개다. */
+    private RegistrationActionPolicyModels.OrganizationPolicy userPolicy;
+
     private String organizationId;
     private String groupName;
     private String eventName;

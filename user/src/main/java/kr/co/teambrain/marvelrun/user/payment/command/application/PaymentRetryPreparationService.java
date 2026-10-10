@@ -1,5 +1,8 @@
 package kr.co.teambrain.marvelrun.user.payment.command.application;
 
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels.*;
+
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import jakarta.persistence.EntityManager;
@@ -35,6 +38,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class PaymentRetryPreparationService {
+    private final RegistrationActionPolicyService actionPolicies;
     private final PasswordEncoder passwordEncoder;
     private final PaymentConfirmationAllocationSupport support;
     private final PaymentAllocationCommandRepository allocationRepository;
@@ -62,7 +66,7 @@ public class PaymentRetryPreparationService {
             throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
         }
         RegistrationAccessVerifier.verifyPersonal(registration, access, passwordEncoder);
-        return prepare(original, locked, registration.getEvent());
+        return preparePaymentRetryOrder(original, locked, registration.getEvent());
     }
 
     /** 단체 인증 후 원 주문에 귀속된 참가자 전체를 함께 재준비하며 프론트의 금액·명단을 받지 않는다. */
@@ -80,11 +84,11 @@ public class PaymentRetryPreparationService {
             throw new CustomException(ErrorCode.ORGANIZATION_ACCESS_DENIED);
         }
         RegistrationAccessVerifier.verifyOrganization(original.getOrganization(), access, passwordEncoder);
-        return prepare(original, locked, original.getOrganization().getEvent());
+        return preparePaymentRetryOrder(original, locked, original.getOrganization().getEvent());
     }
 
     /** 유효 READY 주문은 재사용하고, 명확히 실패·무효화된 주문만 같은 귀속으로 새로 준비한다. */
-    private Order prepare(Payment original, List<Payment> locked, Event event) {
+    private Order preparePaymentRetryOrder(Payment original, List<Payment> locked, Event event) {
         // 인증 후 원 주문의 직접 대상과 전체 귀속을 확인하여 재사용·재확보 전에 차단한다.
         List<PaymentAllocation> originalAllocations = allocationRepository.findAllForPaymentUpdate(original.getId());
         support.validateOnlinePaymentRegistrations(original, originalAllocations);
@@ -97,6 +101,10 @@ public class PaymentRetryPreparationService {
         LocalDateTime now = time.currentDateTime();
         policyValidator.validateForPurpose(event, now, original.getPurpose());
         List<String> initialIds = support.validateForPreparation(original, originalAllocations);
+        List<Policy> policies = actionPolicies.loadEnabledRegistrationActionPolicies(event.getId());
+        for (PaymentAllocation allocation : originalAllocations) {
+            actionPolicies.validateRegistrationActionPolicy(event, allocation.getRegistration(), Action.PAYMENT, now, policies);
+        }
         Map<String, Share> expected = shares(originalAllocations);
         Payment reusable = null;
         for (Payment candidate : locked) {

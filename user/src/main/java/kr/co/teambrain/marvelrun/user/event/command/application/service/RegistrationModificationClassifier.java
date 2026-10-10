@@ -31,6 +31,28 @@ public class RegistrationModificationClassifier {
         NONE, PERSONAL_INFORMATION, FULL
     }
 
+    /** 단체의 기존 참가자 한 명만 비교하여 무변경 행과 실제 변경 행을 구분한다. */
+    public Change classifyOrganizationParticipant(Registration current, OrgRegistrationModificationParticipantRequest request) {
+        if (current == null) { return Change.FULL; }
+        if (policyFieldsChanged(current, request.eventCategoryId(), request.birth(), request.selectedSouvenirList())) {
+            return Change.FULL;
+        }
+        return !Objects.equals(current.getName(), request.name())
+                || !Objects.equals(current.getPhNum(), request.phNum()) || current.getGender() != request.gender()
+                ? Change.PERSONAL_INFORMATION : Change.NONE;
+    }
+
+    /** 참가자 추가 여부와 독립적으로 단체 공통정보의 변경을 판정한다. */
+    public boolean organizationProfileChanged(Organization organization, OrgRegistrationModificationRequest request) {
+        return !Objects.equals(organization.getEmail(), request.email())
+                || !Objects.equals(organization.getLeaderName(), request.leaderName())
+                || !Objects.equals(organization.getLeaderBirth(), request.leaderBirth().toString())
+                || !Objects.equals(organization.getLeaderPhNum(), request.leaderPhNum())
+                || !Objects.equals(organization.getAddress(), request.address())
+                || !Objects.equals(organization.getAddressDetail(), request.addressDetail())
+                || organization.isGuardianConsent() != request.guardianConsent();
+    }
+
     /**
      * 종목·생년월일·기념품 변경만 전체 수정으로 분류한다.
      * 기본정보와 보호자 정보 변경은 개인정보 수정으로 처리한다.
@@ -150,12 +172,13 @@ public class RegistrationModificationClassifier {
      */
     private boolean policyFieldsChanged(Registration current, String categoryId, String birth,
                                         List<SouvenirJson> requestedSouvenirs) {
+        // 종목·생년월일 변경은 전체 후보 검증으로 보내고 동일할 때만 선택 목록을 비교한다.
+        if (current.getEventCategory() == null
+                || !Objects.equals(current.getEventCategory().getId(), categoryId)
+                || !Objects.equals(current.getBirth(), birth)) { return true; }
         Map<String, String> requested = souvenirSelections(requestedSouvenirs);
         Map<String, String> stored = souvenirSelections(current.getSouvenirJson());
-        return current.getEventCategory() == null
-                || !Objects.equals(current.getEventCategory().getId(), categoryId)
-                || !Objects.equals(current.getBirth(), birth)
-                || !stored.equals(requested);
+        return !stored.equals(requested);
     }
 
     /**

@@ -1,11 +1,18 @@
 package kr.co.teambrain.marvelrun.user.capacity.command.application.service;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.*;
+import java.util.concurrent.*;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.domain.Reservation;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.dto.CapacityRequirementDiff;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.PaymentCancel;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.RegistrationActionPolicy;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.OrgRegistrationModificationParticipantRequest;
@@ -13,8 +20,10 @@ import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.Org
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.RegistrationCreateResponse;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.*;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyRepository;
 import kr.co.teambrain.marvelrun.user.payment.command.application.creator.AdditionalPaymentTargetResolver;
 import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentAllocationCreator;
+import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentCancelAllocationCreator;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentConfirmRequest;
 import org.junit.jupiter.api.Test;
@@ -22,13 +31,10 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.validation.ValidationAutoConfiguration;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.AopTestUtils;
-
-import java.math.BigDecimal;
-import java.util.*;
-import java.util.concurrent.*;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -65,10 +71,114 @@ import static org.mockito.Mockito.*;
         RegistrationPersonalInformationValidator.class,
         RegistrationUniqueInfoValidator.class,
         RegistrationModificationTransactionService.class,
-        org.springframework.boot.autoconfigure.validation.ValidationAutoConfiguration.class
+        ValidationAutoConfiguration.class
 })
 class RegistrationModificationDatabaseTest
         extends CapacityMvpTestSupport {
+
+    @Autowired
+    private RegistrationActionPolicyRepository actionPolicyRepository;
+
+    /** 실제 JPA 파생 조회가 활성·대회 조건, 정렬 및 시각 정밀도를 보존한다. */
+    @Test
+    void actionPolicyJpaRepositoryFiltersAndOrdersStoredPolicies() {
+        LocalDateTime start = NOW.minusDays(1).withNano(123456000);
+
+        // 기존 테스트 대회에만 정책을 추가하며 공통 정리에서 대회와 함께 삭제한다.
+        List<RegistrationActionPolicy> saved = tx.execute(status -> actionPolicyRepository.saveAllAndFlush(List.of(
+                RegistrationActionPolicy.builder()
+                        .eventId(eventId).actionType("REFUND").registrationStartAt(start)
+                        .registrationEndAt(NOW).effectiveFrom(NOW).enabled(true).build(),
+                RegistrationActionPolicy.builder()
+                        .eventId(eventId).actionType("MODIFY").registrationStartAt(start)
+                        .registrationEndAt(NOW).effectiveFrom(NOW).enabled(true).build(),
+                RegistrationActionPolicy.builder()
+                        .eventId(eventId).actionType("PAYMENT").registrationStartAt(start)
+                        .registrationEndAt(NOW).effectiveFrom(NOW).enabled(false).build())));
+
+        // ID를 지정하지 않은 신규 엔티티가 서로 다른 UUID로 저장되는지 확인한다.
+        assertThat(saved).isNotNull();
+        assertThat(saved).extracting(RegistrationActionPolicy::getId).doesNotHaveDuplicates();
+        for (RegistrationActionPolicy policy : saved) {
+            assertThat(policy.getId()).isNotNull();
+            assertThat(UUID.fromString(policy.getId()).toString()).isEqualTo(policy.getId());
+        }
+
+        // 엔티티 컬럼 매핑과 파생 메서드 조건을 실제 조회 결과로 검증한다.
+        List<RegistrationActionPolicy> policies =
+                actionPolicyRepository.findAllByEventIdAndEnabledTrueOrderByActionTypeAscRegistrationStartAtAscIdAsc(eventId);
+        assertThat(policies).extracting(RegistrationActionPolicy::getId)
+                .containsExactly(saved.get(1).getId(), saved.getFirst().getId());
+        assertThat(policies.getFirst().getRegistrationStartAt()).isEqualTo(start);
+        assertThat(policies.getFirst().getRegistrationEndAt()).isEqualTo(NOW);
+        assertThat(policies.getFirst().getEffectiveFrom()).isEqualTo(NOW);
+        assertThat(actionPolicyRepository.findAllByEventIdAndEnabledTrueOrderByActionTypeAscRegistrationStartAtAscIdAsc(UUID.randomUUID().toString()))
+                .isEmpty();
+    }
+
+    /** 수정 제한 대상은 실제 신청·예약·원장 변경 및 PG 호출 없이 차단한다. */
+    @Test
+    void periodPolicyBlocksPaidModificationAndPreservesAllRows() {
+        RegistrationCreateResponse original = createPersonalRegistration(categoryA, "S", "1990-01-01");
+        mockApprovalSuccess();
+        payments.confirm(confirmRequest(original.paymentId()));
+        insertActionPolicy("MODIFY");
+        Map<String, List<Map<String, Object>>> before = captureRegistrationModificationState();
+        clearInvocations(toss);
+        expectError(ErrorCode.REGISTRATION_MODIFICATION_POLICY_BLOCKED,
+                () -> modifications.modifyPersonalRegistration(eventId, original.registrationId(),
+                        personalRequest(original.registrationId(), categoryB, "M")));
+        assertThat(captureRegistrationModificationState()).isEqualTo(before);
+        verifyNoInteractions(toss);
+    }
+
+    /** 미결제 수정 자체가 허용되어도 재생성되는 결제의 정책이 막히면 전체 변경을 롤백한다. */
+    @Test
+    void paymentPolicyRollsBackUnpaidModificationAndReadyInvalidation() {
+        RegistrationCreateResponse original = createPersonalRegistration(categoryA, "S", "1990-01-01");
+        insertActionPolicy("PAYMENT");
+        Map<String, List<Map<String, Object>>> before = captureRegistrationModificationState();
+        expectError(ErrorCode.REGISTRATION_PAYMENT_POLICY_BLOCKED,
+                () -> modifications.modifyPersonalRegistration(eventId, original.registrationId(),
+                        personalRequest(original.registrationId(), categoryB, "M")));
+        assertThat(captureRegistrationModificationState()).isEqualTo(before);
+        assertThat(findPaymentProcessStatus(original.paymentId())).isEqualTo("READY");
+    }
+
+    /** 새 인원 추가는 기존 확정 참가자의 예약 행·이력·과거 계약금액을 바꾸지 않는다. */
+    @Test
+    void addingMemberPreservesUnchangedReservationAndContract() {
+        OrgRegistrationCreateResponse original = createOrganizationRegistration(categoryA);
+        mockApprovalSuccess();
+        payments.confirm(confirmRequest(original.paymentId()));
+        String retainedId = original.registrationIds().getFirst();
+        List<Map<String, Object>> beforeItems = jdbc.queryForList(
+                "select i.* from reservation_item i join reservation r on r.id=i.reservation_id where r.registration_id=? order by i.id", retainedId);
+        String beforeHistory = queryStringValue("select history from reservation where registration_id=?", retainedId);
+        BigDecimal beforeAmount = queryDecimalValue("select contract_amount from registration where id=?", retainedId);
+        changeCategoryPrice(categoryA, "60000");
+        insertActionPolicy("MODIFY");
+        OrgRegistrationModificationRequest template = groupRequest(original.organizationId(), retainedId);
+        OrgRegistrationModificationParticipantRequest unchanged = new OrgRegistrationModificationParticipantRequest(
+                retainedId, categoryA, List.of(new SouvenirJson(souvenirId, "S")),
+                queryStringValue("select name from registration where id=?", retainedId), "010-0000-0000", "1990-01-01", GenderClass.M);
+        modifications.modifyOrganizationRegistration(eventId, original.organizationId(), new OrgRegistrationModificationRequest(
+                template.guardianConsent(), template.email(), template.address(), template.addressDetail(),
+                template.leaderName(), template.leaderBirth(), template.leaderPhNum(), template.access(),
+                List.of(unchanged, template.registrations().getLast())));
+        assertThat(jdbc.queryForList("select i.* from reservation_item i join reservation r on r.id=i.reservation_id where r.registration_id=? order by i.id", retainedId))
+                .isEqualTo(beforeItems);
+        assertThat(queryStringValue("select history from reservation where registration_id=?", retainedId)).isEqualTo(beforeHistory);
+        assertThat(queryDecimalValue("select contract_amount from registration where id=?", retainedId)).isEqualByComparingTo(beforeAmount);
+    }
+
+    /** 테스트 전용 대회에만 정책을 넣으며 공통 정리에서 정책 행도 제거한다. */
+    private void insertActionPolicy(String action) {
+        // Hibernate 실제 생성시각 대신 이 테스트 대회의 신청일을 정책 검증용 고정시각에 맞춘다.
+        jdbc.update("update registration set registration_date=? where event_id=?", NOW, eventId);
+        jdbc.update("insert into registration_action_policy(id,event_id,action_type,registration_start_at,registration_end_at,effective_from,enabled) values(?,?,?,?,?,?,true)",
+                UUID.randomUUID().toString(), eventId, action, NOW.minusDays(1), NOW.plusDays(1), NOW);
+    }
 
     @Autowired
     private RegistrationModificationTransactionService  modifications;
@@ -86,7 +196,7 @@ class RegistrationModificationDatabaseTest
     private CapacityModificationService staleVersionCapacityModificationService;
 
     @MockitoSpyBean
-    private kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentCancelAllocationCreator
+    private PaymentCancelAllocationCreator
             cancelAllocationCreator;
 
 
@@ -97,12 +207,12 @@ class RegistrationModificationDatabaseTest
     @Test
     void unpaidModificationReplacesOrderAndMovesCapacity() {
         RegistrationCreateResponse original =
-                personal(categoryA, "S", "1990-01-01");
+                createPersonalRegistration(categoryA, "S", "1990-01-01");
 
         changeCategoryPrice(categoryB, "60000");
 
         RegistrationModificationSettlementResult result =
-                modifications.modifyPersonal(
+                modifications.modifyPersonalRegistration(
                         eventId,
                         original.registrationId(),
                         personalRequest(
@@ -117,14 +227,14 @@ class RegistrationModificationDatabaseTest
         String newPaymentId = result.orders().get(0).paymentId();
 
         assertThat(newPaymentId).isNotEqualTo(original.paymentId());
-        assertThat(paymentState(original.paymentId()))
+        assertThat(findPaymentProcessStatus(original.paymentId()))
                 .isEqualTo("INVALIDATED");
-        assertThat(paymentState(newPaymentId)).isEqualTo("READY");
+        assertThat(findPaymentProcessStatus(newPaymentId)).isEqualTo("READY");
 
-        assertThat(registrationState(original.registrationId()))
+        assertThat(findRegistrationStatus(original.registrationId()))
                 .isEqualTo("PAYMENT_PENDING");
 
-        assertThat(money(
+        assertThat(queryDecimalValue(
                 "select contract_amount from registration where id = ?",
                 original.registrationId()
         )).isEqualByComparingTo("60000");
@@ -140,11 +250,11 @@ class RegistrationModificationDatabaseTest
                 original.registrationId()
         )).isEqualByComparingTo("60000");
 
-        counters(total, 1, 0);
-        counters(categoryACapacity, 0, 0);
-        counters(categoryBCapacity, 1, 0);
-        counters(shirtS, 0, 0);
-        counters(shirtM, 1, 0);
+        assertCapacityCounts(total, 1, 0);
+        assertCapacityCounts(categoryACapacity, 0, 0);
+        assertCapacityCounts(categoryBCapacity, 1, 0);
+        assertCapacityCounts(shirtS, 0, 0);
+        assertCapacityCounts(shirtM, 1, 0);
     }
 
     /**
@@ -155,16 +265,16 @@ class RegistrationModificationDatabaseTest
     @Test
     void capacityFailureRollsBackWholeModification() {
         RegistrationCreateResponse original =
-                personal(categoryA, "S", "1990-01-01");
+                createPersonalRegistration(categoryA, "S", "1990-01-01");
 
         limit(shirtM, 0);
 
         Map<String, List<Map<String, Object>>> before =
-                snapshot();
+                captureRegistrationModificationState();
 
         expectError(
                 ErrorCode.CAPACITY_ACQUIRE_FAILED,
-                () -> modifications.modifyPersonal(
+                () -> modifications.modifyPersonalRegistration(
                         eventId,
                         original.registrationId(),
                         personalRequest(
@@ -175,7 +285,7 @@ class RegistrationModificationDatabaseTest
                 )
         );
 
-        assertThat(snapshot()).isEqualTo(before);
+        assertThat(captureRegistrationModificationState()).isEqualTo(before);
     }
 
     /**
@@ -186,18 +296,18 @@ class RegistrationModificationDatabaseTest
     @Test
     void allocationFailureRollsBackWholeModification() {
         RegistrationCreateResponse original =
-                personal(categoryA, "S", "1990-01-01");
+                createPersonalRegistration(categoryA, "S", "1990-01-01");
 
         changeCategoryPrice(categoryB, "60000");
 
         Map<String, List<Map<String, Object>>> before =
-                snapshot();
+                captureRegistrationModificationState();
 
         failAfterAllocationWrite();
 
         expectError(
                 ErrorCode.PAYMENT_ALLOCATION_INTEGRITY_ERROR,
-                () -> modifications.modifyPersonal(
+                () -> modifications.modifyPersonalRegistration(
                         eventId,
                         original.registrationId(),
                         personalRequest(
@@ -208,7 +318,7 @@ class RegistrationModificationDatabaseTest
                 )
         );
 
-        assertThat(snapshot()).isEqualTo(before);
+        assertThat(captureRegistrationModificationState()).isEqualTo(before);
     }
 
     /**
@@ -228,7 +338,7 @@ class RegistrationModificationDatabaseTest
             String expectedBalance
     ) {
         RegistrationCreateResponse original =
-                personal(categoryA, "S", "1990-01-01");
+                createPersonalRegistration(categoryA, "S", "1990-01-01");
 
         mockApprovalSuccess();
         payments.confirm(confirmRequest(original.paymentId()));
@@ -236,7 +346,7 @@ class RegistrationModificationDatabaseTest
         changeCategoryPrice(categoryB, newAmount);
 
         RegistrationModificationSettlementResult result =
-                modifications.modifyPersonal(
+                modifications.modifyPersonalRegistration(
                         eventId,
                         original.registrationId(),
                         personalRequest(
@@ -250,11 +360,11 @@ class RegistrationModificationDatabaseTest
             assertThat(result.orders()).hasSize(1);
             String additionalPaymentId = result.orders().get(0).paymentId();
             assertThat(result.orders().get(0).amount()).isEqualByComparingTo(expectedBalance);
-            assertThat(paymentState(additionalPaymentId)).isEqualTo("READY");
-            assertThat(s("select purpose from payment where id = ?", additionalPaymentId))
+            assertThat(findPaymentProcessStatus(additionalPaymentId)).isEqualTo("READY");
+            assertThat(queryStringValue("select purpose from payment where id = ?", additionalPaymentId))
                     .isEqualTo("ADDITIONAL_PAYMENT");
             assertThat(allocationSum(additionalPaymentId)).isEqualByComparingTo(expectedBalance);
-            assertThat(money("select allocated_amount from payment_allocation where payment_id = ? and registration_id = ?",
+            assertThat(queryDecimalValue("select allocated_amount from payment_allocation where payment_id = ? and registration_id = ?",
                     additionalPaymentId, original.registrationId()))
                     .isEqualByComparingTo(expectedBalance);
         } else {
@@ -265,42 +375,42 @@ class RegistrationModificationDatabaseTest
         assertThat(result.members().get(0).balance())
                 .isEqualByComparingTo(expectedBalance);
 
-        assertThat(registrationState(original.registrationId()))
+        assertThat(findRegistrationStatus(original.registrationId()))
                 .isEqualTo(expectedStatus);
 
-        assertThat(money(
+        assertThat(queryDecimalValue(
                 "select paid_amount from registration where id = ?",
                 original.registrationId()
         )).isEqualByComparingTo("40000");
 
-        assertThat(paymentState(original.paymentId()))
+        assertThat(findPaymentProcessStatus(original.paymentId()))
                 .isEqualTo("COMPLETED");
 
         assertThat(allocationSum(original.paymentId()))
                 .isEqualByComparingTo("40000");
 
-        counters(total, 0, 1);
-        counters(categoryACapacity, 0, 0);
-        counters(categoryBCapacity, 0, 1);
-        counters(shirtS, 0, 0);
-        counters(shirtM, 0, 1);
+        assertCapacityCounts(total, 0, 1);
+        assertCapacityCounts(categoryACapacity, 0, 0);
+        assertCapacityCounts(categoryBCapacity, 0, 1);
+        assertCapacityCounts(shirtS, 0, 0);
+        assertCapacityCounts(shirtM, 0, 1);
     }
 
     /** 추가 결제 귀속 저장 실패 시 신청·예약·정원과 새 주문을 함께 롤백한다. */
     @Test
     void additionalAllocationFailureRollsBackWholeModification() {
-        RegistrationCreateResponse original = personal(categoryA, "S", "1990-01-01");
+        RegistrationCreateResponse original = createPersonalRegistration(categoryA, "S", "1990-01-01");
         mockApprovalSuccess();
         payments.confirm(confirmRequest(original.paymentId()));
         changeCategoryPrice(categoryB, "60000");
-        Map<String, List<Map<String, Object>>> before = snapshot();
+        Map<String, List<Map<String, Object>>> before = captureRegistrationModificationState();
         failAfterAllocationWrite();
 
         expectError(ErrorCode.PAYMENT_ALLOCATION_INTEGRITY_ERROR,
-                () -> modifications.modifyPersonal(eventId, original.registrationId(),
+                () -> modifications.modifyPersonalRegistration(eventId, original.registrationId(),
                         personalRequest(original.registrationId(), categoryB, "M")));
 
-        assertThat(snapshot()).isEqualTo(before);
+        assertThat(captureRegistrationModificationState()).isEqualTo(before);
     }
 
     /**
@@ -309,12 +419,12 @@ class RegistrationModificationDatabaseTest
     @Test
     void zeroAmountModificationConfirmsWithoutPayment() {
         RegistrationCreateResponse original =
-                personal(categoryA, "S", "1990-01-01");
+                createPersonalRegistration(categoryA, "S", "1990-01-01");
 
         changeCategoryPrice(categoryB, "0");
 
         RegistrationModificationSettlementResult result =
-                modifications.modifyPersonal(
+                modifications.modifyPersonalRegistration(
                         eventId,
                         original.registrationId(),
                         personalRequest(
@@ -328,26 +438,26 @@ class RegistrationModificationDatabaseTest
         assertThat(result.members().get(0).balance())
                 .isEqualByComparingTo("0");
 
-        assertThat(registrationState(original.registrationId()))
+        assertThat(findRegistrationStatus(original.registrationId()))
                 .isEqualTo("CONFIRMED");
 
-        assertThat(s(
+        assertThat(queryStringValue(
                 "select status from reservation where registration_id = ?",
                 original.registrationId()
         )).isEqualTo("CONSUMED");
 
-        assertThat(paymentState(original.paymentId()))
+        assertThat(findPaymentProcessStatus(original.paymentId()))
                 .isEqualTo("INVALIDATED");
 
-        assertThat(n(
+        assertThat(queryIntegerValue(
                 "select count(*) from payment where registration_id = ?",
                 original.registrationId()
         )).isEqualTo(1);
 
-        counters(total, 0, 1);
-        counters(categoryBCapacity, 0, 1);
-        counters(shirtS, 0, 0);
-        counters(shirtM, 0, 1);
+        assertCapacityCounts(total, 0, 1);
+        assertCapacityCounts(categoryBCapacity, 0, 1);
+        assertCapacityCounts(shirtS, 0, 0);
+        assertCapacityCounts(shirtM, 0, 1);
 
         verifyNoInteractions(toss);
     }
@@ -361,7 +471,7 @@ class RegistrationModificationDatabaseTest
     @Test
     void paidGroupModificationDoesNotOffsetRefundAndNewPayment() {
         OrgRegistrationCreateResponse original =
-                group(categoryA, categoryA);
+                createOrganizationRegistration(categoryA, categoryA);
 
         mockApprovalSuccess();
         payments.confirm(confirmRequest(original.paymentId()));
@@ -372,7 +482,7 @@ class RegistrationModificationDatabaseTest
         String removedId = original.registrationIds().get(1);
 
         RegistrationModificationSettlementResult result =
-                modifications.modifyOrganization(
+                modifications.modifyOrganizationRegistration(
                         eventId,
                         original.organizationId(),
                         groupRequest(original.organizationId(), retainedId)
@@ -389,24 +499,24 @@ class RegistrationModificationDatabaseTest
 
         String newPaymentId = result.orders().get(0).paymentId();
 
-        assertThat(registrationState(retainedId))
+        assertThat(findRegistrationStatus(retainedId))
                 .isEqualTo("PARTIAL_REFUND_REQUIRED");
-        assertThat(registrationState(removedId))
+        assertThat(findRegistrationStatus(removedId))
                 .isEqualTo("CANCELLATION_PENDING");
-        assertThat(registrationState(addedId))
+        assertThat(findRegistrationStatus(addedId))
                 .isEqualTo("PAYMENT_PENDING");
 
-        assertThat(n(
+        assertThat(queryIntegerValue(
                 "select count(*) from registration where id = ? and is_del = true",
                 removedId
         )).isEqualTo(1);
 
-        assertThat(money(
+        assertThat(queryDecimalValue(
                 "select paid_amount from registration where id = ?",
                 removedId
         )).isEqualByComparingTo("40000");
 
-        assertThat(s(
+        assertThat(queryStringValue(
                 "select status from reservation where registration_id = ?",
                 removedId
         )).isEqualTo("RELEASED");
@@ -422,29 +532,29 @@ class RegistrationModificationDatabaseTest
         assertThat(allocationSum(original.paymentId()))
                 .isEqualByComparingTo("80000");
 
-        assertThat(paymentState(original.paymentId()))
+        assertThat(findPaymentProcessStatus(original.paymentId()))
                 .isEqualTo("COMPLETED");
 
 
 
 
-        counters(total, 1, 1);
-        counters(categoryACapacity, 1, 0);
-        counters(categoryBCapacity, 0, 1);
-        counters(shirtS, 1, 0);
-        counters(shirtM, 0, 1);
+        assertCapacityCounts(total, 1, 1);
+        assertCapacityCounts(categoryACapacity, 1, 0);
+        assertCapacityCounts(categoryBCapacity, 0, 1);
+        assertCapacityCounts(shirtS, 1, 0);
+        assertCapacityCounts(shirtM, 0, 1);
 
 
         assertThat(result.refunds()).hasSize(1);
         String cancelId = result.refunds().get(0).paymentCancelId();
         assertThat(result.refunds().get(0).amount()).isEqualByComparingTo("50000");
-        assertThat(money(
+        assertThat(queryDecimalValue(
                 """
                 select ca.allocated_amount from payment_cancel_allocation ca
                 join payment_allocation a on a.id = ca.payment_allocation_id
                 where ca.payment_cancel_id = ? and a.registration_id = ?
                 """, cancelId, retainedId)).isEqualByComparingTo("10000");
-        assertThat(money(
+        assertThat(queryDecimalValue(
                 """
                 select ca.allocated_amount from payment_cancel_allocation ca
                 join payment_allocation a on a.id = ca.payment_allocation_id
@@ -459,25 +569,25 @@ class RegistrationModificationDatabaseTest
     @Test
     void groupLateFailureRollsBackAddedModifiedAndRemovedMembers() {
         OrgRegistrationCreateResponse original =
-                group(categoryA, categoryA);
+                createOrganizationRegistration(categoryA, categoryA);
 
         String retainedId = original.registrationIds().get(0);
 
         Map<String, List<Map<String, Object>>> before =
-                snapshot();
+                captureRegistrationModificationState();
 
         failAfterAllocationWrite();
 
         expectError(
                 ErrorCode.PAYMENT_ALLOCATION_INTEGRITY_ERROR,
-                () -> modifications.modifyOrganization(
+                () -> modifications.modifyOrganizationRegistration(
                         eventId,
                         original.organizationId(),
                         groupRequest(original.organizationId(), retainedId)
                 )
         );
 
-        assertThat(snapshot()).isEqualTo(before);
+        assertThat(captureRegistrationModificationState()).isEqualTo(before);
     }
 
     /**
@@ -489,7 +599,7 @@ class RegistrationModificationDatabaseTest
     @ValueSource(strings = {"CONFIRMING", "UNKNOWN"})
     void unsettledPaymentBlocksModification(String status) {
         RegistrationCreateResponse original =
-                personal(categoryA, "S", "1990-01-01");
+                createPersonalRegistration(categoryA, "S", "1990-01-01");
 
         jdbc.update(
                 "update payment set process_status = ? where id = ?",
@@ -498,11 +608,11 @@ class RegistrationModificationDatabaseTest
         );
 
         Map<String, List<Map<String, Object>>> before =
-                snapshot();
+                captureRegistrationModificationState();
 
         expectError(
                 ErrorCode.REGISTRATION_MODIFICATION_PAYMENT_CONFLICT,
-                () -> modifications.modifyPersonal(
+                () -> modifications.modifyPersonalRegistration(
                         eventId,
                         original.registrationId(),
                         personalRequest(
@@ -513,7 +623,7 @@ class RegistrationModificationDatabaseTest
                 )
         );
 
-        assertThat(snapshot()).isEqualTo(before);
+        assertThat(captureRegistrationModificationState()).isEqualTo(before);
     }
 
     /**
@@ -526,10 +636,10 @@ class RegistrationModificationDatabaseTest
     @Test
     void onlyOneModificationGetsLastSize() throws Exception {
         RegistrationCreateResponse first =
-                personal(categoryA, "S", "1990-01-01");
+                createPersonalRegistration(categoryA, "S", "1990-01-01");
 
         RegistrationCreateResponse second =
-                personal(categoryA, "S", "1990-01-01");
+                createPersonalRegistration(categoryA, "S", "1990-01-01");
 
         RegistrationModificationRequest firstRequest =
                 personalRequest(first.registrationId(), categoryA, "M");
@@ -582,17 +692,17 @@ class RegistrationModificationDatabaseTest
                     ? second.paymentId()
                     : first.paymentId();
 
-            assertThat(paymentState(winnerPaymentId))
+            assertThat(findPaymentProcessStatus(winnerPaymentId))
                     .isEqualTo("INVALIDATED");
-            assertThat(paymentState(loserPaymentId))
+            assertThat(findPaymentProcessStatus(loserPaymentId))
                     .isEqualTo("READY");
 
-            counters(total, 2, 0);
-            counters(categoryACapacity, 2, 0);
-            counters(shirtS, 1, 0);
-            counters(shirtM, 1, 0);
+            assertCapacityCounts(total, 2, 0);
+            assertCapacityCounts(categoryACapacity, 2, 0);
+            assertCapacityCounts(shirtS, 1, 0);
+            assertCapacityCounts(shirtM, 1, 0);
 
-            assertThat(n(
+            assertThat(queryIntegerValue(
                     """
                     select count(*)
                     from payment p
@@ -602,7 +712,7 @@ class RegistrationModificationDatabaseTest
                     eventId
             )).isEqualTo(3);
 
-            assertThat(n(
+            assertThat(queryIntegerValue(
                     """
                     select sum(json_length(rv.history))
                     from reservation rv
@@ -630,7 +740,7 @@ class RegistrationModificationDatabaseTest
     @Test
     void approvalStartAndModificationCannotBothSucceed() throws Exception {
         RegistrationCreateResponse created =
-                personal(categoryA, "S", "1990-01-01");
+                createPersonalRegistration(categoryA, "S", "1990-01-01");
 
         String registrationId = created.registrationId();
         String oldPaymentId = created.paymentId();
@@ -662,7 +772,7 @@ class RegistrationModificationDatabaseTest
                     runModificationRaceAction(
                             ready,
                             start,
-                            () -> modificationRaceCommands.modifyPersonal(
+                            () -> modificationRaceCommands.modifyPersonalRegistration(
                                     eventId,
                                     registrationId,
                                     modificationRequest
@@ -695,55 +805,55 @@ class RegistrationModificationDatabaseTest
                                 ErrorCode.REGISTRATION_MODIFICATION_PAYMENT_CONFLICT
                         );
 
-                assertThat(s(
+                assertThat(queryStringValue(
                         "select process_status from payment where id = ?",
                         oldPaymentId
                 )).isEqualTo("CONFIRMING");
 
-                assertThat(s(
+                assertThat(queryStringValue(
                         "select status from reservation where registration_id = ?",
                         registrationId
                 )).isEqualTo("PROCESSING");
 
-                assertThat(s(
+                assertThat(queryStringValue(
                         "select event_category_id from registration where id = ?",
                         registrationId
                 )).isEqualTo(categoryA);
 
-                assertThat(n(
+                assertThat(queryIntegerValue(
                         "select count(*) from payment where registration_id = ?",
                         registrationId
                 )).isEqualTo(1);
 
-                counters(categoryACapacity, 1, 0);
-                counters(categoryBCapacity, 0, 0);
-                counters(shirtS, 1, 0);
-                counters(shirtM, 0, 0);
+                assertCapacityCounts(categoryACapacity, 1, 0);
+                assertCapacityCounts(categoryBCapacity, 0, 0);
+                assertCapacityCounts(shirtS, 1, 0);
+                assertCapacityCounts(shirtM, 0, 0);
             } else {
                 assertThat(approvalError)
                         .isEqualTo(ErrorCode.PAYMENT_NOT_CONFIRMABLE);
 
-                assertThat(s(
+                assertThat(queryStringValue(
                         "select process_status from payment where id = ?",
                         oldPaymentId
                 )).isEqualTo("INVALIDATED");
 
-                assertThat(s(
+                assertThat(queryStringValue(
                         "select status from reservation where registration_id = ?",
                         registrationId
                 )).isEqualTo("HELD");
 
-                assertThat(s(
+                assertThat(queryStringValue(
                         "select event_category_id from registration where id = ?",
                         registrationId
                 )).isEqualTo(categoryB);
 
-                assertThat(n(
+                assertThat(queryIntegerValue(
                         "select count(*) from payment where registration_id = ?",
                         registrationId
                 )).isEqualTo(2);
 
-                assertThat(n(
+                assertThat(queryIntegerValue(
                         """
                         select count(*)
                         from payment
@@ -755,13 +865,13 @@ class RegistrationModificationDatabaseTest
                         oldPaymentId
                 )).isEqualTo(1);
 
-                counters(categoryACapacity, 0, 0);
-                counters(categoryBCapacity, 1, 0);
-                counters(shirtS, 0, 0);
-                counters(shirtM, 1, 0);
+                assertCapacityCounts(categoryACapacity, 0, 0);
+                assertCapacityCounts(categoryBCapacity, 1, 0);
+                assertCapacityCounts(shirtS, 0, 0);
+                assertCapacityCounts(shirtM, 1, 0);
             }
 
-            counters(total, 1, 0);
+            assertCapacityCounts(total, 1, 0);
 
             assertThat(jdbc.queryForObject(
                     "select paid_amount from registration where id = ?",
@@ -783,27 +893,27 @@ class RegistrationModificationDatabaseTest
     /** 가격 인하 수정 한 번으로 환불 원장까지 저장하되 실제 돈은 차감하지 않는다. */
     @Test
     void priceReductionPreparesRefundWithoutCallingToss() {
-        RegistrationCreateResponse original = personal(categoryA, "S", "1990-01-01");
+        RegistrationCreateResponse original = createPersonalRegistration(categoryA, "S", "1990-01-01");
         mockApprovalSuccess();
         payments.confirm(confirmRequest(original.paymentId()));
         clearInvocations(toss);
         changeCategoryPrice(categoryB, "30000");
 
-        RegistrationModificationSettlementResult result = modifications.modifyPersonal(
+        RegistrationModificationSettlementResult result = modifications.modifyPersonalRegistration(
                 eventId, original.registrationId(), personalRequest(original.registrationId(), categoryB, "M"));
 
         assertThat(result.refunds()).hasSize(1);
         String cancelId = result.refunds().get(0).paymentCancelId();
         assertThat(result.refunds().get(0).amount()).isEqualByComparingTo("10000");
-        assertThat(s("select status from payment_cancel where id = ?", cancelId)).isEqualTo("PROCESSING");
-        assertThat(s("select cancel_type from payment_cancel where id = ?", cancelId)).isEqualTo("PARTIAL");
-        assertThat(money("select paid_amount from registration where id = ?", original.registrationId()))
+        assertThat(queryStringValue("select status from payment_cancel where id = ?", cancelId)).isEqualTo("PROCESSING");
+        assertThat(queryStringValue("select cancel_type from payment_cancel where id = ?", cancelId)).isEqualTo("PARTIAL");
+        assertThat(queryDecimalValue("select paid_amount from registration where id = ?", original.registrationId()))
                 .isEqualByComparingTo("40000");
-        assertThat(money("select sum(allocated_amount) from payment_cancel_allocation where payment_cancel_id = ?", cancelId))
+        assertThat(queryDecimalValue("select sum(allocated_amount) from payment_cancel_allocation where payment_cancel_id = ?", cancelId))
                 .isEqualByComparingTo("10000");
-        assertThat(n("select count(*) from payment_process_log where payment_cancel_id = ? and process_type = 'CANCEL_PREPARED'", cancelId))
+        assertThat(queryIntegerValue("select count(*) from payment_process_log where payment_cancel_id = ? and process_type = 'CANCEL_PREPARED'", cancelId))
                 .isEqualTo(1);
-        assertThat(s("select status from reservation where registration_id = ?", original.registrationId())).isEqualTo("CONSUMED");
+        assertThat(queryStringValue("select status from reservation where registration_id = ?", original.registrationId())).isEqualTo("CONSUMED");
         verifyNoInteractions(toss);
     }
 
@@ -811,45 +921,45 @@ class RegistrationModificationDatabaseTest
     @ParameterizedTest
     @ValueSource(strings = {"PROCESSING", "UNKNOWN"})
     void unsettledRefundBlocksNextFullModification(String status) {
-        RegistrationCreateResponse original = personal(categoryA, "S", "1990-01-01");
+        RegistrationCreateResponse original = createPersonalRegistration(categoryA, "S", "1990-01-01");
         mockApprovalSuccess();
         payments.confirm(confirmRequest(original.paymentId()));
         changeCategoryPrice(categoryB, "30000");
-        RegistrationModificationSettlementResult first = modifications.modifyPersonal(
+        RegistrationModificationSettlementResult first = modifications.modifyPersonalRegistration(
                 eventId, original.registrationId(), personalRequest(original.registrationId(), categoryB, "M"));
         String cancelId = first.refunds().get(0).paymentCancelId();
         jdbc.update("update payment_cancel set status = ? where id = ?", status, cancelId);
-        Map<String, List<Map<String, Object>>> before = snapshot();
+        Map<String, List<Map<String, Object>>> before = captureRegistrationModificationState();
 
         expectError(ErrorCode.PAYMENT_CANCEL_CONFLICT,
-                () -> modifications.modifyPersonal(eventId, original.registrationId(),
+                () -> modifications.modifyPersonalRegistration(eventId, original.registrationId(),
                         personalRequest(original.registrationId(), categoryA, "S")));
 
-        assertThat(snapshot()).isEqualTo(before);
+        assertThat(captureRegistrationModificationState()).isEqualTo(before);
     }
 
     /** 환불 귀속까지 저장한 뒤 실패하면 수정·정원·환불 원장을 함께 롤백한다. */
     @Test
     void refundAllocationFailureRollsBackWholeModification() {
-        RegistrationCreateResponse original = personal(categoryA, "S", "1990-01-01");
+        RegistrationCreateResponse original = createPersonalRegistration(categoryA, "S", "1990-01-01");
         mockApprovalSuccess();
         payments.confirm(confirmRequest(original.paymentId()));
         changeCategoryPrice(categoryB, "30000");
-        Map<String, List<Map<String, Object>>> before = snapshot();
-        kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentCancelAllocationCreator spy =
+        Map<String, List<Map<String, Object>>> before = captureRegistrationModificationState();
+        PaymentCancelAllocationCreator spy =
                 AopTestUtils.getUltimateTargetObject(cancelAllocationCreator);
         doAnswer(invocation -> {
             invocation.callRealMethod();
             em.flush();
             throw new CustomException(ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR);
         }).when(spy).create(
-                any(kr.co.teambrain.marvelrun.user.event.command.application.domain.PaymentCancel.class), anyList());
+                any(PaymentCancel.class), anyList());
 
         expectError(ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR,
-                () -> modifications.modifyPersonal(eventId, original.registrationId(),
+                () -> modifications.modifyPersonalRegistration(eventId, original.registrationId(),
                         personalRequest(original.registrationId(), categoryB, "M")));
 
-        assertThat(snapshot()).isEqualTo(before);
+        assertThat(captureRegistrationModificationState()).isEqualTo(before);
     }
 
     /**
@@ -865,7 +975,7 @@ class RegistrationModificationDatabaseTest
             boolean paid
     ) {
         RegistrationCreateResponse created =
-                personal(categoryA, "S", "1990-01-01");
+                createPersonalRegistration(categoryA, "S", "1990-01-01");
 
         String registrationId = created.registrationId();
 
@@ -877,14 +987,14 @@ class RegistrationModificationDatabaseTest
             );
         }
 
-        String reservationId = s(
+        String reservationId = queryStringValue(
                 "select id from reservation where registration_id = ?",
                 registrationId
         );
 
         String expectedState = paid ? "CONSUMED" : "HELD";
 
-        assertThat(s(
+        assertThat(queryStringValue(
                 "select status from reservation where id = ?",
                 reservationId
         )).isEqualTo(expectedState);
@@ -970,7 +1080,7 @@ class RegistrationModificationDatabaseTest
          * 거절된 작업이 그 변경을 되돌리거나 추가 변경을 남겨서는 안 된다.
          */
         Map<String, List<Map<String, Object>>> beforeRejectedMove =
-                snapshot();
+                captureRegistrationModificationState();
 
         /*
          * 세 번째 트랜잭션:
@@ -986,7 +1096,7 @@ class RegistrationModificationDatabaseTest
                             eventId
                     );
 
-                    staleVersionCapacityModificationService.moveAll(
+                    staleVersionCapacityModificationService.moveReservationCapacities(
                             eventId,
                             staleDiffs,
                             NOW
@@ -996,20 +1106,20 @@ class RegistrationModificationDatabaseTest
                 })
         );
 
-        assertThat(snapshot())
+        assertThat(captureRegistrationModificationState())
                 .isEqualTo(beforeRejectedMove);
 
         int expectedHeld = paid ? 0 : 1;
         int expectedConfirmed = paid ? 1 : 0;
 
-        counters(total, expectedHeld, expectedConfirmed);
-        counters(categoryACapacity, expectedHeld, expectedConfirmed);
-        counters(shirtS, expectedHeld, expectedConfirmed);
+        assertCapacityCounts(total, expectedHeld, expectedConfirmed);
+        assertCapacityCounts(categoryACapacity, expectedHeld, expectedConfirmed);
+        assertCapacityCounts(shirtS, expectedHeld, expectedConfirmed);
 
-        counters(categoryBCapacity, 0, 0);
-        counters(shirtM, 0, 0);
+        assertCapacityCounts(categoryBCapacity, 0, 0);
+        assertCapacityCounts(shirtM, 0, 0);
 
-        assertThat(s(
+        assertThat(queryStringValue(
                 "select status from reservation where id = ?",
                 reservationId
         )).isEqualTo(expectedState);
@@ -1053,17 +1163,17 @@ class RegistrationModificationDatabaseTest
     private RegistrationModificationRequest raceModificationRequest(
             String registrationId
     ) {
-        String name = s(
+        String name = queryStringValue(
                 "select name from registration where id = ?",
                 registrationId
         );
 
-        String birth = s(
+        String birth = queryStringValue(
                 "select birth from registration where id = ?",
                 registrationId
         );
 
-        String phNum = s(
+        String phNum = queryStringValue(
                 "select ph_num from registration where id = ?",
                 registrationId
         );
@@ -1105,7 +1215,7 @@ class RegistrationModificationDatabaseTest
         assertThat(start.await(10, TimeUnit.SECONDS)).isTrue();
 
         try {
-            modifications.modifyPersonal(
+            modifications.modifyPersonalRegistration(
                     eventId,
                     registrationId,
                     request
@@ -1129,17 +1239,17 @@ class RegistrationModificationDatabaseTest
             String categoryId,
             String size
     ) {
-        String name = s(
+        String name = queryStringValue(
                 "select name from registration where id = ?",
                 registrationId
         );
 
-        String birth = s(
+        String birth = queryStringValue(
                 "select birth from registration where id = ?",
                 registrationId
         );
 
-        String phone = s(
+        String phone = queryStringValue(
                 "select ph_num from registration where id = ?",
                 registrationId
         );
@@ -1172,7 +1282,7 @@ class RegistrationModificationDatabaseTest
             String organizationId,
             String retainedId
     ) {
-        String loginId = s(
+        String loginId = queryStringValue(
                 "select login_id from organization where id = ?",
                 organizationId
         );
@@ -1182,7 +1292,7 @@ class RegistrationModificationDatabaseTest
                 "테스트 주소",
                 "상세",
                 "테스트 단체장",
-                java.time.LocalDate.of(1990, 1, 1),
+                LocalDate.of(1990, 1, 1),
                 "010-0000-0000",
                 new OrganizationAccessRequest(loginId, "Test1234!"),
                 List.of(
@@ -1190,7 +1300,7 @@ class RegistrationModificationDatabaseTest
                                 retainedId,
                                 categoryB,
                                 List.of(new SouvenirJson(souvenirId, "M")),
-                                s(
+                                queryStringValue(
                                         "select name from registration where id = ?",
                                         retainedId
                                 ),
@@ -1252,8 +1362,8 @@ class RegistrationModificationDatabaseTest
     /**
      * 저장된 신청 상태를 조회한다.
      */
-    private String registrationState(String registrationId) {
-        return s(
+    private String findRegistrationStatus(String registrationId) {
+        return queryStringValue(
                 "select status from registration where id = ?",
                 registrationId
         );
@@ -1262,8 +1372,8 @@ class RegistrationModificationDatabaseTest
     /**
      * 저장된 Payment 처리 상태를 조회한다.
      */
-    private String paymentState(String paymentId) {
-        return s(
+    private String findPaymentProcessStatus(String paymentId) {
+        return queryStringValue(
                 "select process_status from payment where id = ?",
                 paymentId
         );
@@ -1272,7 +1382,7 @@ class RegistrationModificationDatabaseTest
     /**
      * 금액 컬럼을 BigDecimal로 조회한다.
      */
-    private BigDecimal money(String sql, Object... args) {
+    private BigDecimal queryDecimalValue(String sql, Object... args) {
         return jdbc.queryForObject(sql, BigDecimal.class, args);
     }
 
@@ -1283,7 +1393,7 @@ class RegistrationModificationDatabaseTest
      * Payment는 Allocation 생성 여부와 무관하게 조회하여
      * Allocation 없는 신규 주문이 남는 오류도 발견한다.
      */
-    private Map<String, List<Map<String, Object>>> snapshot() {
+    private Map<String, List<Map<String, Object>>> captureRegistrationModificationState() {
         Map<String, List<Map<String, Object>>> result = new LinkedHashMap<>();
 
         result.put("registrations", jdbc.queryForList(

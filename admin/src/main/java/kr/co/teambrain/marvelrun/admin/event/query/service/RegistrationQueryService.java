@@ -1,32 +1,31 @@
 package kr.co.teambrain.marvelrun.admin.event.query.service;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
-
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
-
-import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationStatDto;
-import kr.co.teambrain.marvelrun.admin.event.query.dto.response.EventStatisticsResponse;
-import kr.co.teambrain.marvelrun.admin.event.query.repository.SouvenirQueryRepository;
-
+import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Payment;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationSearchCondition;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationStatDto;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.response.EventStatisticsResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.response.LeaderInfoResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationDetailResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationListResponse;
-import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationSearchCondition;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.PaymentQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
+import kr.co.teambrain.marvelrun.admin.event.query.repository.SouvenirQueryRepository;
+import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationActionPolicyReader;
 import kr.co.teambrain.marvelrun.admin.event.query.util.RegistrationSpecification;
 import kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentMethod;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -39,6 +38,9 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class RegistrationQueryService {
+    private final RegistrationActionPolicyReader actionPolicies;
+    private final ServerTimeProvider policyTime;
+
 
 
     private final RegistrationQueryRepository registrationQueryRepository;
@@ -146,11 +148,11 @@ public class RegistrationQueryService {
         Payment payment = paymentQueryRepository.findFirstByRegistrationIdOrderByCreatedAtDesc(registrationId)
                 .orElse(null);
 
-        return convertToDetailDto(registration, payment);
+        return toRegistrationDetailResponse(registration, payment);
     }
 
     /* 신청 정보와 결제 표시값을 변환하며 외부 결제 여부는 저장된 값을 그대로 제공한다. */
-    private RegistrationDetailResponse convertToDetailDto(Registration registration, Payment payment) {
+    private RegistrationDetailResponse toRegistrationDetailResponse(Registration registration, Payment payment) {
         boolean isOrganization = registration.getOrganization() != null;
 
         // 이메일 추출: 단체면 단체 대표 이메일, 개인이면 유저 이메일
@@ -218,6 +220,7 @@ public class RegistrationQueryService {
                 ? payment.getPaymentMethod().name() : "-";
 
         return RegistrationDetailResponse.builder()
+                .userPolicy(actionPolicies.evaluateRegistrationUserPolicy(registration, policyTime.currentDateTime(), actionPolicies.loadEnabledRegistrationActionPolicies(registration.getEvent().getId())))
                 .externalPayment(registration.isExternalPayment())
                 .name(registration.getName())
                 .orgName(orgName)

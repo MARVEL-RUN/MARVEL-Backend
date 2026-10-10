@@ -5,16 +5,18 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_cancel.PaymentCancelStatus;
-import kr.co.teambrain.marvelrun.admin.payment.command.application.refund.AdminRefundExecutionRequest.Refund;
-import kr.co.teambrain.marvelrun.admin.payment.command.infrastructure.toss.refund.*;
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
+import kr.co.teambrain.marvelrun.admin.payment.command.application.refund.AdminRefundExecutionRequest.Refund;
+import kr.co.teambrain.marvelrun.admin.payment.command.infrastructure.toss.refund.*;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_cancel.PaymentCancelStatus;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+
 import static org.assertj.core.api.Assertions.*;
-import static org.mockito.Mockito.*;
 import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 /** 외부 요청은 한 번만 실행하고 결과 저장 실패를 결과불명 처리로 연결하는지 검증한다. */
 class ModificationRefundExecutorTest {
@@ -30,7 +32,7 @@ class ModificationRefundExecutorTest {
         List<AdminRefundExecutionResult> results = executor.execute("event", null, List.of(refund));
         assertThat(results.getFirst().started()).isFalse();
         verifyNoInteractions(toss);
-        verify(transactions, never()).apply(any(), any());
+        verify(transactions, never()).applyRefundExecutionOutcome(any(), any());
     }
 
     /** 성공 저장 실패 시 외부 성공 증거를 유지하여 UNKNOWN 저장을 요청한다. */
@@ -42,13 +44,13 @@ class ModificationRefundExecutorTest {
         when(transactions.begin("event", null, refund)).thenReturn(Optional.of(ticket));
         when(toss.cancel(ticket.attempt())).thenReturn(success);
         doThrow(new CustomException(ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR))
-                .when(transactions).apply(ticket, success);
+                .when(transactions).applyRefundExecutionOutcome(ticket, success);
         List<AdminRefundExecutionResult> results = executor.execute("event", null, List.of(refund));
         assertThat(results.getFirst().unknownStored()).isTrue();
         assertThat(results.getFirst().outcomeStored()).isFalse();
         assertThat(results.getFirst().externalOutcome()).isEqualTo(success);
         ArgumentCaptor<TossCancelOutcome> outcomes = ArgumentCaptor.forClass(TossCancelOutcome.class);
-        verify(transactions, times(2)).apply(eq(ticket), outcomes.capture());
+        verify(transactions, times(2)).applyRefundExecutionOutcome(eq(ticket), outcomes.capture());
         TossCancelOutcome fallback = outcomes.getAllValues().get(1);
         assertThat(fallback.kind()).isEqualTo(TossCancelOutcome.Kind.UNKNOWN);
         assertThat(fallback.cancellation()).isEqualTo(success.cancellation());
@@ -69,8 +71,8 @@ class ModificationRefundExecutorTest {
         when(toss.cancel(one.attempt())).thenReturn(unknown);
         when(toss.cancel(two.attempt())).thenReturn(success);
         executor.execute("event", null, List.of(first, second));
-        verify(transactions).apply(one, unknown);
-        verify(transactions).apply(two, success);
+        verify(transactions).applyRefundExecutionOutcome(one, unknown);
+        verify(transactions).applyRefundExecutionOutcome(two, success);
         verify(toss, times(1)).cancel(one.attempt());
         verify(toss, times(1)).cancel(two.attempt());
     }
@@ -89,14 +91,14 @@ class ModificationRefundExecutorTest {
     /** 배치 전체에 열린 트랜잭션이 있으면 시작 기록과 외부 전송 전에 차단한다. */
     @Test
     void rejectsAmbientTransaction() {
-        org.springframework.transaction.support.TransactionSynchronizationManager.setActualTransactionActive(true);
+        TransactionSynchronizationManager.setActualTransactionActive(true);
         try {
             assertThatThrownBy(() -> executor.execute("event", null, List.of(refund("cancel"))))
                     .isInstanceOfSatisfying(CustomException.class,
                             error -> assertThat(error.getErrorCode()).isEqualTo(ErrorCode.PAYMENT_CANCEL_CONFLICT));
             verifyNoInteractions(transactions, toss);
         } finally {
-            org.springframework.transaction.support.TransactionSynchronizationManager.setActualTransactionActive(false);
+            TransactionSynchronizationManager.setActualTransactionActive(false);
         }
     }
 

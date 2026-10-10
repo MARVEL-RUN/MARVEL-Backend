@@ -1,12 +1,20 @@
 package kr.co.teambrain.marvelrun.admin.user.query.service;
 
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
+import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Payment;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
+import kr.co.teambrain.marvelrun.admin.event.policy.RegistrationActionPolicyModels;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.PaymentQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.SouvenirQueryRepository;
+import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationActionPolicyReader;
 import kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.admin.user.query.dto.OrganizationDetailResponse;
 import kr.co.teambrain.marvelrun.admin.user.query.dto.OrganizationListResponse;
@@ -23,15 +31,13 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
-
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class OrganizationQueryService {
+    private final RegistrationActionPolicyReader actionPolicies;
+    private final ServerTimeProvider policyTime;
+
 
     private final OrganizationQueryRepository organizationQueryRepository;
     private final RegistrationQueryRepository registrationQueryRepository;
@@ -83,6 +89,8 @@ public class OrganizationQueryService {
         Organization organization = organizationQueryRepository.findById(organizationId)
                 .orElseThrow(() -> new CustomException(ErrorCode.ORGANIZATION_NOT_FOUND));
 
+        LocalDateTime now = policyTime.currentDateTime();
+        List<RegistrationActionPolicyModels.Policy> policies = actionPolicies.loadEnabledRegistrationActionPolicies(organization.getEvent().getId());
         String email = organization.getEmail();
 
         // 2. 소속된 신청자 목록 조회 (삭제된 인원 제외)
@@ -132,6 +140,7 @@ public class OrganizationQueryService {
             String finalStatus = isPaymentUnknown ? "UNKNOWN" : reg.getStatus().name();
 
             members.add(OrganizationMemberDto.builder()
+                    .userPolicy(actionPolicies.evaluateRegistrationUserPolicy(reg, now, policies))
                     .listNumber(listNumber++) // 페이징 번호 할당
                     .registrationId(reg.getId())
                     .name(reg.getName())
@@ -150,6 +159,7 @@ public class OrganizationQueryService {
 
         // 6. 최종 상세 응답 DTO 반환
         return OrganizationDetailResponse.builder()
+                .userPolicy(actionPolicies.evaluateOrganizationUserPolicy(organization.getEvent(), registrations, now, policies))
                 .organizationId(organization.getId())
                 .groupName(organization.getGroupName())
                 .eventName(organization.getEvent().getNameKr())

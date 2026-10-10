@@ -100,7 +100,7 @@ public abstract class AbstractRegistrationApplyValidator {
             Event event,
             LocalDateTime now
     ) {
-        registrationPolicyValidator.validateNewApplication(
+        registrationPolicyValidator.validateNewRegistrationPeriod(
                 event,
                 now
         );

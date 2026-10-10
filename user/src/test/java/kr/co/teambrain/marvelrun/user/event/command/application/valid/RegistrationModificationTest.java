@@ -1,5 +1,12 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.valid;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
@@ -19,14 +26,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-
-import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -320,7 +319,7 @@ class RegistrationModificationTest {
                 null, "신규어린이", "2020-01-01", " 150 "
         );
 
-        var result = groupModify.validate(
+        var result = groupModify.validateOrganizationModificationCandidates(
                 groupContext(
                         organization,
                         List.of(current),
@@ -366,7 +365,7 @@ class RegistrationModificationTest {
 
         expectError(
                 ErrorCode.REGISTRATION_ALREADY_EXISTS,
-                () -> groupModify.validate(
+                () -> groupModify.validateOrganizationModificationCandidates(
                         groupContext(
                                 organization("1990-01-01", true),
                                 List.of(),
@@ -389,7 +388,7 @@ class RegistrationModificationTest {
 
         expectError(
                 ErrorCode.REGISTRATION_ALREADY_EXISTS,
-                () -> groupModify.validate(
+                () -> groupModify.validateOrganizationModificationCandidates(
                         groupContext(
                                 organization("1990-01-01", true),
                                 List.of(),
@@ -415,7 +414,7 @@ class RegistrationModificationTest {
 
         expectError(
                 ErrorCode.REGISTRATION_ALREADY_EXISTS,
-                () -> groupModify.validate(
+                () -> groupModify.validateOrganizationModificationCandidates(
                         groupContext(
                                 organization,
                                 List.of(current),
@@ -434,7 +433,7 @@ class RegistrationModificationTest {
     void rejectsUnknownExistingMemberId() {
         expectError(
                 ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET,
-                () -> groupModify.validate(
+                () -> groupModify.validateOrganizationModificationCandidates(
                         groupContext(
                                 organization("1990-01-01", true),
                                 List.of(),
@@ -456,7 +455,7 @@ class RegistrationModificationTest {
         Registration omitted = existing("r2", organization);
         var before = snapshot(omitted);
 
-        var result = groupModify.validate(
+        var result = groupModify.validateOrganizationModificationCandidates(
                 groupContext(
                         organization,
                         List.of(first, omitted),
@@ -479,7 +478,7 @@ class RegistrationModificationTest {
     void groupUsesStoredGuardianConsent() {
         expectError(
                 ErrorCode.GUARDIAN_CONSENT_REQUIRED,
-                () -> groupModify.validate(
+                () -> groupModify.validateOrganizationModificationCandidates(
                         groupContext(
                                 organization("1990-01-01", false),
                                 List.of(),
@@ -502,7 +501,7 @@ class RegistrationModificationTest {
 
         expectError(
                 ErrorCode.REGISTRATION_SOUVENIR_SIZE_NOT_ALLOWED,
-                () -> groupModify.validate(
+                () -> groupModify.validateOrganizationModificationCandidates(
                         groupContext(
                                 organization,
                                 List.of(current),
@@ -531,7 +530,7 @@ class RegistrationModificationTest {
         );
 
         assertThatCode(
-                () -> groupModify.validate(
+                () -> groupModify.validateOrganizationModificationCandidates(
                         groupContext(
                                 organization("2012-11-01", true),
                                 List.of(),
@@ -542,7 +541,7 @@ class RegistrationModificationTest {
 
         expectError(
                 ErrorCode.ORGANIZATION_LEADER_MUST_BE_ADULT,
-                () -> groupModify.validate(
+                () -> groupModify.validateOrganizationModificationCandidates(
                         groupContext(
                                 organization("2012-11-02", true),
                                 List.of(),
@@ -567,7 +566,7 @@ class RegistrationModificationTest {
     ) {
         expectError(
                 expected,
-                () -> groupModify.validate(
+                () -> groupModify.validateOrganizationModificationCandidates(
                         groupContext(
                                 organization(birth, true),
                                 List.of(),
@@ -730,7 +729,7 @@ class RegistrationModificationTest {
                 "테스트 주소",
                 "상세",
                 "테스트 단체장",
-                java.time.LocalDate.of(1990, 1, 1),
+                LocalDate.of(1990, 1, 1),
                 "010-0000-0000",
                 new OrganizationAccessRequest("group-login", "password"),
                 participants),
