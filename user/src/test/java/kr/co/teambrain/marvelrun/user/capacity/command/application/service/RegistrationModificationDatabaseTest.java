@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.capacity.command.application.service;
 
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -87,13 +89,13 @@ class RegistrationModificationDatabaseTest
         // 기존 테스트 대회에만 정책을 추가하며 공통 정리에서 대회와 함께 삭제한다.
         List<RegistrationActionPolicy> saved = tx.execute(status -> actionPolicyRepository.saveAllAndFlush(List.of(
                 RegistrationActionPolicy.builder()
-                        .eventId(eventId).actionType("REFUND").registrationStartAt(start)
+                        .eventId(eventId).actionType(RegistrationActionType.REFUND).registrationStartAt(start)
                         .registrationEndAt(NOW).effectiveFrom(NOW).enabled(true).build(),
                 RegistrationActionPolicy.builder()
-                        .eventId(eventId).actionType("MODIFY").registrationStartAt(start)
+                        .eventId(eventId).actionType(RegistrationActionType.MODIFY).registrationStartAt(start)
                         .registrationEndAt(NOW).effectiveFrom(NOW).enabled(true).build(),
                 RegistrationActionPolicy.builder()
-                        .eventId(eventId).actionType("PAYMENT").registrationStartAt(start)
+                        .eventId(eventId).actionType(RegistrationActionType.PAYMENT).registrationStartAt(start)
                         .registrationEndAt(NOW).effectiveFrom(NOW).enabled(false).build())));
 
         // ID를 지정하지 않은 신규 엔티티가 서로 다른 UUID로 저장되는지 확인한다.
@@ -102,6 +104,11 @@ class RegistrationModificationDatabaseTest
         for (RegistrationActionPolicy policy : saved) {
             assertThat(policy.getId()).isNotNull();
             assertThat(UUID.fromString(policy.getId()).toString()).isEqualTo(policy.getId());
+            // DB 문자열과 JPA enum 왕복을 함께 검증하며 숫자 ordinal 저장을 허용하지 않는다.
+            assertThat(queryStringValue("select action_type from registration_action_policy where id=?", policy.getId()))
+                    .isEqualTo(policy.getActionType().name());
+            assertThat(actionPolicyRepository.findById(policy.getId()).orElseThrow().getActionType())
+                    .isEqualTo(policy.getActionType());
         }
 
         // 엔티티 컬럼 매핑과 파생 메서드 조건을 실제 조회 결과로 검증한다.
@@ -123,6 +130,8 @@ class RegistrationModificationDatabaseTest
         mockApprovalSuccess();
         payments.confirm(confirmRequest(original.paymentId()));
         insertActionPolicy("MODIFY");
+        // 환불 제한이 함께 있어도 수정 시도에는 수정 작업의 대표 사유를 반환한다.
+        insertActionPolicy("REFUND");
         Map<String, List<Map<String, Object>>> before = captureRegistrationModificationState();
         clearInvocations(toss);
         expectError(ErrorCode.REGISTRATION_MODIFICATION_POLICY_BLOCKED,
@@ -137,6 +146,8 @@ class RegistrationModificationDatabaseTest
     void paymentPolicyRollsBackUnpaidModificationAndReadyInvalidation() {
         RegistrationCreateResponse original = createPersonalRegistration(categoryA, "S", "1990-01-01");
         insertActionPolicy("PAYMENT");
+        // 미결제 수정 면제는 유지하되 정산에 필요한 결제 제한은 우회하지 않는다.
+        insertActionPolicy("MODIFY");
         Map<String, List<Map<String, Object>>> before = captureRegistrationModificationState();
         expectError(ErrorCode.REGISTRATION_PAYMENT_POLICY_BLOCKED,
                 () -> modifications.modifyPersonalRegistration(eventId, original.registrationId(),

@@ -110,15 +110,23 @@ public class RegistrationModificationSettlementService {
                 loadReservations(uniqueIds);
 
         // 원장 준비 전에 실제 차액이 있는 대상만 검증하며 실패 시 상위 수정도 함께 롤백한다.
+        List<Registration> paymentTargets = new ArrayList<>();
+        List<Registration> refundTargets = new ArrayList<>();
         for (Registration registration : registrations) {
             if (registration.getContractAmount() == null || registration.getPaidAmount() == null) {
                 throw new CustomException(ErrorCode.REGISTRATION_FINANCIAL_STATE_INVALID);
             }
             int balanceSign = registration.getContractAmount().compareTo(registration.getPaidAmount());
-            if (balanceSign != 0) {
-                actionPolicies.validateRegistrationActionPolicy(registration.getEvent(), registration,
-                        balanceSign > 0 ? Action.PAYMENT : Action.REFUND, now, policies);
-            }
+            if (balanceSign > 0) { paymentTargets.add(registration); }
+            if (balanceSign < 0) { refundTargets.add(registration); }
+        }
+        if (!paymentTargets.isEmpty()) {
+            actionPolicies.validateRegistrationActionsPolicy(paymentTargets.getFirst().getEvent(), paymentTargets,
+                    Action.PAYMENT, now, policies, organizationId != null);
+        }
+        if (!refundTargets.isEmpty()) {
+            actionPolicies.validateRegistrationActionsPolicy(refundTargets.getFirst().getEvent(), refundTargets,
+                    Action.REFUND, now, policies, organizationId != null);
         }
 
         List<Registration> initialPaymentTargets = new ArrayList<>();

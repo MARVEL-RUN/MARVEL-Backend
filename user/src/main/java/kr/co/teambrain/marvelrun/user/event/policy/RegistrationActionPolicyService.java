@@ -28,17 +28,24 @@ public class RegistrationActionPolicyService {
 
     /** 영속성 구조와 서버 의존성이 없는 판정 입력을 분리한다. */
     private Policy toRegistrationActionPolicyModel(RegistrationActionPolicy policy) {
-        return new Policy(policy.getId(), policy.getEventId(), Action.valueOf(policy.getActionType()),
+        // 영속 enum을 각 서버의 판정 작업으로 변환한다. 새 저장 작업 추가 시 switch 누락을 컴파일로 확인한다.
+        Action action = switch (policy.getActionType()) {
+            case MODIFY -> Action.MODIFY;
+            case REFUND -> Action.REFUND;
+            case PAYMENT -> Action.PAYMENT;
+        };
+        return new Policy(policy.getId(), policy.getEventId(), action,
                 policy.getRegistrationStartAt(), policy.getRegistrationEndAt(),
                 policy.getEffectiveFrom(), policy.isEnabled());
     }
 
     /** 신청 엔티티에서 판정에 필요한 값만 추출한다. */
     public static ParticipantInput toParticipantActionPolicyInput(Registration registration) {
-        boolean unpaid = registration.getPaidAmount() != null && registration.getPaidAmount().signum() == 0
+        boolean unpaid = registration.getPaidAmount().signum() == 0
                 && (registration.getStatus() == RegistrationStatus.PAYMENT_PENDING
                     || registration.getStatus() == RegistrationStatus.EXPIRED);
-        return new ParticipantInput(registration.getRegistrationDate(), unpaid, registration.isExternalPayment());
+        return new ParticipantInput(registration.getRegistrationDate(), unpaid, registration.isExternalPayment(), !registration.isSoftDeleted()
+                && registration.getContractAmount().compareTo(registration.getPaidAmount()) > 0);
     }
 
     /** 전역 판정에 필요한 대회 값만 추출한다. */
@@ -61,15 +68,24 @@ public class RegistrationActionPolicyService {
         requireRegistrationActionAllowed(decision, action);
     }
 
+    /** 같은 작업의 대상들을 함께 판정하여 구성원 순서와 무관한 대표 사유로 차단한다. */
+    public void validateRegistrationActionsPolicy(Event event, List<Registration> registrations, Action action,
+            LocalDateTime now, List<Policy> policies, boolean organizationScope) {
+        Decision decision = evaluator.evaluateRegistrationActionsPolicy(toEventActionPolicyInput(event),
+                registrations.stream().map(RegistrationActionPolicyService::toParticipantActionPolicyInput).toList(),
+                action, now, policies, organizationScope);
+        requireRegistrationActionAllowed(decision, action);
+    }
+
     /** 정책 결과를 명시적인 상세 응답 값으로 반환한다. */
     public UserPolicy evaluateRegistrationUserPolicy(Event event, Registration registration, LocalDateTime now, List<Policy> policies) {
         return evaluator.evaluateRegistrationUserPolicy(toEventActionPolicyInput(event), toParticipantActionPolicyInput(registration), now, policies);
     }
 
-    /** 전역 사유 우선순위를 유지하며 기존 예외 체계로 변환한다. */
+    /** 작업별 대표 사유를 기존 예외 체계로 변환한다. */
     public static void requireRegistrationActionAllowed(Decision decision, Action action) {
         if (decision.allowed()) { return; }
-        Reason reason = decision.reasons().getFirst();
+        Reason reason = decision.reason();
         ErrorCode code = switch (reason) {
             case CONFIGURATION_INVALID -> action == Action.PAYMENT
                     ? ErrorCode.PAYMENT_POLICY_CONFIGURATION_ERROR : ErrorCode.REGISTRATION_POLICY_CONFIGURATION_ERROR;

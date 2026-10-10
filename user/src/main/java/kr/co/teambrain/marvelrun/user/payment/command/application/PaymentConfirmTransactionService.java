@@ -163,9 +163,10 @@ public class PaymentConfirmTransactionService {
 
         validateAllocationsBeforeConfirm(payment, allocations, event);
         List<Policy> policies = actionPolicies.loadEnabledRegistrationActionPolicies(event.getId());
-        for (PaymentAllocation allocation : allocations) {
-            actionPolicies.validateRegistrationActionPolicy(event, allocation.getRegistration(), Action.PAYMENT, now, policies);
-        }
+        // 주문 귀속 인원 전체를 함께 평가하여 목록 순서에 따른 오류 차이를 없앤다.
+        actionPolicies.validateRegistrationActionsPolicy(event,
+                allocations.stream().map(PaymentAllocation::getRegistration).toList(),
+                Action.PAYMENT, now, policies, payment.getOrganization() != null);
 
         /*
          * 예약 상태와 결제 시작 이력을 함께 저장한다.

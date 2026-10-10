@@ -18,5 +18,5 @@ public record OrgRegistrationQueryResponse(
         PaymentProcessStatus paymentStatus, PaymentCancelStatus refundStatus,
         RegistrationPaymentAction paymentAction, String warningMessage,
         String paymentId, String orderId,
-        RegistrationActionPolicyModels.OrganizationPolicy userPolicy
+        RegistrationActionPolicyModels.OrganizationPolicy organizationPolicy
 ) { }

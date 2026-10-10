@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.admin.event.query.support;
 
+
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationActionPolicyRepository;
@@ -28,7 +29,13 @@ public class RegistrationActionPolicyReader {
 
     /** 영속성 구조와 서버 의존성이 없는 판정 입력을 분리한다. */
     private Policy toRegistrationActionPolicyModel(RegistrationActionPolicy policy) {
-        return new Policy(policy.getId(), policy.getEventId(), Action.valueOf(policy.getActionType()),
+        // 영속 enum을 각 서버의 판정 작업으로 변환한다. 새 저장 작업 추가 시 switch 누락을 컴파일로 확인한다.
+        Action action = switch (policy.getActionType()) {
+            case MODIFY -> Action.MODIFY;
+            case REFUND -> Action.REFUND;
+            case PAYMENT -> Action.PAYMENT;
+        };
+        return new Policy(policy.getId(), policy.getEventId(), action,
                 policy.getRegistrationStartAt(), policy.getRegistrationEndAt(),
                 policy.getEffectiveFrom(), policy.isEnabled());
     }
@@ -36,6 +43,12 @@ public class RegistrationActionPolicyReader {
     /** 개인·단체 구성원별 사용자 허용 여부를 같은 정책으로 평가한다. */
     public UserPolicy evaluateRegistrationUserPolicy(Registration registration, LocalDateTime now, List<Policy> policies) {
         return evaluator.evaluateRegistrationUserPolicy(toEventActionPolicyInput(registration.getEvent()), toParticipantActionPolicyInput(registration), now, policies);
+    }
+
+    /** 구성원에는 수정과 환불을 포함한 삭제 정책만 제공한다. */
+    public OrganizationMemberPolicy evaluateOrganizationMemberPolicy(Registration registration, LocalDateTime now, List<Policy> policies) {
+        return evaluator.evaluateOrganizationMemberPolicy(toEventActionPolicyInput(registration.getEvent()),
+                toParticipantActionPolicyInput(registration), now, policies);
     }
 
     /** 공통정보 변경과 신규 인원 추가를 분리한다. */
@@ -51,8 +64,9 @@ public class RegistrationActionPolicyReader {
 
     /** 0원 확정은 최초 미결제로 취급하지 않는다. */
     private ParticipantInput toParticipantActionPolicyInput(Registration registration) {
-        boolean unpaid = registration.getPaidAmount() != null && registration.getPaidAmount().signum() == 0
+        boolean unpaid = registration.getPaidAmount().signum() == 0
                 && (registration.getStatus() == RegistrationStatus.PAYMENT_PENDING || registration.getStatus() == RegistrationStatus.EXPIRED);
-        return new ParticipantInput(registration.getRegistrationDate(), unpaid, registration.isExternalPayment());
+        return new ParticipantInput(registration.getRegistrationDate(), unpaid, registration.isExternalPayment(), !registration.isSoftDeleted()
+                && registration.getContractAmount().compareTo(registration.getPaidAmount()) > 0);
     }
 }

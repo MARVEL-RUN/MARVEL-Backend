@@ -101,9 +101,9 @@ public class RegistrationCancellationTransactionService {
         }
         LocalDateTime now = time.currentDateTime();
         List<Policy> policies = actionPolicies.loadEnabledRegistrationActionPolicies(event.getId());
-        for (Registration member : active) {
-            actionPolicies.validateRegistrationActionPolicy(event, member, Action.REFUND, now, policies);
-        }
+        // 환불 없는 취소 면제를 적용한 뒤 전체 대상에서 대표 정책 사유를 선택한다.
+        actionPolicies.validateRegistrationActionsPolicy(event, active, Action.DELETE_MEMBER, now, policies,
+                organizationId != null);
         paymentGuard.prepareLockedPayments(payments);
         lockReservations(members);
         validateCanceled(members.stream().filter(Registration::isSoftDeleted).toList());

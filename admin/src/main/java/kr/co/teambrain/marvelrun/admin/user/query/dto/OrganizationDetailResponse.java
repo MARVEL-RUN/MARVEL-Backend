@@ -10,7 +10,7 @@ import lombok.Getter;
 @Builder
 public class OrganizationDetailResponse {
     /** 사용자 관점의 기간·외부결제 제한이며 관리자 명령 권한과는 별개다. */
-    private RegistrationActionPolicyModels.OrganizationPolicy userPolicy;
+    private RegistrationActionPolicyModels.OrganizationPolicy organizationPolicy;
 
     private String organizationId;
     private String groupName;

@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.admin.payment.command;
 
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import jakarta.validation.Validation;
@@ -43,7 +45,7 @@ import kr.co.teambrain.marvelrun.admin.event.command.application.service.Registr
 import kr.co.teambrain.marvelrun.admin.event.command.application.service.RegistrationPricingService;
 import kr.co.teambrain.marvelrun.admin.event.command.application.valid.*;
 import kr.co.teambrain.marvelrun.admin.event.command.application.valid.loader.RegistrationPolicyLoader;
-import kr.co.teambrain.marvelrun.admin.event.policy.RegistrationActionPolicyModels;
+import kr.co.teambrain.marvelrun.admin.event.policy.RegistrationActionPolicyReasons.ModificationRestrictionReason;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationDetailResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationActionPolicyRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.service.RegistrationQueryService;
@@ -133,10 +135,10 @@ class AdminRefundPreparationDatabaseTest {
         // 테스트 대회 범위에만 정책을 저장하며 종료 후 공통 정리에서 제거한다.
         List<RegistrationActionPolicy> saved = tx.execute(status -> actionPolicyRepository.saveAllAndFlush(List.of(
                 RegistrationActionPolicy.builder()
-                        .eventId(eventId).actionType("MODIFY").registrationStartAt(start)
+                        .eventId(eventId).actionType(RegistrationActionType.MODIFY).registrationStartAt(start)
                         .registrationEndAt(now).effectiveFrom(now).enabled(true).build(),
                 RegistrationActionPolicy.builder()
-                        .eventId(eventId).actionType("REFUND").registrationStartAt(start)
+                        .eventId(eventId).actionType(RegistrationActionType.REFUND).registrationStartAt(start)
                         .registrationEndAt(now).effectiveFrom(now).enabled(false).build())));
 
         // ID를 지정하지 않은 신규 엔티티가 서로 다른 UUID로 저장되는지 확인한다.
@@ -145,6 +147,11 @@ class AdminRefundPreparationDatabaseTest {
         for (RegistrationActionPolicy policy : saved) {
             assertThat(policy.getId()).isNotNull();
             assertThat(UUID.fromString(policy.getId()).toString()).isEqualTo(policy.getId());
+            // 관리자도 동일 VARCHAR 문자열을 enum으로 저장하고 다시 읽는다.
+            assertThat(jdbc.queryForObject("select action_type from registration_action_policy where id=?",
+                    String.class, policy.getId())).isEqualTo(policy.getActionType().name());
+            assertThat(actionPolicyRepository.findById(policy.getId()).orElseThrow().getActionType())
+                    .isEqualTo(policy.getActionType());
         }
 
         // 비활성 정책과 다른 대회는 제외하고 원래 KST 값을 유지한다.
@@ -158,7 +165,7 @@ class AdminRefundPreparationDatabaseTest {
         assertThat(actionPolicyRepository.findAllByEventIdAndEnabledTrueOrderByActionTypeAscRegistrationStartAtAscIdAsc(id())).isEmpty();
     }
 
-    /* 실제 상세 변환에서 일반 신청과 외부 신청의 구분값을 그대로 반환한다. */
+    /** 상세 조회에서 외부결제 표시를 보존하고, 종료 대회·마감 조건 중 우선 사유를 반환한다. */
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void detailReturnsStoredExternalPaymentFlag(boolean external) {
@@ -170,11 +177,11 @@ class AdminRefundPreparationDatabaseTest {
         assertThat(response.externalPayment()).isEqualTo(external);
         assertThat(response.amount()).isEqualByComparingTo("70000");
         assertThat(response.userPolicy().modifyAllowed()).isFalse();
-        assertThat(response.userPolicy().modifyReasons()).contains(
-                RegistrationActionPolicyModels.Reason.REGISTRATION_CLOSED);
-        assertThat(response.userPolicy().modifyReasons().contains(
-                RegistrationActionPolicyModels.Reason.EXTERNAL_PAYMENT))
-                .isEqualTo(external);
+        // CLOSED와 신청 마감이 함께 적용된다. 외부결제 > 대회 상태 > 신청 마감 순이다.
+        assertThat(response.userPolicy().modifyReason().code()).isEqualTo(external
+                ? ModificationRestrictionReason.EXTERNAL_PAYMENT : ModificationRestrictionReason.EVENT_NOT_OPEN);
+        assertThat(response.userPolicy().modifyReason().message()).isNotBlank();
+        assertThat(response.userPolicy().paymentAllowed()).isEqualTo(response.userPolicy().paymentReason() == null);
     }
 
     /* 외부 결제는 전액 환불과 금액 증감·동일 금액 변경을 모두 업무 변경 전에 차단한다. */

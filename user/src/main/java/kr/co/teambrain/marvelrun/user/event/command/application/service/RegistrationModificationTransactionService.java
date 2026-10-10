@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.ArrayList;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
@@ -135,16 +136,27 @@ public class RegistrationModificationTransactionService {
         if (access.request().registrations().stream().anyMatch(r -> r.registrationId() == null)) {
             RegistrationActionPolicyService.validateGlobalRegistrationActionPolicy(access.event(), Action.ADD_MEMBER, access.now());
         }
+        // 같은 작업의 대상을 모아 단체 정책 우선순위로 한 번 검증한다.
+        List<Registration> modifiedMembers = new ArrayList<>();
+        List<Registration> deletedMembers = new ArrayList<>();
         for (Registration member : access.currentRegistrations()) {
             OrgRegistrationModificationParticipantRequest requested = access.request().registrations().stream()
                     .filter(r -> member.getId().equals(r.registrationId())).findFirst().orElse(null);
             if (commonChanged || (requested != null && classifier.classifyOrganizationParticipant(member, requested)
                     != RegistrationModificationClassifier.Change.NONE)) {
-                actionPolicies.validateRegistrationActionPolicy(access.event(), member, Action.MODIFY, access.now(), policies);
+                modifiedMembers.add(member);
             }
             if (requested == null) {
-                actionPolicies.validateRegistrationActionPolicy(access.event(), member, Action.REFUND, access.now(), policies);
+                deletedMembers.add(member);
             }
+        }
+        if (!modifiedMembers.isEmpty()) {
+            actionPolicies.validateRegistrationActionsPolicy(access.event(), modifiedMembers, Action.MODIFY,
+                    access.now(), policies, commonChanged);
+        }
+        if (!deletedMembers.isEmpty()) {
+            actionPolicies.validateRegistrationActionsPolicy(access.event(), deletedMembers, Action.DELETE_MEMBER,
+                    access.now(), policies, false);
         }
     }
 }

@@ -1,11 +1,16 @@
 package kr.co.teambrain.marvelrun.common.entity;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.EnumType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.MappedSuperclass;
 import java.time.LocalDateTime;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import lombok.experimental.SuperBuilder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -27,8 +32,11 @@ public abstract class RegistrationActionPolicyBase {
     @Column(name = "event_id", nullable = false, length = 40)
     protected String eventId;
 
+    // Java에서는 enum으로 제한하고 DB는 기존 VARCHAR(16) 및 문자열 값을 유지한다.
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
     @Column(name = "action_type", nullable = false, length = 16)
-    protected String actionType;
+    protected RegistrationActionType actionType;
 
     // 모든 정책 시각은 KST이며 대상 신청일 종료는 제외한다.
     @Column(name = "registration_start_at", nullable = false)

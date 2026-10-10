@@ -102,9 +102,10 @@ public class PaymentRetryPreparationService {
         policyValidator.validateForPurpose(event, now, original.getPurpose());
         List<String> initialIds = support.validateForPreparation(original, originalAllocations);
         List<Policy> policies = actionPolicies.loadEnabledRegistrationActionPolicies(event.getId());
-        for (PaymentAllocation allocation : originalAllocations) {
-            actionPolicies.validateRegistrationActionPolicy(event, allocation.getRegistration(), Action.PAYMENT, now, policies);
-        }
+        // 기존 주문의 귀속 전체에서 정책 대표 사유를 선택한다.
+        actionPolicies.validateRegistrationActionsPolicy(event,
+                originalAllocations.stream().map(PaymentAllocation::getRegistration).toList(),
+                Action.PAYMENT, now, policies, original.getOrganization() != null);
         Map<String, Share> expected = shares(originalAllocations);
         Payment reusable = null;
         for (Payment candidate : locked) {

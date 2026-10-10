@@ -115,9 +115,9 @@ public class AdditionalPaymentPreparationService {
         LocalDateTime now = time.currentDateTime();
         Event event = registrations.getFirst().getEvent();
         List<Policy> policies = actionPolicies.loadEnabledRegistrationActionPolicies(event.getId());
-        for (Registration registration : registrations) {
-            actionPolicies.validateRegistrationActionPolicy(event, registration, Action.PAYMENT, now, policies);
-        }
+        // 실제 추가결제 귀속 전체에 같은 대표 사유 우선순위를 적용한다.
+        actionPolicies.validateRegistrationActionsPolicy(event, registrations, Action.PAYMENT, now, policies,
+                organization != null);
         Map<String, BigDecimal> due = new TreeMap<>();
         for (Registration row : registrations) {
             if (row.isSoftDeleted() || row.getStatus() != RegistrationStatus.ADDITIONAL_PAYMENT_REQUIRED

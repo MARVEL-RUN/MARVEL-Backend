@@ -2,6 +2,7 @@ package kr.co.teambrain.marvelrun.user.capacity.command.application.service;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.UUID;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult;
@@ -23,6 +24,27 @@ import static org.mockito.Mockito.*;
 @Import(AdditionalPaymentPreparationService.class)
 class AdditionalPaymentPreparationDatabaseTest extends CapacityMvpTestSupport {
     @Autowired AdditionalPaymentPreparationService additional;
+
+    /** 구간별 추가결제 제한은 주문 생성과 PG 호출 전에 적용한다. */
+    @Test
+    void periodPolicyBlocksAdditionalPreparationWithoutCreatingOrder() {
+        RegistrationCreateResponse initial = createPersonalRegistration(categoryA, "S", "1990-01-01");
+        mockApprovalSuccess();
+        payments.confirm(confirmRequest(initial.paymentId()));
+        markRegistrationAsAdditionalPaymentRequired(initial.registrationId(), 70000);
+        jdbc.update("update registration set registration_date=? where id=?", NOW, initial.registrationId());
+        jdbc.update("insert into registration_action_policy(id,event_id,action_type,registration_start_at,registration_end_at,effective_from,enabled) values(?,?,'PAYMENT',?,?,?,true)",
+                UUID.randomUUID().toString(), eventId, NOW.minusDays(1), NOW.plusDays(1), NOW);
+        int before = queryIntegerValue("select count(*) from payment where registration_id=?", initial.registrationId());
+        List<String> beforeItems = itemIds(initial.registrationId());
+        clearInvocations(toss);
+
+        expectError(ErrorCode.REGISTRATION_PAYMENT_POLICY_BLOCKED, () -> additional.preparePersonal(
+                eventId, initial.registrationId(), createRegistrationAccessRequest(initial.registrationId())));
+        assertThat(queryIntegerValue("select count(*) from payment where registration_id=?", initial.registrationId())).isEqualTo(before);
+        assertThat(itemIds(initial.registrationId())).isEqualTo(beforeItems);
+        verifyNoInteractions(toss);
+    }
 
     /** 기한 전 준비된 추가 주문도 기한 이후 새 승인 시도는 PG 호출 전에 거절한다. */
     @Test

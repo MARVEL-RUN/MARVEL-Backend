@@ -87,6 +87,11 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
     @ValueSource(booleans = {false, true})
     void unpaidCancellationReleasesExactlyOnce(boolean group) {
         Target target = target(group, false);
+        // 환불 정책과 전역 마감이 있어도 최초 미결제 취소는 기간 제한 없이 수행한다.
+        jdbc.update("update registration set registration_date=? where event_id=?", NOW, eventId);
+        jdbc.update("insert into registration_action_policy(id,event_id,action_type,registration_start_at,registration_end_at,effective_from,enabled) values(?,?,'REFUND',?,?,?,true)",
+                UUID.randomUUID().toString(), eventId, NOW.minusDays(1), NOW.plusDays(1), NOW);
+        jdbc.update("update event set regist_deadline=? where id=?", NOW, eventId);
         RegistrationModificationSettlementResult first = cancel(target);
         RegistrationModificationSettlementResult repeated = cancel(target);
         assertThat(first.members()).hasSize(target.ids().size());

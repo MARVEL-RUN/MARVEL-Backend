@@ -138,7 +138,7 @@ public class RegistrationQueryService {
                             row.address() == null ? org.address() : row.address(),
                             row.address() == null ? org.addressDetail() : row.addressDetail(),
                             row.guardianBase() == GuardianBase.ORG_LEADER ? org.leaderName() : row.guardianName(),
-                            row.guardianBase() == GuardianBase.ORG_LEADER ? org.phNum() : row.guardianPhNum(), row.status(), policyEvaluator.evaluateRegistrationUserPolicy(row.policyEvent(), toParticipantActionPolicyInput(row), now, policies))).toList();
+                            row.guardianBase() == GuardianBase.ORG_LEADER ? org.phNum() : row.guardianPhNum(), row.status(), policyEvaluator.evaluateOrganizationMemberPolicy(row.policyEvent(), toParticipantActionPolicyInput(row), now, policies))).toList();
             BigDecimal total = members.stream().map(RegistrationQueryData.Member::contractAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
             BigDecimal paid = members.stream().map(RegistrationQueryData.Member::paidAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
             result.add(new OrgRegistrationQueryResponse(org.id(), org.name(), org.loginId(), org.leaderName(),
@@ -177,8 +177,9 @@ public class RegistrationQueryService {
     }
     /** 명령·관리자 조회와 동일하게 금액과 신청 상태로 최초 미결제를 구분한다. */
     private ParticipantInput toParticipantActionPolicyInput(RegistrationQueryData.Member row) {
-        boolean unpaid = row.paidAmount() != null && row.paidAmount().signum() == 0
+        boolean unpaid = row.paidAmount().signum() == 0
                 && (row.status() == RegistrationStatus.PAYMENT_PENDING || row.status() == RegistrationStatus.EXPIRED);
-        return new ParticipantInput(row.registrationDate(), unpaid, row.externalPayment());
+        return new ParticipantInput(row.registrationDate(), unpaid, row.externalPayment(),
+                !row.deleted() && row.contractAmount().compareTo(row.paidAmount()) > 0);
     }
 }

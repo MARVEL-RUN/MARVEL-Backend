@@ -140,7 +140,7 @@ public class OrganizationQueryService {
             String finalStatus = isPaymentUnknown ? "UNKNOWN" : reg.getStatus().name();
 
             members.add(OrganizationMemberDto.builder()
-                    .userPolicy(actionPolicies.evaluateRegistrationUserPolicy(reg, now, policies))
+                    .memberPolicy(actionPolicies.evaluateOrganizationMemberPolicy(reg, now, policies))
                     .listNumber(listNumber++) // 페이징 번호 할당
                     .registrationId(reg.getId())
                     .name(reg.getName())
@@ -159,7 +159,7 @@ public class OrganizationQueryService {
 
         // 6. 최종 상세 응답 DTO 반환
         return OrganizationDetailResponse.builder()
-                .userPolicy(actionPolicies.evaluateOrganizationUserPolicy(organization.getEvent(), registrations, now, policies))
+                .organizationPolicy(actionPolicies.evaluateOrganizationUserPolicy(organization.getEvent(), registrations, now, policies))
                 .organizationId(organization.getId())
                 .groupName(organization.getGroupName())
                 .eventName(organization.getEvent().getNameKr())

@@ -1,5 +1,13 @@
 package kr.co.teambrain.marvelrun.admin.event.query;
 
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import kr.co.teambrain.marvelrun.admin.user.query.dto.OrganizationDetailResponse;
+import kr.co.teambrain.marvelrun.admin.user.query.dto.OrganizationMemberDto;
+import kr.co.teambrain.marvelrun.admin.event.policy.RegistrationActionPolicyReasons.*;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -75,19 +83,19 @@ class RegistrationPolicyDetailTest {
         List<Policy> policies = List.of(createEnabledRegistrationActionPolicy(Action.MODIFY, start, end), createEnabledRegistrationActionPolicy(Action.REFUND, start, end), createEnabledRegistrationActionPolicy(Action.PAYMENT, start, end));
         ParticipantInput unpaid = new ParticipantInput(start, true, false);
         assertThat(evaluator.evaluateRegistrationUserPolicy(event, unpaid, effective, policies).modifyAllowed()).isTrue();
-        assertThat(evaluator.evaluateRegistrationUserPolicy(event, unpaid, effective, policies).refundAllowed()).isTrue();
+        assertThat(evaluator.evaluateRegistrationUserPolicy(event, unpaid, effective, policies).refundAllowed()).isFalse();
         assertThat(evaluator.evaluateRegistrationActionPolicy(event, unpaid, Action.PAYMENT, effective, policies).allowed()).isFalse();
         assertThat(evaluator.evaluateRegistrationUserPolicy(event, new ParticipantInput(start, false, false), effective, policies).modifyAllowed()).isFalse();
     }
 
-    /** 전역 마감과 외부결제·구간 제한은 한 결과에 보존한다. */
-    @Test void globalAndPeriodReasonsAccumulate() {
+    /** 복수 제한에서는 외부결제를 우선하고 미결제 취소에는 기간을 면제한다. */
+    @Test void externalPaymentReasonTakesPriorityOverDeadlineAndPeriod() {
         EventInput closed = new EventInput("e", EventStatus.OPEN, start.minusDays(1), effective, effective);
         Decision result = evaluator.evaluateRegistrationActionPolicy(closed, new ParticipantInput(start, false, true),
                 Action.MODIFY, effective, List.of(createEnabledRegistrationActionPolicy(Action.MODIFY, start, end)));
-        assertThat(result.reasons()).containsExactly(Reason.REGISTRATION_CLOSED, Reason.EXTERNAL_PAYMENT, Reason.REGISTRATION_PERIOD_MODIFY);
+        assertThat(result.reason()).isEqualTo(Reason.EXTERNAL_PAYMENT);
         assertThat(evaluator.evaluateRegistrationActionPolicy(closed, new ParticipantInput(start, true, false),
-                Action.REFUND, effective, List.of()).allowed()).isTrue();
+                Action.DELETE_MEMBER, effective, List.of()).allowed()).isTrue();
         assertThat(evaluator.evaluateRegistrationActionPolicy(closed, new ParticipantInput(start, true, false),
                 Action.MODIFY, effective, List.of()).allowed()).isFalse();
     }
@@ -110,6 +118,128 @@ class RegistrationPolicyDetailTest {
         assertThat(result.addMemberAllowed()).isTrue();
     }
 
+    /** REFUND 제한과 환불 없는 구성원 삭제를 서로 다른 정책 결과로 제공한다. */
+    @Test
+    void unpaidMemberDeletionDoesNotExposeRefundOrPaymentFields() {
+        ParticipantInput unpaid = new ParticipantInput(start, true, false, true);
+        List<Policy> policies = List.of(createEnabledRegistrationActionPolicy(Action.REFUND, start, end));
+        UserPolicy personal = evaluator.evaluateRegistrationUserPolicy(event, unpaid, effective, policies);
+        OrganizationMemberPolicy member = evaluator.evaluateOrganizationMemberPolicy(event, unpaid, effective, policies);
+
+        assertThat(personal.refundAllowed()).isFalse();
+        assertThat(personal.refundReason().code()).isEqualTo(RefundRestrictionReason.REGISTRATION_PERIOD_REFUND);
+        assertThat(member.deleteMemberAllowed()).isTrue();
+        assertThat(member.deleteMemberReason()).isNull();
+        JsonNode json = new ObjectMapper().valueToTree(member);
+        assertThat(json.has("paymentAllowed")).isFalse();
+        assertThat(json.has("refundAllowed")).isFalse();
+        assertThat(json.has("deleteMemberReason")).isTrue();
+        assertThat(json.get("deleteMemberReason").isNull()).isTrue();
+    }
+
+    /** 완료 여부는 결제 정책 boolean을 바꾸지 않으며 프론트가 별도 상태로 버튼을 판단한다. */
+    @Test
+    void paidParticipantStillReceivesPaymentPolicy() {
+        ParticipantInput paid = new ParticipantInput(start, false, false, false);
+        UserPolicy allowed = evaluator.evaluateRegistrationUserPolicy(event, paid, effective, List.of());
+        UserPolicy blocked = evaluator.evaluateRegistrationUserPolicy(event, paid, effective,
+                List.of(createEnabledRegistrationActionPolicy(Action.PAYMENT, start, end)));
+
+        assertThat(allowed.paymentAllowed()).isTrue();
+        assertThat(allowed.paymentReason()).isNull();
+        assertThat(blocked.paymentAllowed()).isFalse();
+        assertThat(blocked.paymentReason().code()).isEqualTo(PaymentRestrictionReason.REGISTRATION_PERIOD_PAYMENT);
+        assertThat(blocked.paymentReason().message())
+                .isEqualTo("배송을 위한 신청 내역 확정에 따라 결제할 수 없습니다. 필요 시 관리자에게 문의해 주세요.");
+    }
+
+    /** 완납자의 결제 제한은 신규 인원에게 전파하지 않지만 추가금이 있으면 통합 결제를 막는다. */
+    @Test
+    void organizationPaymentUsesOnlyOutstandingParticipants() {
+        List<Policy> policies = List.of(createEnabledRegistrationActionPolicy(Action.PAYMENT, start, end));
+        ParticipantInput paid = new ParticipantInput(start, false, false, false);
+        ParticipantInput laterUnpaid = new ParticipantInput(end, true, false, true);
+        ParticipantInput additional = new ParticipantInput(start, false, false, true);
+
+        OrganizationPolicy allowed = evaluator.evaluateOrganizationUserPolicy(event,
+                List.of(paid, laterUnpaid), effective, policies);
+        OrganizationPolicy blocked = evaluator.evaluateOrganizationUserPolicy(event,
+                List.of(additional, laterUnpaid), effective, policies);
+        assertThat(allowed.paymentAllowed()).isTrue();
+        assertThat(allowed.paymentReason()).isNull();
+        assertThat(blocked.paymentAllowed()).isFalse();
+        assertThat(blocked.paymentReason().code()).isEqualTo(OrganizationPaymentRestrictionReason.REGISTRATION_PERIOD_PAYMENT);
+
+        OrganizationPolicy fullyPaid = evaluator.evaluateOrganizationUserPolicy(event, List.of(paid), effective, policies);
+        assertThat(fullyPaid.paymentAllowed()).isTrue();
+        EventInput closed = new EventInput("e", EventStatus.OPEN, start.minusDays(1), null, effective);
+        assertThat(evaluator.evaluateOrganizationUserPolicy(closed, List.of(paid), effective, policies)
+                .paymentReason().code()).isEqualTo(OrganizationPaymentRestrictionReason.PAYMENT_CLOSED);
+    }
+
+    /** 구성원 순서와 정책 조회 순서가 단체의 대표 제한 사유를 바꾸지 않는다. */
+    @Test
+    void organizationReasonsAreIndependentOfMemberOrder() {
+        ParticipantInput restricted = new ParticipantInput(start, false, false, true);
+        ParticipantInput external = new ParticipantInput(end, false, true, true);
+        List<Policy> policies = List.of(createEnabledRegistrationActionPolicy(Action.MODIFY, start, end),
+                createEnabledRegistrationActionPolicy(Action.REFUND, start, end),
+                createEnabledRegistrationActionPolicy(Action.PAYMENT, start, end));
+        OrganizationPolicy forward = evaluator.evaluateOrganizationUserPolicy(event,
+                List.of(restricted, external), effective, policies);
+        OrganizationPolicy reverse = evaluator.evaluateOrganizationUserPolicy(event,
+                List.of(external, restricted), effective, policies);
+        assertThat(forward).isEqualTo(reverse);
+        assertThat(forward.modifyReason().code()).isEqualTo(OrganizationModificationRestrictionReason.EXTERNAL_PAYMENT);
+        assertThat(forward.paymentReason().code()).isEqualTo(OrganizationPaymentRestrictionReason.EXTERNAL_PAYMENT);
+        assertThat(forward.refundReason().code()).isEqualTo(OrganizationRefundRestrictionReason.EXTERNAL_PAYMENT);
+        assertThat(forward.addMemberAllowed()).isTrue();
+    }
+
+    /** 데이터 입력 오류는 외부결제보다 우선하며 정책 미등록 자체는 오류가 아니다. */
+    @Test
+    void invalidGlobalIntervalHasHighestPriority() {
+        EventInput invalid = new EventInput("e", EventStatus.OPEN, end, start, null);
+        ParticipantInput external = new ParticipantInput(start, false, true, false);
+        UserPolicy result = evaluator.evaluateRegistrationUserPolicy(invalid, external, effective, List.of());
+        assertThat(result.modifyReason().code()).isEqualTo(ModificationRestrictionReason.CONFIGURATION_INVALID);
+        assertThat(result.refundReason().code()).isEqualTo(RefundRestrictionReason.CONFIGURATION_INVALID);
+        assertThat(result.paymentReason().code()).isEqualTo(PaymentRestrictionReason.EXTERNAL_PAYMENT);
+    }
+
+    /** 전역 마감과 구간 제한이 함께 있으면 전역 마감을 안내한다. */
+    @Test
+    void globalDeadlinePrecedesPeriodForEachOperation() {
+        EventInput closed = new EventInput("e", EventStatus.OPEN, start.minusDays(1), effective, effective);
+        ParticipantInput paid = new ParticipantInput(start, false, false, true);
+        List<Policy> policies = List.of(createEnabledRegistrationActionPolicy(Action.MODIFY, start, end),
+                createEnabledRegistrationActionPolicy(Action.REFUND, start, end),
+                createEnabledRegistrationActionPolicy(Action.PAYMENT, start, end));
+        UserPolicy personal = evaluator.evaluateRegistrationUserPolicy(closed, paid, effective, policies);
+        OrganizationMemberPolicy member = evaluator.evaluateOrganizationMemberPolicy(closed, paid, effective, policies);
+        OrganizationPolicy organization = evaluator.evaluateOrganizationUserPolicy(closed, List.of(paid), effective, policies);
+        assertThat(personal.modifyReason().code()).isEqualTo(ModificationRestrictionReason.REGISTRATION_CLOSED);
+        assertThat(personal.refundReason().code()).isEqualTo(RefundRestrictionReason.REGISTRATION_CLOSED);
+        assertThat(personal.paymentReason().code()).isEqualTo(PaymentRestrictionReason.PAYMENT_CLOSED);
+        assertThat(member.deleteMemberReason().code()).isEqualTo(DeleteMemberRestrictionReason.REGISTRATION_CLOSED);
+        assertThat(organization.addMemberReason().code()).isEqualTo(OrganizationAddMemberRestrictionReason.REGISTRATION_CLOSED);
+    }
+
+    /** 실제 결제한 구성원은 삭제 시 환불 정책을 적용하며 문구는 삭제 작업으로 제공한다. */
+    @Test
+    void paidMemberDeletionUsesRefundPolicyAndDeletionMessage() {
+        List<Policy> policies = List.of(createEnabledRegistrationActionPolicy(Action.REFUND, start, end));
+        OrganizationMemberPolicy member = evaluator.evaluateOrganizationMemberPolicy(event,
+                new ParticipantInput(start, false, false), effective, policies);
+        assertThat(member.deleteMemberAllowed()).isFalse();
+        assertThat(member.deleteMemberReason().code()).isEqualTo(DeleteMemberRestrictionReason.REGISTRATION_PERIOD_REFUND);
+        assertThat(member.deleteMemberReason().message())
+                .isEqualTo("배송을 위한 신청 내역 확정에 따라 구성원을 삭제할 수 없습니다. 필요 시 관리자에게 문의해 주세요.");
+        JsonNode json = new ObjectMapper().valueToTree(member);
+        assertThat(json.has("deleteMemberReasons")).isFalse();
+        assertThat(json.get("deleteMemberReason").get("code").asText()).isEqualTo("REGISTRATION_PERIOD_REFUND");
+    }
+
     /** 테스트 정책의 적용 시작을 고정한다. */
     private Policy createEnabledRegistrationActionPolicy(Action action, LocalDateTime from, LocalDateTime to) {
         return new Policy(action.name() + from, "e", action, from, to, effective, true);
@@ -128,16 +258,32 @@ class RegistrationPolicyDetailTest {
         Registration protectedMember =
                 Registration.builder()
                     .event(storedEvent).registrationDate(start).status(RegistrationStatus.CONFIRMED)
-                    .paidAmount(BigDecimal.ZERO).build();
+                    .contractAmount(BigDecimal.ZERO).paidAmount(BigDecimal.ZERO).build();
         Registration laterMember =
                 Registration.builder()
                     .event(storedEvent).registrationDate(end).status(RegistrationStatus.CONFIRMED)
-                    .paidAmount(BigDecimal.ZERO).build();
-        Mockito.when(repository.findAllByEventIdAndEnabledTrueOrderByActionTypeAscRegistrationStartAtAscIdAsc("e")).thenReturn(List.of(RegistrationActionPolicy.builder().id("b36f269a-7aee-4c61-9a05-8ce153f09f1d").eventId("e").actionType("MODIFY").registrationStartAt(start).registrationEndAt(end).effectiveFrom(effective).enabled(true).build()));
+                    .contractAmount(BigDecimal.ZERO).paidAmount(BigDecimal.ZERO).build();
+        Mockito.when(repository.findAllByEventIdAndEnabledTrueOrderByActionTypeAscRegistrationStartAtAscIdAsc("e")).thenReturn(List.of(RegistrationActionPolicy.builder().id("b36f269a-7aee-4c61-9a05-8ce153f09f1d").eventId("e").actionType(RegistrationActionType.MODIFY).registrationStartAt(start).registrationEndAt(end).effectiveFrom(effective).enabled(true).build()));
         List<Policy> policies = reader.loadEnabledRegistrationActionPolicies("e");
-        assertThat(reader.evaluateRegistrationUserPolicy(protectedMember, effective, policies).modifyAllowed()).isFalse();
-        assertThat(reader.evaluateRegistrationUserPolicy(laterMember, effective, policies).modifyAllowed()).isTrue();
-        assertThat(reader.evaluateOrganizationUserPolicy(storedEvent, List.of(protectedMember, laterMember), effective, policies).addMemberAllowed()).isTrue();
+        OrganizationMemberPolicy protectedPolicy = reader.evaluateOrganizationMemberPolicy(protectedMember, effective, policies);
+        OrganizationMemberPolicy laterPolicy = reader.evaluateOrganizationMemberPolicy(laterMember, effective, policies);
+        OrganizationPolicy organizationPolicy = reader.evaluateOrganizationUserPolicy(
+                storedEvent, List.of(protectedMember, laterMember), effective, policies);
+        assertThat(protectedPolicy.modifyAllowed()).isFalse();
+        assertThat(laterPolicy.modifyAllowed()).isTrue();
+        assertThat(organizationPolicy.addMemberAllowed()).isTrue();
+
+        // 관리자 실제 DTO도 사용자와 동일한 명시적 키 및 메시지를 직렬화한다.
+        OrganizationDetailResponse response = OrganizationDetailResponse.builder()
+                .organizationPolicy(organizationPolicy)
+                .members(List.of(OrganizationMemberDto.builder().memberPolicy(protectedPolicy).build())).build();
+        JsonNode json = new ObjectMapper().valueToTree(response);
+        assertThat(json.has("userPolicy")).isFalse();
+        assertThat(json.get("organizationPolicy").has("paymentAllowed")).isTrue();
+        JsonNode memberJson = json.get("members").get(0);
+        assertThat(memberJson.has("userPolicy")).isFalse();
+        assertThat(memberJson.get("memberPolicy").get("modifyReason").get("message").asText())
+                .contains("배송을 위한 신청 내역 확정");
         Mockito.verify(repository, Mockito.times(1)).findAllByEventIdAndEnabledTrueOrderByActionTypeAscRegistrationStartAtAscIdAsc("e");
     }
 
