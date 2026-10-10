@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.query.repository;
 
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels.EventInput;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.EventStatus;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Tuple;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
@@ -33,7 +35,9 @@ public class RegistrationQueryRepository {
                    r.guardianPhNum as guardianPhNum, r.status as status,
                    r.contractAmount as contractAmount, r.paidAmount as paidAmount,
                    r.softDeleted as deleted, v.status as reservationStatus,
-                   e.paymentDeadline as paymentDeadline, r.externalPayment as externalPayment
+                   e.paymentDeadline as paymentDeadline, r.externalPayment as externalPayment,
+                   r.registrationDate as registrationDate, e.id as eventId, e.eventStatus as eventStatus,
+                   e.registStartDate as registrationStart, e.registDeadline as registrationDeadline
             from Registration r join r.event e join r.eventCategory c
             left join Reservation v on v.registration.id = r.id
             """;
@@ -48,7 +52,7 @@ public class RegistrationQueryRepository {
                 """, Tuple.class)
                 .setParameter("eventId", eventId).setParameter("name", access.name())
                 .setParameter("birth", access.birth()).setParameter("phNum", access.phNum())
-                .getResultList().stream().map(this::member).toList();
+                .getResultList().stream().map(this::mapRegistrationMemberProjection).toList();
     }
 
     /** 대회 내 단체 계정 후보를 읽으며 엔티티를 영속성 컨텍스트에 적재하지 않는다. */
@@ -57,7 +61,8 @@ public class RegistrationQueryRepository {
                 select o.id as id, o.loginId as loginId, o.password as password,
                        o.groupName as name, o.leaderName as leaderName, o.leaderBirth as birth,
                        o.leaderPhNum as phNum, o.email as email, o.address as address,
-                       o.addressDetail as addressDetail, e.paymentDeadline as paymentDeadline
+                       o.addressDetail as addressDetail, e.paymentDeadline as paymentDeadline,
+                       e.id as eventId, e.eventStatus as eventStatus, e.registStartDate as registrationStart, e.registDeadline as registrationDeadline
                 from Organization o join o.event e
                 where e.id = :eventId and o.loginId = :loginId order by o.id
                 """, Tuple.class).setParameter("eventId", eventId).setParameter("loginId", loginId)
@@ -65,7 +70,7 @@ public class RegistrationQueryRepository {
                         t.get("id", String.class), t.get("loginId", String.class), t.get("password", String.class),
                         t.get("name", String.class), t.get("leaderName", String.class), t.get("birth", String.class),
                         t.get("phNum", String.class), t.get("email", String.class), t.get("address", String.class),
-                        t.get("addressDetail", String.class), t.get("paymentDeadline", LocalDateTime.class))).toList();
+                        t.get("addressDetail", String.class), t.get("paymentDeadline", LocalDateTime.class), mapEventActionPolicyInput(t))).toList();
     }
 
     /** 단체의 조회 당시 활성 구성원 전체를 한 번에 읽는다. 제거·취소 행은 포함하지 않는다. */
@@ -75,7 +80,7 @@ public class RegistrationQueryRepository {
                   and r.softDeleted = false order by r.registrationDate, r.id
                 """, Tuple.class).setParameter("eventId", eventId)
                 .setParameter("organizationId", organizationId)
-                .getResultList().stream().map(this::member).toList();
+                .getResultList().stream().map(this::mapRegistrationMemberProjection).toList();
     }
 
     /** 인증을 마친 대상의 주문을 최신순으로 읽으며 키·PG 원문·로그는 조회하지 않는다. */
@@ -145,7 +150,7 @@ public class RegistrationQueryRepository {
 
     /** JSON basic 컬럼을 포함한 스칼라 행을 내부 프로젝션으로 옮긴다. */
     @SuppressWarnings("unchecked")
-    private RegistrationQueryData.Member member(Tuple t) {
+    private RegistrationQueryData.Member mapRegistrationMemberProjection(Tuple t) {
         List<SouvenirJson> selections = (List<SouvenirJson>) t.get("souvenirs");
         return new RegistrationQueryData.Member(
                 t.get("id", String.class), t.get("name", String.class), t.get("email", String.class), t.get("birth", String.class),
@@ -158,6 +163,12 @@ public class RegistrationQueryRepository {
                 t.get("status", RegistrationStatus.class),
                 t.get("contractAmount", BigDecimal.class), t.get("paidAmount", BigDecimal.class),
                 t.get("deleted", Boolean.class), t.get("reservationStatus", ReservationStatus.class),
-                t.get("paymentDeadline", LocalDateTime.class), t.get("externalPayment", Boolean.class));
+                t.get("paymentDeadline", LocalDateTime.class), t.get("externalPayment", Boolean.class), t.get("registrationDate", LocalDateTime.class), mapEventActionPolicyInput(t));
+    }
+    /** 상세 조회와 명령 판정에 동일한 대회 시각 값을 전달한다. */
+    private EventInput mapEventActionPolicyInput(Tuple t) {
+        return new EventInput(t.get("eventId", String.class), t.get("eventStatus", EventStatus.class),
+                t.get("registrationStart", LocalDateTime.class), t.get("registrationDeadline", LocalDateTime.class),
+                t.get("paymentDeadline", LocalDateTime.class));
     }
 }

@@ -1,14 +1,5 @@
 package kr.co.teambrain.marvelrun.user.event.query.support;
 
-import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_cancel.PaymentCancelStatus;
-import kr.co.teambrain.marvelrun.user.event.query.dto.RegistrationPaymentAction;
-import kr.co.teambrain.marvelrun.user.event.query.repository.RegistrationQueryData;
-import org.springframework.stereotype.Component;
-
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -16,12 +7,51 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_cancel.PaymentCancelStatus;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyEvaluator;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels;
+import kr.co.teambrain.marvelrun.user.event.query.dto.RegistrationPaymentAction;
+import kr.co.teambrain.marvelrun.user.event.query.repository.RegistrationQueryData;
+import org.springframework.stereotype.Component;
 
 /* 조회 프로젝션으로 결제 준비를 안내하되 외부 결제 신청은 온라인 결제 행동을 제공하지 않는다. */
 @Component
 public class RegistrationPaymentQueryResolver {
+    /** 기존 금융 안내를 유지하면서 실제 결제 대상으로 안내할 참가자의 일정 정책을 함께 적용한다. */
+    public Result resolveRegistrationPaymentGuidance(List<RegistrationQueryData.Member> members,
+            List<RegistrationQueryData.Payment> payments, List<RegistrationQueryData.Allocation> allocations,
+            List<RegistrationQueryData.Refund> refunds, LocalDateTime deadline, LocalDateTime now,
+            List<RegistrationActionPolicyModels.Policy> policies) {
+        Result result = resolveRegistrationPaymentGuidance(members, payments, allocations, refunds, deadline, now);
+        if (result.action() != RegistrationPaymentAction.PREPARE_PAYMENT
+                && result.action() != RegistrationPaymentAction.PREPARE_ADDITIONAL_PAYMENT) { return result; }
+        RegistrationActionPolicyEvaluator evaluator =
+                new RegistrationActionPolicyEvaluator();
+        for (RegistrationQueryData.Member member : members) {
+            boolean included = result.paymentId() != null
+                    ? allocations.stream().anyMatch(a -> result.paymentId().equals(a.paymentId()) && member.id().equals(a.registrationId()))
+                    : member.status() == RegistrationStatus.ADDITIONAL_PAYMENT_REQUIRED;
+            if (!included) { continue; }
+            RegistrationActionPolicyModels.Decision decision = evaluator.evaluateRegistrationActionPolicy(
+                    member.policyEvent(), new RegistrationActionPolicyModels.ParticipantInput(
+                            member.registrationDate(), false, member.externalPayment()),
+                    RegistrationActionPolicyModels.Action.PAYMENT, now, policies);
+            if (!decision.allowed()) {
+                return new Result(result.status(), result.refundStatus(), RegistrationPaymentAction.PAYMENT_CLOSED,
+                        "신청일 또는 대회 결제 기한에 따라 결제가 제한되었습니다. 최초 미결제 인원이 포함되면 해당 인원 삭제 후 재시도하고, 추가결제 대상은 관리자에게 문의해 주세요.",
+                        null, result.orderId());
+            }
+        }
+        return result;
+    }
+
     /** 진행 중 요청을 우선 차단하고 현재 미납 전체에 맞는 주문을 선택한다. */
-    public Result resolve(List<RegistrationQueryData.Member> members,
+    public Result resolveRegistrationPaymentGuidance(List<RegistrationQueryData.Member> members,
             List<RegistrationQueryData.Payment> payments,
             List<RegistrationQueryData.Allocation> allocations,
             List<RegistrationQueryData.Refund> refunds, LocalDateTime deadline, LocalDateTime now) {
@@ -57,32 +87,29 @@ public class RegistrationPaymentQueryResolver {
             return new Result(status, refundStatus, RegistrationPaymentAction.NONE, null, null, orderId);
         }
         Set<String> additionalIds = unpaid.stream().filter(id -> {
-            var row = current.get(id);
+            RegistrationQueryData.Member row = current.get(id);
             return row.status() == RegistrationStatus.ADDITIONAL_PAYMENT_REQUIRED
                     && row.reservationStatus() == ReservationStatus.CONSUMED;
-        }).collect(java.util.stream.Collectors.toSet());
-        boolean paymentWindowOpen = deadline != null && now.isBefore(deadline);
-        if (deadline == null && additionalIds.isEmpty()) {
-            return new Result(status, refundStatus, RegistrationPaymentAction.CONTACT_SUPPORT,
-                    "결제 기한 설정 확인이 필요합니다.", null, orderId);
-        }
-        if (!paymentWindowOpen && additionalIds.isEmpty()) {
+        }).collect(Collectors.toSet());
+        boolean paymentWindowOpen = deadline == null || now.isBefore(deadline);
+
+        if (!paymentWindowOpen) {
             return new Result(status, refundStatus, RegistrationPaymentAction.PAYMENT_CLOSED,
                     "미납 금액이 있으나 결제 기한이 지났습니다.", null, orderId);
         }
         Map<String, List<RegistrationQueryData.Allocation>> byPayment = allocations.stream()
-                .collect(java.util.stream.Collectors.groupingBy(RegistrationQueryData.Allocation::paymentId));
+                .collect(Collectors.groupingBy(RegistrationQueryData.Allocation::paymentId));
         List<RegistrationQueryData.Payment> ready = payments.stream()
                 .filter(p -> p.status() == PaymentProcessStatus.READY).toList();
         RegistrationQueryData.Payment candidate = null;
-        if (ready.size() == 1 && (paymentWindowOpen || ready.getFirst().purpose() == PaymentPurpose.ADDITIONAL_PAYMENT)
+        if (ready.size() == 1 && paymentWindowOpen
                 && eligible(ready.get(0), byPayment.getOrDefault(ready.get(0).id(), List.of()), current,
                         ready.getFirst().purpose() == PaymentPurpose.ADDITIONAL_PAYMENT ? additionalIds : unpaid)) {
             candidate = ready.get(0);
         } else if (ready.isEmpty()) {
             for (RegistrationQueryData.Payment payment : payments) {
                 if ((payment.status() == PaymentProcessStatus.FAILED || payment.status() == PaymentProcessStatus.INVALIDATED)
-                        && (paymentWindowOpen || payment.purpose() == PaymentPurpose.ADDITIONAL_PAYMENT)
+                        && paymentWindowOpen
                         && eligible(payment, byPayment.getOrDefault(payment.id(), List.of()), current,
                             payment.purpose() == PaymentPurpose.ADDITIONAL_PAYMENT ? additionalIds : unpaid)) {
                     candidate = payment;

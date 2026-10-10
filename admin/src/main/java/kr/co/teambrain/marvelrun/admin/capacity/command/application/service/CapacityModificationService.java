@@ -38,6 +38,7 @@ import java.util.TreeMap;
 @RequiredArgsConstructor
 @Transactional(propagation = Propagation.MANDATORY)
 public class CapacityModificationService {
+    private final ReservationHistoryRecorder historyRecorder;
 
     private final CapacityCommandRepository capacityRepository;
     private final ReservationCommandRepository reservationRepository;
@@ -53,12 +54,12 @@ public class CapacityModificationService {
      * 예약별 변경 이력을 먼저 flush하여 @Version 충돌을 확인한다.
      * 이후 실패하면 먼저 저장한 이력과 버전 증가도 함께 롤백된다.
      */
-    public void moveAll(
+    public void moveReservationCapacities(
             String eventId,
             List<CapacityRequirementDiff> diffs,
             LocalDateTime now
     ) {
-        move(eventId, diffs, now, false);
+        moveReservationCapacities(eventId, diffs, now, false);
     }
 
     /** 관리자 정보 변경은 확정 점유만 이동하며 비활성 자원도 정원 한도 안에서 사용한다. */
@@ -66,11 +67,11 @@ public class CapacityModificationService {
         if (diffs == null || diffs.stream().anyMatch(d -> d == null || d.reservationStatus() != ReservationStatus.CONSUMED)) {
             throw stateConflict(" 관리자 정보 변경은 확정된 예약만 처리할 수 있습니다.");
         }
-        move(eventId, diffs, now, true);
+        moveReservationCapacities(eventId, diffs, now, true);
     }
 
     /** 공통 이동 절차를 유지하고 관리자 경로의 확정 증가분 확보 규칙만 분리한다. */
-    private void move(String eventId, List<CapacityRequirementDiff> diffs, LocalDateTime now, boolean adminAdjustment) {
+    private void moveReservationCapacities(String eventId, List<CapacityRequirementDiff> diffs, LocalDateTime now, boolean adminAdjustment) {
         if (eventId == null || eventId.isBlank()
                 || diffs == null || now == null) {
             throw invalidArgument(" 자원 이동 요청의 필수 값이 없습니다.");
@@ -133,7 +134,7 @@ public class CapacityModificationService {
                             ))
                             .toList();
 
-            reservation.appendHistory(
+            historyRecorder.appendReservationHistorySnapshot(reservation, 
                     ReservationHistoryEntry.Action.MODIFY,
                     now,
                     null,

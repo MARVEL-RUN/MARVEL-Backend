@@ -29,6 +29,7 @@ import java.util.*;
 @RequiredArgsConstructor
 @Transactional(propagation = Propagation.MANDATORY)
 public class ReservationPaymentService {
+    private final ReservationHistoryRecorder historyRecorder;
 
     private final ReservationCommandRepository reservationRepository;
     private final ReservationItemCommandRepository itemRepository;
@@ -62,7 +63,7 @@ public class ReservationPaymentService {
         for (Reservation reservation : reservations) {
             reservation.startPayment();
 
-            reservation.appendHistory(
+            historyRecorder.appendReservationHistorySnapshot(reservation, 
                     ReservationHistoryEntry.Action.PAYMENT_STARTED,
                     now,
                     paymentId,
@@ -95,7 +96,7 @@ public class ReservationPaymentService {
         for (Reservation reservation : reservations) {
             reservation.restoreHeldAfterPaymentFailure();
 
-            reservation.appendHistory(
+            historyRecorder.appendReservationHistorySnapshot(reservation, 
                     ReservationHistoryEntry.Action.PAYMENT_FAILED,
                     now,
                     paymentId,
@@ -135,7 +136,7 @@ public class ReservationPaymentService {
         for (Reservation reservation : reservations) {
             reservation.consumeAfterPayment();
 
-            reservation.appendHistory(
+            historyRecorder.appendReservationHistorySnapshot(reservation, 
                     ReservationHistoryEntry.Action.PAYMENT_CONFIRMED,
                     now,
                     paymentId,

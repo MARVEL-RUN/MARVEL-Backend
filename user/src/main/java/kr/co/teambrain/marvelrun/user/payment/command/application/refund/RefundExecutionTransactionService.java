@@ -1,26 +1,29 @@
 package kr.co.teambrain.marvelrun.user.payment.command.application.refund;
 
 import jakarta.persistence.EntityManager;
-import kr.co.teambrain.marvelrun.user.payment.command.application.PaymentResultLogMetadata;
 import jakarta.persistence.LockModeType;
 import java.math.BigDecimal;
 import java.time.ZoneId;
 import java.util.*;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.TossPaymentStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_cancel.PaymentCancelStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_log.PaymentProcessSource;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_log.PaymentProcessType;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.TossPaymentStatus;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
+import kr.co.teambrain.marvelrun.user.capacity.command.application.domain.Reservation;
+import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationHistoryRecorder;
+import kr.co.teambrain.marvelrun.user.capacity.command.repository.ReservationCommandRepository;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
-import kr.co.teambrain.marvelrun.user.capacity.command.application.domain.Reservation;
-import kr.co.teambrain.marvelrun.user.capacity.command.repository.ReservationCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.PaymentCancel;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult.Refund;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.*;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.*;
+import kr.co.teambrain.marvelrun.user.payment.command.application.PaymentResultLogMetadata;
 import kr.co.teambrain.marvelrun.user.payment.command.infrastructure.toss.refund.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -32,6 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 @Transactional(propagation = Propagation.REQUIRES_NEW)
 public class RefundExecutionTransactionService {
+    private final ReservationHistoryRecorder historyRecorder;
     private final RefundExecutionLock locks;
     private final EntityManager entityManager;
     private final PaymentCancelCommandRepository cancellations;
@@ -90,7 +94,7 @@ public class RefundExecutionTransactionService {
     }
 
     /** 취소 성공과 참가자 순납부액·상태·로그를 하나의 트랜잭션으로 반영한다. */
-    public void apply(RefundExecutionTicket ticket, TossCancelOutcome outcome) {
+    public void applyRefundExecutionOutcome(RefundExecutionTicket ticket, TossCancelOutcome outcome) {
         PaymentCancel cancel = locks.lock(ticket.eventId(), ticket.organizationId(), ticket.paymentId(),
                 ticket.attempt().paymentCancelId());
         validateTicket(cancel, ticket);
@@ -130,6 +134,9 @@ public class RefundExecutionTransactionService {
             if (reservation == null) { throw invalid(); }
             registration.applySuccessfulRefund(amounts.get(registration.getId()));
             registration.reconcileModificationFinancialState(reservation.getStatus());
+            historyRecorder.recordRegistrationSettlementHistory(reservation, cancel.getPayment().getId(),
+                    currentShares.stream().filter(s -> registration.getId().equals(s.registrationId())).map(RefundExecutionTicket.Share::originalAllocationId).toList(),
+                    cancel.getId(), currentShares.stream().filter(s -> registration.getId().equals(s.registrationId())).map(RefundExecutionTicket.Share::cancelAllocationId).toList(), time.currentDateTime());
         }
         cancel.getPayment().recordVerifiedRefundStatus(TossPaymentStatus.valueOf(expected));
         appendLog(cancel, ticket.correlationId(), PaymentProcessType.CANCEL_SUCCEEDED, outcome);
@@ -208,10 +215,10 @@ public class RefundExecutionTransactionService {
             if (reservation == null) { throw invalid(); }
             if (registration.isSoftDeleted()) {
                 if (registration.getContractAmount().signum() != 0
-                        || reservation.getStatus() != kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus.RELEASED
-                        || registration.getStatus() != kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus.CANCELLATION_PENDING) { throw invalid(); }
-            } else if (reservation.getStatus() != kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus.CONSUMED
-                    || registration.getStatus() != kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus.PARTIAL_REFUND_REQUIRED) { throw invalid(); }
+                        || reservation.getStatus() != ReservationStatus.RELEASED
+                        || registration.getStatus() != RegistrationStatus.CANCELLATION_PENDING) { throw invalid(); }
+            } else if (reservation.getStatus() != ReservationStatus.CONSUMED
+                    || registration.getStatus() != RegistrationStatus.PARTIAL_REFUND_REQUIRED) { throw invalid(); }
         }
         return result;
     }

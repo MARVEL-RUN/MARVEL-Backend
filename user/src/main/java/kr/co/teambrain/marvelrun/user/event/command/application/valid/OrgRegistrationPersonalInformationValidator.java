@@ -31,7 +31,7 @@ public class OrgRegistrationPersonalInformationValidator {
 
     /** 모든 구성원을 변경하기 전에 최종목록 내부와 다른 활성 신청의 중복을 검사한다. */
     public void validate(OrgRegistrationModificationAccessContext access) {
-        policyValidator.validatePeriod(access.event(), access.now());
+        policyValidator.validateRegistrationModificationPeriod(access.event(), access.now());
         for (Registration registration : access.currentRegistrations()) {
             policyValidator.validateStatus(registration);
         }

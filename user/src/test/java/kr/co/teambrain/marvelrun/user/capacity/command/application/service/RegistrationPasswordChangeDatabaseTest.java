@@ -33,11 +33,11 @@ class RegistrationPasswordChangeDatabaseTest extends CapacityMvpTestSupport {
     /** 다른 대회·삭제 신청·단체 소속 신청은 실제 저장소 조건으로 제외한다. */
     @Test
     void excludesWrongEventDeletedAndOrganizationMembers() {
-        String personalId = personal(categoryA, "S", "1990-01-01").registrationId();
-        OrgRegistrationCreateResponse group = group(categoryA);
+        String personalId = createPersonalRegistration(categoryA, "S", "1990-01-01").registrationId();
+        OrgRegistrationCreateResponse group = createOrganizationRegistration(categoryA);
         String memberId = group.registrationIds().getFirst();
         PersonalPasswordChangeRequest request = new PersonalPasswordChangeRequest("Test1234!", "NewPassword1!");
-        String originalHash = s("select password from registration where id = ?", personalId);
+        String originalHash = queryStringValue("select password from registration where id = ?", personalId);
 
         expectError(ErrorCode.REGISTRATION_NOT_FOUND,
                 () -> passwordChanges.changePersonal("other-event", personalId, request));
@@ -51,25 +51,25 @@ class RegistrationPasswordChangeDatabaseTest extends CapacityMvpTestSupport {
 
         expectError(ErrorCode.REGISTRATION_NOT_FOUND,
                 () -> passwordChanges.changePersonal(eventId, personalId, request));
-        assertThat(s("select password from registration where id = ?", personalId)).isEqualTo(originalHash);
+        assertThat(queryStringValue("select password from registration where id = ?", personalId)).isEqualTo(originalHash);
     }
 
     /** 구성원이 모두 삭제되어도 단체 계정은 변경할 수 있고 구성원 해시는 보존된다. */
     @Test
     void changesOrganizationWithoutActiveMembers() {
-        OrgRegistrationCreateResponse group = group(categoryA);
+        OrgRegistrationCreateResponse group = createOrganizationRegistration(categoryA);
         String memberId = group.registrationIds().getFirst();
-        String memberHash = s("select password from registration where id = ?", memberId);
+        String memberHash = queryStringValue("select password from registration where id = ?", memberId);
 
         jdbc.update("update registration set is_del = 1 where organization_id = ?", group.organizationId());
 
         passwordChanges.changeOrganization(eventId, group.organizationId(),
                 new OrganizationPasswordChangeRequest("Test1234!", "NewPassword1!"));
 
-        String stored = s("select password from organization where id = ?", group.organizationId());
+        String stored = queryStringValue("select password from organization where id = ?", group.organizationId());
         assertThat(encoder.matches("NewPassword1!", stored)).isTrue();
         assertThat(encoder.matches("Test1234!", stored)).isFalse();
-        assertThat(s("select password from registration where id = ?", memberId)).isEqualTo(memberHash);
+        assertThat(queryStringValue("select password from registration where id = ?", memberId)).isEqualTo(memberHash);
     }
 
     /** 두 요청이 같은 기존 비밀번호로 동시에 변경하면 하나만 성공하고 나머지는 인증 실패한다. */
@@ -77,8 +77,8 @@ class RegistrationPasswordChangeDatabaseTest extends CapacityMvpTestSupport {
     @ValueSource(booleans = {false, true})
     void onlyOneConcurrentChangeCanUseOldPassword(boolean organization) throws Exception {
         String targetId = organization
-                ? group(categoryA).organizationId()
-                : personal(categoryA, "S", "1990-01-01").registrationId();
+                ? createOrganizationRegistration(categoryA).organizationId()
+                : createPersonalRegistration(categoryA, "S", "1990-01-01").registrationId();
         ExecutorService workers = Executors.newFixedThreadPool(2);
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch start = new CountDownLatch(1);
@@ -97,7 +97,7 @@ class RegistrationPasswordChangeDatabaseTest extends CapacityMvpTestSupport {
             assertThat(firstSucceeded).isNotEqualTo(secondSucceeded);
 
             String table = organization ? "organization" : "registration";
-            String stored = s("select password from " + table + " where id = ?", targetId);
+            String stored = queryStringValue("select password from " + table + " where id = ?", targetId);
             String winner = firstSucceeded ? "FirstPassword1!" : "SecondPassword2!";
 
             assertThat(encoder.matches(winner, stored)).isTrue();

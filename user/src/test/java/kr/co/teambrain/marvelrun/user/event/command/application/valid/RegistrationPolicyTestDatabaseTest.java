@@ -178,21 +178,21 @@ class RegistrationPolicyTestDatabaseTest {
 
         expectError(
                 ErrorCode.EVENT_REGISTRATION_NOT_STARTED,
-                () -> registrationPolicyValidator.validateNewApplication(
+                () -> registrationPolicyValidator.validateNewRegistrationPeriod(
                         event,
                         start.minusNanos(1)
                 )
         );
 
         assertThatCode(
-                () -> registrationPolicyValidator.validateNewApplication(
+                () -> registrationPolicyValidator.validateNewRegistrationPeriod(
                         event,
                         start
                 )
         ).doesNotThrowAnyException();
 
         assertThatCode(
-                () -> registrationPolicyValidator.validateNewApplication(
+                () -> registrationPolicyValidator.validateNewRegistrationPeriod(
                         event,
                         deadline.minusNanos(1)
                 )
@@ -200,7 +200,7 @@ class RegistrationPolicyTestDatabaseTest {
 
         expectError(
                 ErrorCode.EVENT_REGISTRATION_CLOSED,
-                () -> registrationPolicyValidator.validateNewApplication(
+                () -> registrationPolicyValidator.validateNewRegistrationPeriod(
                         event,
                         deadline
                 )
@@ -596,7 +596,7 @@ class RegistrationPolicyTestDatabaseTest {
                 LocalDateTime.of(2026, 10, 1, 12, 0);
 
         assertThatCode(
-                () -> registrationPolicyValidator.validateNewApplication(
+                () -> registrationPolicyValidator.validateNewRegistrationPeriod(
                         event,
                         afterPaymentDeadline
                 )

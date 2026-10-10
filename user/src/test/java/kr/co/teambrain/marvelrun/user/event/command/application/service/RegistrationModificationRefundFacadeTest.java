@@ -26,8 +26,8 @@ class RegistrationModificationRefundFacadeTest {
     void noRefundSkipsAllAdditionalWork() {
         RegistrationModificationRequest request = mock(RegistrationModificationRequest.class);
         RegistrationModificationSettlementResult prepared = new RegistrationModificationSettlementResult(List.of(), List.of());
-        when(transactions.modifyPersonal("event", "registration", request)).thenReturn(prepared);
-        assertThat(commands.modifyPersonal("event", "registration", request)).isSameAs(prepared);
+        when(transactions.modifyPersonalRegistration("event", "registration", request)).thenReturn(prepared);
+        assertThat(commands.modifyPersonalRegistration("event", "registration", request)).isSameAs(prepared);
         verifyNoInteractions(refunds, results);
     }
 
@@ -39,11 +39,11 @@ class RegistrationModificationRefundFacadeTest {
                 List.of(new Refund("cancel", "payment", new BigDecimal("10000"), PaymentCancelStatus.PROCESSING, "correlation")));
         RegistrationModificationSettlementResult finished = new RegistrationModificationSettlementResult(List.of(), List.of(),
                 List.of(new Refund("cancel", "payment", new BigDecimal("10000"), PaymentCancelStatus.DONE, "correlation")));
-        when(transactions.modifyOrganization("event", "org", request)).thenReturn(prepared);
+        when(transactions.modifyOrganizationRegistration("event", "org", request)).thenReturn(prepared);
         when(results.read(prepared)).thenReturn(finished);
-        assertThat(commands.modifyOrganization("event", "org", request)).isSameAs(finished);
+        assertThat(commands.modifyOrganizationRegistration("event", "org", request)).isSameAs(finished);
         InOrder order = inOrder(transactions, refunds, results);
-        order.verify(transactions).modifyOrganization("event", "org", request);
+        order.verify(transactions).modifyOrganizationRegistration("event", "org", request);
         order.verify(refunds).execute("event", "org", prepared.refunds());
         order.verify(results).read(prepared);
     }

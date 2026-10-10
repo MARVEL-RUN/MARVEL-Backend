@@ -1,11 +1,11 @@
 package kr.co.teambrain.marvelrun.admin.event.query.dto.response;
 
-import lombok.Builder;
-
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import kr.co.teambrain.marvelrun.admin.event.policy.RegistrationActionPolicyModels;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
+import lombok.Builder;
 
 /**
  * 관리자 서버 신청 상세 조회 응답 DTO
@@ -45,7 +45,8 @@ public record RegistrationDetailResponse(
         /** 저장된 전체 기념품 선택 ID·사이즈. 표시명에서 ID를 추정하지 않는다. */
         List<SouvenirJson> selectedSouvenirList,
 
-        boolean externalPayment       // 외부 결제 여부. 결제 관련 정보 변경·환불 제한 안내용
+        boolean externalPayment,       // 외부 결제 여부. 결제 관련 정보 변경·환불 제한 안내용
         
+        RegistrationActionPolicyModels.UserPolicy userPolicy
 ) {
 }

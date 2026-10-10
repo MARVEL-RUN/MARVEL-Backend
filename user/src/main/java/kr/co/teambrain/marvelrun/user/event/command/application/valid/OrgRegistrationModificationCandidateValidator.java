@@ -18,6 +18,7 @@ import kr.co.teambrain.marvelrun.user.event.command.repository.EventCommandRepos
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
 import org.springframework.stereotype.Component;
 
+import kr.co.teambrain.marvelrun.user.event.command.application.service.RegistrationModificationClassifier;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -67,13 +68,13 @@ public class OrgRegistrationModificationCandidateValidator
      * 단체 수정 요청의 최종 구성원 목록을 기준으로
      * 기존/신규 참가자를 구분하고 변경 후 후보 상태를 구성한다.
      *
-     * 각 참가자는 개인 신청과 동일한 01 참가자 정책을 다시 검증하며,
+     * 신규·자원 변경 참가자는 참가 정책을 검증하고 무변경 참가자는 기존 선택을 보존하며,
      * 검증 완료 전에는 현재 Registration Entity를 변경하지 않는다.
      *
      * @param accessContext 단체 재인증과 기존 ID 귀속검증을 통과한 Context
      * @return 전체 구성원의 정책검증 완료 후보 Context
      */
-    public OrgRegistrationModificationCandidateContext validate(
+    public OrgRegistrationModificationCandidateContext validateOrganizationModificationCandidates(
             OrgRegistrationModificationAccessContext accessContext
     ) {
         validateOrganizationLeaderAge(
@@ -81,10 +82,7 @@ public class OrgRegistrationModificationCandidateValidator
                 accessContext.event().getStartDate().toLocalDate()
         );
 
-        validateEvent(
-                accessContext.event(),
-                accessContext.now()
-        );
+        // 실제 신규·수정·삭제의 기간 검증은 작업 분류에 따라 호출부에서 수행한다.
 
         Organization organization =
                 accessContext.organization();
@@ -110,6 +108,10 @@ public class OrgRegistrationModificationCandidateValidator
         for (OrgRegistrationModificationParticipantRequest participantRequest
                 : accessContext.request().registrations()) {
 
+            Registration current = currentById.get(participantRequest.registrationId());
+            if (current != null && new RegistrationModificationClassifier().classifyOrganizationParticipant(current, participantRequest)
+                    != RegistrationModificationClassifier.Change.FULL) { continue; }
+
             Set<String> souvenirIds =
                     collectRequestedSouvenirIds(
                             participantRequest.selectedSouvenirList()
@@ -130,7 +132,7 @@ public class OrgRegistrationModificationCandidateValidator
                 );
 
         RegistrationPolicyContext policies =
-                loadPolicies(
+                requestedSouvenirIdsByCategory.isEmpty() ? null : loadPolicies(
                         accessContext.event(),
                         selections
                 );
@@ -155,6 +157,13 @@ public class OrgRegistrationModificationCandidateValidator
                     currentRegistration,
                     participantRequest
             );
+
+            if (currentRegistration != null && new RegistrationModificationClassifier().classifyOrganizationParticipant(currentRegistration, participantRequest)
+                    != RegistrationModificationClassifier.Change.FULL) {
+                candidateRegistrations.add(new OrgRegistrationModificationCandidateContext.ParticipantCandidate(
+                        currentRegistration, participantRequest, currentRegistration.getEventCategory(), currentRegistration.getSouvenirJson()));
+                continue;
+            }
 
             RegistrationPolicyValidationResult validated =
                     validateParticipantSelection(
@@ -308,7 +317,7 @@ public class OrgRegistrationModificationCandidateValidator
     }
 
     /**
-     * 단체 구성원의 후보값と 현재 단체장 보호자 정보를
+     * 단체 구성원의 후보값과 현재 단체장 보호자 정보를
      * 공통 참가 정책 입력으로 구성한다.
      *
      * 비밀번호와 생성 Request는 정책검증에 사용하지 않는다.

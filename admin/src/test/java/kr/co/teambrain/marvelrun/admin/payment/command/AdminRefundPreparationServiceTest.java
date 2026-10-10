@@ -3,33 +3,40 @@ package kr.co.teambrain.marvelrun.admin.payment.command;
 import jakarta.validation.Validation;
 import jakarta.validation.ValidatorFactory;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import kr.co.teambrain.marvelrun.admin.capacity.command.application.domain.Reservation;
+import kr.co.teambrain.marvelrun.admin.capacity.command.application.service.*;
+import kr.co.teambrain.marvelrun.admin.capacity.command.application.service.ReservationHistoryRecorder;
+import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
+import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.*;
+import kr.co.teambrain.marvelrun.admin.event.command.application.service.RegistrationPricingService;
+import kr.co.teambrain.marvelrun.admin.event.command.application.valid.dto.RegistrationPolicyCandidateRequest;
+import kr.co.teambrain.marvelrun.admin.event.command.application.valid.dto.RegistrationPolicyCandidateResult;
+import kr.co.teambrain.marvelrun.admin.event.command.application.valid.RegistrationPolicyCandidateValidator;
+import kr.co.teambrain.marvelrun.admin.payment.command.application.creator.*;
+import kr.co.teambrain.marvelrun.admin.payment.command.application.domain.PaymentAllocation;
+import kr.co.teambrain.marvelrun.admin.payment.command.application.domain.PaymentProcessLog;
+import kr.co.teambrain.marvelrun.admin.payment.command.application.dto.*;
+import kr.co.teambrain.marvelrun.admin.payment.command.dto.AdminPaymentPartialRefundTarget;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_cancel.PaymentCancelStatus;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_log.PaymentProcessSource;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
+import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import kr.co.teambrain.marvelrun.admin.event.command.application.domain.*;
-import kr.co.teambrain.marvelrun.admin.event.command.application.service.RegistrationPricingService;
-import kr.co.teambrain.marvelrun.admin.event.command.application.valid.RegistrationPolicyCandidateValidator;
-import kr.co.teambrain.marvelrun.admin.event.command.application.valid.dto.RegistrationPolicyCandidateResult;
-import kr.co.teambrain.marvelrun.admin.capacity.command.application.domain.Reservation;
-import kr.co.teambrain.marvelrun.admin.capacity.command.application.service.*;
-import kr.co.teambrain.marvelrun.admin.payment.command.application.creator.*;
-import kr.co.teambrain.marvelrun.admin.payment.command.application.dto.*;
-import kr.co.teambrain.marvelrun.admin.payment.command.application.domain.PaymentAllocation;
-import kr.co.teambrain.marvelrun.admin.payment.command.application.domain.PaymentProcessLog;
-import kr.co.teambrain.marvelrun.admin.payment.command.dto.AdminPaymentPartialRefundTarget;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_cancel.PaymentCancelStatus;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_log.PaymentProcessSource;
-import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
-import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
-import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
+import org.mockito.ArgumentCaptor;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -46,7 +53,7 @@ class AdminRefundPreparationServiceTest {
     private final ReservationRemovalService removal = mock(ReservationRemovalService.class);
     private final PaymentCancelAllocationCreator allocations = mock(PaymentCancelAllocationCreator.class);
     private final AdminRefundTime time = mock(AdminRefundTime.class);
-    private final AdminRefundPreparationService service = new AdminRefundPreparationService(new AdminRefundPreparationTransactionService(access, store, policies,
+    private final AdminRefundPreparationService service = new AdminRefundPreparationService(new AdminRefundPreparationTransactionService(mock(ReservationHistoryRecorder.class),access, store, policies,
             pricing, requirements, diffs, movement, removal, new ModificationRefundPlanner(), allocations, time, VALIDATION.getValidator()));
     private final LocalDateTime now = LocalDateTime.of(2026, 11, 2, 12, 0);
     private final AdminRefundCommandContext command = new AdminRefundCommandContext("request", "admin", "종목 변경");
@@ -85,7 +92,7 @@ class AdminRefundPreparationServiceTest {
         when(store.ledgers(any())).thenReturn(List.of(new RefundPaymentLedger(payment, List.of(allocation), List.of(), List.of())));
         when(time.now()).thenReturn(now);
         when(policies.validateAdminAdjustment(eq(event), anyList(), eq(now))).thenReturn(List.of(new RegistrationPolicyCandidateResult(category,
-                java.time.LocalDate.of(1990, 1, 1), souvenirs)));
+                LocalDate.of(1990, 1, 1), souvenirs)));
         when(requirements.resolveAll(eq("test-marvelrun"), anyList())).thenReturn(List.of(Map.of("capacity", 1)));
         when(store.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         doAnswer(invocation -> { if (!((List<?>) invocation.getArgument(1)).isEmpty()) reservation.releaseForParticipantRemoval(); return null; })
@@ -103,7 +110,7 @@ class AdminRefundPreparationServiceTest {
         assertThat(registration.getContractAmount()).isEqualByComparingTo("40000");
         assertThat(registration.getStatus()).isEqualTo(RegistrationStatus.PARTIAL_REFUND_REQUIRED);
         assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.CONSUMED);
-        var log = org.mockito.ArgumentCaptor.forClass(PaymentProcessLog.class);
+        var log = ArgumentCaptor.forClass(PaymentProcessLog.class);
         verify(store).log(log.capture());
         assertThat(log.getValue().getSource()).isEqualTo(PaymentProcessSource.ADMIN);
         assertThat(log.getValue().getMetadata()).containsEntry("requestId", "request").containsEntry("adminId", "admin")
@@ -191,13 +198,13 @@ class AdminRefundPreparationServiceTest {
     /** 배치 호출자가 이미 가진 잠금을 정지시킨 채 내부 트랜잭션을 시작하지 않는다. */
     @Test
     void rejectsAmbientTransactionBeforeAccess() {
-        org.springframework.transaction.support.TransactionSynchronizationManager.setActualTransactionActive(true);
+        TransactionSynchronizationManager.setActualTransactionActive(true);
         try {
             assertThatThrownBy(() -> service.prepareFull("test-marvelrun", null, List.of("r"), command))
                     .isInstanceOf(IllegalStateException.class);
             verifyNoInteractions(access);
         } finally {
-            org.springframework.transaction.support.TransactionSynchronizationManager.clear();
+            TransactionSynchronizationManager.clear();
         }
     }
     /** 관리자 금액 입력 없이 종목·기념품 후보만 제공한다. */
@@ -207,9 +214,9 @@ class AdminRefundPreparationServiceTest {
     void birthCandidateFlowsThroughPolicyPriceCapacityAndEntity() {
         when(category.getAmount()).thenReturn(new BigDecimal("70000"));
         when(policies.validateAdminAdjustment(eq(event),anyList(),eq(now))).thenAnswer(invocation -> {
-            List<kr.co.teambrain.marvelrun.admin.event.command.application.valid.dto.RegistrationPolicyCandidateRequest> requests = invocation.getArgument(1);
+            List<RegistrationPolicyCandidateRequest> requests = invocation.getArgument(1);
             assertThat(requests.getFirst().participant().birth()).isEqualTo("2015-01-01");
-            return List.of(new RegistrationPolicyCandidateResult(category,java.time.LocalDate.of(2015,1,1),souvenirs));
+            return List.of(new RegistrationPolicyCandidateResult(category,LocalDate.of(2015,1,1),souvenirs));
         });
         service.preparePartial("test-marvelrun",null,List.of(new AdminPaymentPartialRefundTarget("r","c",souvenirs,"2015-01-01",true)),command);
         verify(pricing).calculateContractAmount(event,category,"2015-01-01");
@@ -222,8 +229,8 @@ class AdminRefundPreparationServiceTest {
     @Test void batchRejectsElevenRefundPlansBeforeMutation() {
         ModificationRefundPlanner planner=mock(ModificationRefundPlanner.class);
         RefundPreparationPlan plan=mock(RefundPreparationPlan.class);
-        when(planner.plan(anyList(),anyList())).thenReturn(java.util.Collections.nCopies(11,plan));
-        AdminRefundPreparationService limited=new AdminRefundPreparationService(new AdminRefundPreparationTransactionService(
+        when(planner.plan(anyList(),anyList())).thenReturn(Collections.nCopies(11,plan));
+        AdminRefundPreparationService limited=new AdminRefundPreparationService(new AdminRefundPreparationTransactionService(mock(ReservationHistoryRecorder.class),
                 access,store,policies,pricing,requirements,diffs,movement,removal,planner,allocations,time,VALIDATION.getValidator()));
         AdminRefundCommandContext batchCommand=new AdminRefundCommandContext("request","admin","상한 확인",null,"batch",0);
         assertThatThrownBy(() -> limited.prepareFull("test-marvelrun",null,List.of("r"),batchCommand))

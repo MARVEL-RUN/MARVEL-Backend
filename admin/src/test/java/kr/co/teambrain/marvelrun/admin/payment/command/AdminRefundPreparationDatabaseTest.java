@@ -1,85 +1,105 @@
 package kr.co.teambrain.marvelrun.admin.payment.command;
 
-import jakarta.persistence.EntityManager;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Map;
-import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
-import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
-import kr.co.teambrain.marvelrun.admin.common.exception.GlobalExceptionHandler;
-import kr.co.teambrain.marvelrun.admin.event.command.application.controller.RegistrationCommandController;
-import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegistrationBatchRequest;
-import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegistrationBatchResponse;
-import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegistrationBatchResponse.Failure;
-import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegistrationBatchResponse.Success;
-import org.springframework.http.MediaType;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import kr.co.teambrain.marvelrun.admin.event.command.application.service.AdminUnpaidRegistrationCancellationService;
-import kr.co.teambrain.marvelrun.admin.event.command.application.service.RegistrationCommandService;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
-import kr.co.teambrain.marvelrun.admin.payment.command.batch.*;
-import kr.co.teambrain.marvelrun.admin.payment.command.batch.AdminRefundBatchModels.*;
-import kr.co.teambrain.marvelrun.admin.payment.command.evidence.*;
-import kr.co.teambrain.marvelrun.admin.payment.command.evidence.AdminRefundEvidenceModels;
-import kr.co.teambrain.marvelrun.admin.payment.query.AdminPaymentQueryRepository;
-import kr.co.teambrain.marvelrun.admin.payment.command.dto.AdminPaymentRefundRequest;
-import kr.co.teambrain.marvelrun.admin.payment.command.dto.AdminPaymentPartialRefundRequest;
-import kr.co.teambrain.marvelrun.admin.event.query.service.RegistrationQueryService;
-import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationDetailResponse;
+import jakarta.persistence.EntityManager;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import jakarta.validation.ValidatorFactory;
 import java.math.BigDecimal;
+import java.sql.Timestamp;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import kr.co.teambrain.marvelrun.admin.payment.command.application.refund.*;
-import kr.co.teambrain.marvelrun.admin.payment.command.infrastructure.toss.refund.*;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.IntStream;
 import java.util.UUID;
-import org.junit.jupiter.api.*;
-import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
-import org.junit.jupiter.params.provider.CsvSource;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
-import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.util.AopTestUtils;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionTemplate;
+import kr.co.teambrain.marvelrun.admin.capacity.command.application.domain.*;
+import kr.co.teambrain.marvelrun.admin.capacity.command.application.service.*;
+import kr.co.teambrain.marvelrun.admin.capacity.command.application.service.ReservationHistoryRecorder;
+import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
+import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
+import kr.co.teambrain.marvelrun.admin.common.exception.GlobalExceptionHandler;
+import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
+import kr.co.teambrain.marvelrun.admin.event.command.application.controller.RegistrationCommandController;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.*;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.RegistrationActionPolicy;
+import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegistrationBatchRequest;
+import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegistrationBatchResponse.Failure;
+import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegistrationBatchResponse.Success;
+import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegistrationBatchResponse;
+import kr.co.teambrain.marvelrun.admin.event.command.application.service.AdminUnpaidRegistrationCancellationService;
+import kr.co.teambrain.marvelrun.admin.event.command.application.service.OfflineRegistrationImportService;
+import kr.co.teambrain.marvelrun.admin.event.command.application.service.RegistrationCommandService;
 import kr.co.teambrain.marvelrun.admin.event.command.application.service.RegistrationPricingService;
 import kr.co.teambrain.marvelrun.admin.event.command.application.valid.*;
 import kr.co.teambrain.marvelrun.admin.event.command.application.valid.loader.RegistrationPolicyLoader;
-import kr.co.teambrain.marvelrun.admin.capacity.command.application.domain.*;
-import kr.co.teambrain.marvelrun.admin.capacity.command.application.service.*;
+import kr.co.teambrain.marvelrun.admin.event.policy.RegistrationActionPolicyReasons.ModificationRestrictionReason;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationDetailResponse;
+import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationActionPolicyRepository;
+import kr.co.teambrain.marvelrun.admin.event.query.service.RegistrationQueryService;
+import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationActionPolicyReader;
 import kr.co.teambrain.marvelrun.admin.payment.command.application.creator.*;
 import kr.co.teambrain.marvelrun.admin.payment.command.application.domain.PaymentAllocation;
+import kr.co.teambrain.marvelrun.admin.payment.command.application.refund.*;
+import kr.co.teambrain.marvelrun.admin.payment.command.batch.*;
+import kr.co.teambrain.marvelrun.admin.payment.command.batch.AdminRefundBatchModels.*;
+import kr.co.teambrain.marvelrun.admin.payment.command.dto.AdminPaymentPartialRefundRequest;
 import kr.co.teambrain.marvelrun.admin.payment.command.dto.AdminPaymentPartialRefundTarget;
+import kr.co.teambrain.marvelrun.admin.payment.command.dto.AdminPaymentRefundRequest;
+import kr.co.teambrain.marvelrun.admin.payment.command.evidence.*;
+import kr.co.teambrain.marvelrun.admin.payment.command.evidence.AdminRefundEvidenceModels;
+import kr.co.teambrain.marvelrun.admin.payment.command.infrastructure.toss.refund.*;
+import kr.co.teambrain.marvelrun.admin.payment.query.AdminPaymentQueryRepository;
+import kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.*;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.*;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
+import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
+import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.util.AopTestUtils;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** 실제 MySQL에서 환불 준비와 미결제 단건·일괄 삭제의 잠금·커밋·롤백을 검증한다. PG는 호출하지 않는다. */
 @Tag("admin-refund-db")
@@ -94,7 +114,8 @@ import static org.mockito.Mockito.*;
         "spring.datasource.hikari.maximum-pool-size=4"})
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@Import({RegistrationQueryService.class, AdminUnpaidRegistrationCancellationService.class, RegistrationCommandService.class, AdminRefundEvidenceStore.class, AdminRefundEvidenceService.class, AdminRefundEvidenceMatcher.class, AdminPaymentQueryRepository.class, AdminRefundPreparationService.class, AdminRefundPreparationTransactionService.class, AdminRefundPreparationStore.class,
+@Import({ReservationHistoryRecorder.class,RegistrationQueryService.class, AdminUnpaidRegistrationCancellationService.class, RegistrationCommandService.class, AdminRefundEvidenceStore.class, AdminRefundEvidenceService.class, AdminRefundEvidenceMatcher.class, AdminPaymentQueryRepository.class, AdminRefundPreparationService.class, AdminRefundPreparationTransactionService.class, AdminRefundPreparationStore.class,
+        RegistrationActionPolicyReader.class,
         AdminRefundAccessService.class, AdminRefundLockRepository.class, AdminRefundTime.class,
         RegistrationPolicyCandidateValidator.class, RegistrationPolicyValidator.class, RegistrationPolicyLoader.class,
         RegistrationPricingService.class, CapacityRequirementResolver.class, ReservationCapacityDiffService.class,
@@ -104,8 +125,47 @@ import static org.mockito.Mockito.*;
         AdminRefundBatchStore.class, AdminRefundBatchSelection.class, AdminRefundBatchService.class, AdminRefundBatchWorker.class, AdminRefundPreparationDatabaseTest.InputValidation.class})
 class AdminRefundPreparationDatabaseTest {
     @Autowired RegistrationQueryService registrationQueries;
+    @Autowired RegistrationActionPolicyRepository actionPolicyRepository;
 
-    /* 실제 상세 변환에서 일반 신청과 외부 신청의 구분값을 그대로 반환한다. */
+    /** 관리자 JPA 저장소도 실제 테이블의 활성 조건과 시각을 동일하게 매핑한다. */
+    @Test
+    void adminActionPolicyJpaRepositoryReadsOnlyEnabledEventPolicies() {
+        LocalDateTime start = now.minusDays(2).withNano(654321000);
+
+        // 테스트 대회 범위에만 정책을 저장하며 종료 후 공통 정리에서 제거한다.
+        List<RegistrationActionPolicy> saved = tx.execute(status -> actionPolicyRepository.saveAllAndFlush(List.of(
+                RegistrationActionPolicy.builder()
+                        .eventId(eventId).actionType(RegistrationActionType.MODIFY).registrationStartAt(start)
+                        .registrationEndAt(now).effectiveFrom(now).enabled(true).build(),
+                RegistrationActionPolicy.builder()
+                        .eventId(eventId).actionType(RegistrationActionType.REFUND).registrationStartAt(start)
+                        .registrationEndAt(now).effectiveFrom(now).enabled(false).build())));
+
+        // ID를 지정하지 않은 신규 엔티티가 서로 다른 UUID로 저장되는지 확인한다.
+        assertThat(saved).isNotNull();
+        assertThat(saved).extracting(RegistrationActionPolicy::getId).doesNotHaveDuplicates();
+        for (RegistrationActionPolicy policy : saved) {
+            assertThat(policy.getId()).isNotNull();
+            assertThat(UUID.fromString(policy.getId()).toString()).isEqualTo(policy.getId());
+            // 관리자도 동일 VARCHAR 문자열을 enum으로 저장하고 다시 읽는다.
+            assertThat(jdbc.queryForObject("select action_type from registration_action_policy where id=?",
+                    String.class, policy.getId())).isEqualTo(policy.getActionType().name());
+            assertThat(actionPolicyRepository.findById(policy.getId()).orElseThrow().getActionType())
+                    .isEqualTo(policy.getActionType());
+        }
+
+        // 비활성 정책과 다른 대회는 제외하고 원래 KST 값을 유지한다.
+        List<RegistrationActionPolicy> policies =
+                actionPolicyRepository.findAllByEventIdAndEnabledTrueOrderByActionTypeAscRegistrationStartAtAscIdAsc(eventId);
+        assertThat(policies).extracting(RegistrationActionPolicy::getId)
+                .containsExactly(saved.getFirst().getId());
+        assertThat(policies.getFirst().getRegistrationStartAt()).isEqualTo(start);
+        assertThat(policies.getFirst().getRegistrationEndAt()).isEqualTo(now);
+        assertThat(policies.getFirst().getEffectiveFrom()).isEqualTo(now);
+        assertThat(actionPolicyRepository.findAllByEventIdAndEnabledTrueOrderByActionTypeAscRegistrationStartAtAscIdAsc(id())).isEmpty();
+    }
+
+    /** 상세 조회에서 외부결제 표시를 보존하고, 종료 대회·마감 조건 중 우선 사유를 반환한다. */
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void detailReturnsStoredExternalPaymentFlag(boolean external) {
@@ -116,6 +176,12 @@ class AdminRefundPreparationDatabaseTest {
         RegistrationDetailResponse response = registrationQueries.getRegistrationDetail(registrationId);
         assertThat(response.externalPayment()).isEqualTo(external);
         assertThat(response.amount()).isEqualByComparingTo("70000");
+        assertThat(response.userPolicy().modifyAllowed()).isFalse();
+        // CLOSED와 신청 마감이 함께 적용된다. 외부결제 > 대회 상태 > 신청 마감 순이다.
+        assertThat(response.userPolicy().modifyReason().code()).isEqualTo(external
+                ? ModificationRestrictionReason.EXTERNAL_PAYMENT : ModificationRestrictionReason.EVENT_NOT_OPEN);
+        assertThat(response.userPolicy().modifyReason().message()).isNotBlank();
+        assertThat(response.userPolicy().paymentAllowed()).isEqualTo(response.userPolicy().paymentReason() == null);
     }
 
     /* 외부 결제는 전액 환불과 금액 증감·동일 금액 변경을 모두 업무 변경 전에 차단한다. */
@@ -141,8 +207,8 @@ class AdminRefundPreparationDatabaseTest {
         assertThat(response.items().getFirst().errorCode()).isEqualTo("EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED");
         assertThat(jdbc.queryForMap("select * from registration where id=?", registrationId)).isEqualTo(before);
         assertThat(jdbc.queryForList("select * from reservation where id=?", reservationId)).isEqualTo(reservationBefore);
-        assertThat(amount("contract_amount")).isEqualByComparingTo("70000");
-        assertThat(amount("paid_amount")).isEqualByComparingTo("70000");
+        assertThat(findRegistrationAmountByColumn("contract_amount")).isEqualByComparingTo("70000");
+        assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo("70000");
         assertThat(cancelCount()).isZero();
         assertThat(count(total)).isEqualTo(1);
         assertThat(count(capacityA)).isEqualTo(1);
@@ -171,6 +237,7 @@ class AdminRefundPreparationDatabaseTest {
     @Autowired PlatformTransactionManager manager;
     @Autowired AdminRefundPreparationService service;
     @MockitoBean AdminRefundTime time;
+    @MockitoBean ServerTimeProvider policyTime;
     @MockitoBean TossPaymentCancelClient toss;
     @Autowired AdminRefundExecutionService execution;
     @Autowired AdminRefundBatchService batches;
@@ -192,6 +259,7 @@ class AdminRefundPreparationDatabaseTest {
         tx = new TransactionTemplate(manager);
         eventId = id(); categoryA = id(); categoryB = id(); souvenir = id();
         when(time.now()).thenReturn(now);
+        when(policyTime.currentDateTime()).thenReturn(now);
         tx.executeWithoutResult(status -> {
             jdbc.update("""
                     insert into event(id,name_kr,start_date,region,host,organizer,event_status,visible_status,
@@ -200,7 +268,7 @@ class AdminRefundPreparationDatabaseTest {
                     """, eventId, "admin refund fixture", now.plusDays(10), "test", "test", "test",
                     now.minusDays(20), now.minusDays(10), now.minusDays(5));
             jdbc.update("insert into event_registration_policy(id,event_id,guardian_required_birth_from) values(?,?,?)",
-                    id(), eventId, java.time.LocalDate.of(2012, 11, 13));
+                    id(), eventId, LocalDate.of(2012, 11, 13));
             category(categoryA, 70000); category(categoryB, 40000);
             jdbc.update("insert into souvenir(id,event_id,name,sizes,is_active,sort_order) values(?,?,?,'M',true,0)",
                     souvenir, eventId, "shirt");
@@ -245,8 +313,8 @@ class AdminRefundPreparationDatabaseTest {
         assertThat(jdbc.queryForObject("select ph_num from registration where id=?",String.class,registrationId)).isEqualTo("010-0000-0000");
         assertThat(result.refunds()).hasSize(1);
         assertThat(result.refunds().getFirst().amount()).isEqualByComparingTo("30000");
-        assertThat(amount("contract_amount")).isEqualByComparingTo("40000");
-        assertThat(amount("paid_amount")).isEqualByComparingTo("70000");
+        assertThat(findRegistrationAmountByColumn("contract_amount")).isEqualByComparingTo("40000");
+        assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo("70000");
         assertThat(state()).isEqualTo("PARTIAL_REFUND_REQUIRED");
         assertThat(count(total)).isEqualTo(1); assertThat(count(capacityA)).isZero(); assertThat(count(capacityB)).isEqualTo(1);
         assertThat(count(shirt)).isEqualTo(1);
@@ -256,18 +324,18 @@ class AdminRefundPreparationDatabaseTest {
         assertThat(jdbc.queryForObject("select source from payment_process_log where payment_id=?",String.class,paymentId)).isEqualTo("ADMIN");
         assertThat(result.preparedAt()).isEqualTo(now);
         assertThatThrownBy(() -> service.preparePartial(eventId,null,List.of(target(true)),command()))
-                .isInstanceOfSatisfying(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class,
-                error -> assertThat(error.getErrorCode()).isEqualTo(kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode.PAYMENT_CANCEL_CONFLICT));
+                .isInstanceOfSatisfying(CustomException.class,
+                error -> assertThat(error.getErrorCode()).isEqualTo(ErrorCode.PAYMENT_CANCEL_CONFLICT));
         assertThat(cancelCount()).isEqualTo(1);
         executeSuccess(result);
-        assertThat(amount("paid_amount")).isEqualByComparingTo("40000");
+        assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo("40000");
         assertThat(state()).isEqualTo("CONFIRMED");
         assertThat(count(total)).isEqualTo(1);
         // 두 번째 환불은 첫 환불 거래를 차감한 원결제 잔액 40000원만 사용한다.
         AdminRefundPrepared remaining = service.prepareFull(eventId,null,List.of(registrationId),command());
         assertThat(remaining.refunds().getFirst().amount()).isEqualByComparingTo("40000");
         executeSuccess(remaining);
-        assertThat(amount("paid_amount")).isEqualByComparingTo("0");
+        assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo("0");
         assertThat(state()).isEqualTo("CANCELED");
     }
 
@@ -275,14 +343,14 @@ class AdminRefundPreparationDatabaseTest {
     @Test
     void fullRefundReleasesAndLeavesPaidAmount() {
         AdminRefundPrepared result = service.prepareFull(eventId,null,List.of(registrationId),command());
-        assertThat(amount("contract_amount")).isEqualByComparingTo("0");
-        assertThat(amount("paid_amount")).isEqualByComparingTo("70000");
+        assertThat(findRegistrationAmountByColumn("contract_amount")).isEqualByComparingTo("0");
+        assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo("70000");
         assertThat(state()).isEqualTo("CANCELLATION_PENDING");
         assertThat(count(total)).isZero(); assertThat(count(capacityA)).isZero(); assertThat(count(shirt)).isZero();
         assertThat(jdbc.queryForObject("select status from reservation where id=?",String.class,reservationId)).isEqualTo("RELEASED");
         assertThat(cancelCount()).isEqualTo(1);
         executeSuccess(result);
-        assertThat(amount("paid_amount")).isEqualByComparingTo("0");
+        assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo("0");
         assertThat(state()).isEqualTo("CANCELED");
         assertThat(count(total)).isZero();
     }
@@ -293,13 +361,13 @@ class AdminRefundPreparationDatabaseTest {
     void zeroContractKeepsOrReleasesParticipation(boolean keep) {
         jdbc.update("update event_category set amount=0 where id=?",categoryB);
         AdminRefundPrepared result = service.preparePartial(eventId,null,List.of(target(keep)),command());
-        assertThat(amount("contract_amount")).isEqualByComparingTo("0");
-        assertThat(amount("paid_amount")).isEqualByComparingTo("70000");
+        assertThat(findRegistrationAmountByColumn("contract_amount")).isEqualByComparingTo("0");
+        assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo("70000");
         assertThat(count(total)).isEqualTo(keep ? 1 : 0);
         assertThat(state()).isEqualTo(keep ? "PARTIAL_REFUND_REQUIRED" : "CANCELLATION_PENDING");
-        assertThat(jdbc.queryForObject("select expires_at from reservation where id=?",java.sql.Timestamp.class,reservationId)).isNull();
+        assertThat(jdbc.queryForObject("select expires_at from reservation where id=?",Timestamp.class,reservationId)).isNull();
         executeSuccess(result);
-        assertThat(amount("paid_amount")).isEqualByComparingTo("0");
+        assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo("0");
         assertThat(state()).isEqualTo(keep ? "CONFIRMED" : "CANCELED");
         assertThat(count(total)).isEqualTo(keep ? 1 : 0);
     }
@@ -314,8 +382,8 @@ class AdminRefundPreparationDatabaseTest {
         assertThatThrownBy(() -> service.preparePartial(eventId,null,List.of(birthTarget()),command()))
                 .isInstanceOf(IllegalStateException.class).hasMessage("injected log failure");
         assertThat(jdbc.queryForObject("select birth from registration where id=?",String.class,registrationId)).isEqualTo("1990-01-01");
-        assertThat(amount("contract_amount")).isEqualByComparingTo("70000");
-        assertThat(amount("paid_amount")).isEqualByComparingTo("70000");
+        assertThat(findRegistrationAmountByColumn("contract_amount")).isEqualByComparingTo("70000");
+        assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo("70000");
         assertThat(state()).isEqualTo("CONFIRMED");
         assertThat(count(total)).isEqualTo(1); assertThat(count(capacityA)).isEqualTo(1); assertThat(count(capacityB)).isZero();
         assertThat(cancelCount()).isZero();
@@ -334,7 +402,7 @@ class AdminRefundPreparationDatabaseTest {
             jdbc.update("update registration set organization_id=? where id=?",organizationId,registrationId);
             jdbc.update("update payment set registration_id=null,organization_id=?,amount=140000 where id=?",organizationId,paymentId);
             Registration second = Registration.builder().event(em.getReference(Event.class,eventId))
-                    .organization(em.getReference(kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization.class,organizationId))
+                    .organization(em.getReference(Organization.class,organizationId))
                     .eventCategory(em.getReference(EventCategory.class,categoryA)).name("second-"+id().substring(0,8))
                     .phNum("010-0000-0000").birth("1990-01-01").gender(GenderClass.M).password("Test1234!")
                     .souvenirJson(List.of(new SouvenirJson(souvenir,"M"))).status(RegistrationStatus.CONFIRMED)
@@ -348,7 +416,7 @@ class AdminRefundPreparationDatabaseTest {
                 jdbc.update("update capacity set confirmed_count=confirmed_count+1 where id=?",capacity);
             }
             em.persist(PaymentAllocation.create(em.getReference(Payment.class,paymentId),second,new BigDecimal("70000")));
-            Payment ready = Payment.builder().organization(em.getReference(kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization.class,organizationId))
+            Payment ready = Payment.builder().organization(em.getReference(Organization.class,organizationId))
                     .amount(new BigDecimal(mixedReady ? "20000" : "10000")).orderId("ready-"+id()).orderName("ready fixture")
                     .purpose(PaymentPurpose.ADDITIONAL_PAYMENT).processStatus(PaymentProcessStatus.READY).confirmIdempotencyKey(id()).build();
             em.persist(ready);
@@ -362,8 +430,8 @@ class AdminRefundPreparationDatabaseTest {
         String readyId = jdbc.queryForObject("select id from payment where organization_id=? and process_status='READY'",String.class,organizationId);
         if (mixedReady) {
             assertThatThrownBy(() -> service.prepareFull(eventId,organizationId,List.of(registrationId),command()))
-                    .isInstanceOfSatisfying(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class,
-                    error -> assertThat(error.getErrorCode()).isEqualTo(kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode.REGISTRATION_MODIFICATION_PAYMENT_CONFLICT));
+                    .isInstanceOfSatisfying(CustomException.class,
+                    error -> assertThat(error.getErrorCode()).isEqualTo(ErrorCode.REGISTRATION_MODIFICATION_PAYMENT_CONFLICT));
             assertThat(state()).isEqualTo("CONFIRMED"); assertThat(count(total)).isEqualTo(2); assertThat(cancelCount()).isZero();
             assertThat(jdbc.queryForObject("select process_status from payment where id=?",String.class,readyId)).isEqualTo("READY");
             return;
@@ -380,7 +448,7 @@ class AdminRefundPreparationDatabaseTest {
         assertThat(jdbc.queryForObject("select paid_amount from registration where id=?",BigDecimal.class,secondId)).isEqualByComparingTo("70000");
         executeSuccess(result);
         assertThat(state()).isEqualTo("CANCELED");
-        assertThat(amount("paid_amount")).isEqualByComparingTo("0");
+        assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo("0");
         assertThat(jdbc.queryForObject("select paid_amount from registration where id=?",BigDecimal.class,secondId))
                 .isEqualByComparingTo(whole ? "0" : "70000");
         assertThat(jdbc.queryForObject("select status from registration where id=?",String.class,secondId))
@@ -393,9 +461,9 @@ class AdminRefundPreparationDatabaseTest {
     void exhaustedCapacityRollsBackBeforeRefundPreparation() {
         jdbc.update("update capacity set limit_count=0 where id=?",capacityB);
         assertThatThrownBy(() -> service.preparePartial(eventId,null,List.of(target(true)),command()))
-                .isInstanceOfSatisfying(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class,
-                error -> assertThat(error.getErrorCode()).isEqualTo(kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode.CAPACITY_ACQUIRE_FAILED));
-        assertThat(amount("contract_amount")).isEqualByComparingTo("70000");
+                .isInstanceOfSatisfying(CustomException.class,
+                error -> assertThat(error.getErrorCode()).isEqualTo(ErrorCode.CAPACITY_ACQUIRE_FAILED));
+        assertThat(findRegistrationAmountByColumn("contract_amount")).isEqualByComparingTo("70000");
         assertThat(state()).isEqualTo("CONFIRMED");
         assertThat(count(capacityA)).isEqualTo(1); assertThat(count(capacityB)).isZero();
         assertThat(cancelCount()).isZero();
@@ -416,8 +484,8 @@ class AdminRefundPreparationDatabaseTest {
         AdminRefundExecutionService.Result result = execution.execute(prepared);
         assertThat(result.refunds().getFirst().outcomeStored()).isTrue();
         assertThat(cancelStatus(prepared)).isEqualTo(rejected ? "FAILED" : "UNKNOWN");
-        assertThat(amount("paid_amount")).isEqualByComparingTo("70000");
-        assertThat(amount("contract_amount")).isEqualByComparingTo("40000");
+        assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo("70000");
+        assertThat(findRegistrationAmountByColumn("contract_amount")).isEqualByComparingTo("40000");
         assertThat(state()).isEqualTo("PARTIAL_REFUND_REQUIRED");
         assertThat(count(total)).isEqualTo(1); assertThat(count(capacityB)).isEqualTo(1);
         execution.execute(prepared);
@@ -440,7 +508,7 @@ class AdminRefundPreparationDatabaseTest {
                 throw new IllegalStateException("injected result commit failure");
             }
             return null;
-        }).when(spy).apply(any(), any());
+        }).when(spy).applyRefundExecutionOutcome(any(), any());
         doAnswer(invocation -> {
             TossCancelAttempt attempt = invocation.getArgument(0);
             assertCommittedStart(attempt);
@@ -452,8 +520,8 @@ class AdminRefundPreparationDatabaseTest {
         assertThat(item.unknownStored()).isEqualTo(!fallbackFails);
         assertThat(item.externalOutcome().kind()).isEqualTo(TossCancelOutcome.Kind.VERIFIED);
         assertThat(cancelStatus(prepared)).isEqualTo(fallbackFails ? "PROCESSING" : "UNKNOWN");
-        assertThat(amount("paid_amount")).isEqualByComparingTo("70000");
-        assertThat(amount("contract_amount")).isEqualByComparingTo("40000");
+        assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo("70000");
+        assertThat(findRegistrationAmountByColumn("contract_amount")).isEqualByComparingTo("40000");
         assertThat(state()).isEqualTo("PARTIAL_REFUND_REQUIRED");
         assertThat(count(total)).isEqualTo(1); assertThat(count(capacityB)).isEqualTo(1);
         assertThat(jdbc.queryForObject("select count(*) from payment_process_log where payment_id=? and process_type='CANCEL_SUCCEEDED'",Integer.class,paymentId)).isZero();
@@ -478,8 +546,8 @@ class AdminRefundPreparationDatabaseTest {
         AdminRefundExecutionService.Result result = execution.execute(prepared);
         assertThat(result.refunds().getFirst().errorCode()).isEqualTo("CANCEL_BEGIN_FAILED");
         verifyNoInteractions(toss);
-        assertThat(jdbc.queryForObject("select requested_at from payment_cancel where id=?",java.sql.Timestamp.class,prepared.refunds().getFirst().paymentCancelId())).isNull();
-        assertThat(amount("paid_amount")).isEqualByComparingTo("70000");
+        assertThat(jdbc.queryForObject("select requested_at from payment_cancel where id=?",Timestamp.class,prepared.refunds().getFirst().paymentCancelId())).isNull();
+        assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo("70000");
     }
 
     /** 동일 성공 결과의 중복 반영은 순납부액과 성공 로그를 두 번 변경하지 않는다. */
@@ -491,9 +559,9 @@ class AdminRefundPreparationDatabaseTest {
                 refund.paymentCancelId(),refund.paymentId(),refund.amount(),refund.status(),prepared.correlationId());
         RefundExecutionTicket ticket = executionTransactions.begin(eventId,null,request).orElseThrow();
         TossCancelOutcome outcome = verifiedOutcome(ticket.attempt());
-        executionTransactions.apply(ticket,outcome);
-        executionTransactions.apply(ticket,outcome);
-        assertThat(amount("paid_amount")).isEqualByComparingTo("40000");
+        executionTransactions.applyRefundExecutionOutcome(ticket,outcome);
+        executionTransactions.applyRefundExecutionOutcome(ticket,outcome);
+        assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo("40000");
         assertThat(state()).isEqualTo("CONFIRMED");
         assertThat(jdbc.queryForObject("select count(*) from payment_process_log where payment_cancel_id=? and process_type='CANCEL_SUCCEEDED'",Integer.class,refund.paymentCancelId())).isEqualTo(1);
         verifyNoInteractions(toss);
@@ -526,7 +594,7 @@ class AdminRefundPreparationDatabaseTest {
     /** HTTP 대체 호출 시 트랜잭션이 없고 시작 기록은 다른 연결에서 보여야 한다. */
     private void assertCommittedStart(TossCancelAttempt attempt) {
         assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
-        assertThat(jdbc.queryForObject("select requested_at from payment_cancel where id=?",java.sql.Timestamp.class,attempt.paymentCancelId())).isNotNull();
+        assertThat(jdbc.queryForObject("select requested_at from payment_cancel where id=?",Timestamp.class,attempt.paymentCancelId())).isNotNull();
     }
 
     /** 이번 시도와 이미 완료된 원결제 취소를 반영한 성공 증거만 구성한다. */
@@ -569,6 +637,7 @@ class AdminRefundPreparationDatabaseTest {
             jdbc.update("delete from event_category where event_id=?",eventId);
             jdbc.update("delete from event_registration_policy where event_id=?",eventId);
             jdbc.update("delete from organization where event_id=?",eventId);
+            jdbc.update("delete from registration_action_policy where event_id=?",eventId);
             jdbc.update("delete from event where id=?",eventId);
         });
     }
@@ -591,7 +660,8 @@ class AdminRefundPreparationDatabaseTest {
     /** 수기 금액 없이 종목 후보를 만든다. */
     private AdminPaymentPartialRefundTarget target(boolean keep) { return new AdminPaymentPartialRefundTarget(registrationId,categoryB,List.of(new SouvenirJson(souvenir,"M")),keep); }
     /** 테스트 내부에서 지정한 금액 컬럼을 조회한다. */
-    private BigDecimal amount(String column) { return jdbc.queryForObject("select "+column+" from registration where id=?",BigDecimal.class,registrationId); }
+    /** 테스트 신청의 지정 금액 컬럼을 직접 조회한다. */
+    private BigDecimal findRegistrationAmountByColumn(String column) { return jdbc.queryForObject("select "+column+" from registration where id=?",BigDecimal.class,registrationId); }
     /** 실제 DB의 참가 상태를 조회한다. */
     private String state() { return jdbc.queryForObject("select status from registration where id=?",String.class,registrationId); }
     /** 실제 DB의 확정 정원을 조회한다. */
@@ -619,19 +689,19 @@ class AdminRefundPreparationDatabaseTest {
         assertThat(accepted.counts()).containsEntry("BLOCKED",1L).containsEntry("SUCCEEDED",1L);
         assertThat(batches.full(eventId,"fixture-admin",request).summary().batchId()).isEqualTo(accepted.batchId());
         assertThatThrownBy(() -> batches.full(eventId,"fixture-admin",new AdminPaymentRefundRequest(requestId,"다른 사유",request.registrationIds(),List.of())))
-                .isInstanceOf(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class);
+                .isInstanceOf(CustomException.class);
         batchWorker.processOne(accepted.batchId());
         batchWorker.processOne(accepted.batchId());
         Summary finished=batchStore.summary(eventId,accepted.batchId());
         assertThat(finished.status()).isEqualTo("COMPLETED");
         assertThat(finished.counts()).containsEntry("SUCCEEDED",1L).containsEntry("BLOCKED",1L);
         assertThat(batchStore.items(eventId,accepted.batchId(),0,20,true).total()).isEqualTo(1);
-        assertThat(amount("paid_amount")).isEqualByComparingTo("0");
+        assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo("0");
         assertThat(batchStore.items(eventId,accepted.batchId(),0,20,false).items().stream()
                 .filter(item -> item.result()!=null).findFirst().orElseThrow().result().toString()).doesNotContain("transactionKey","paymentKey");
-        assertThatThrownBy(() -> batchStore.items(eventId,accepted.batchId(),0,101,false)).isInstanceOf(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class);
+        assertThatThrownBy(() -> batchStore.items(eventId,accepted.batchId(),0,101,false)).isInstanceOf(CustomException.class);
         verify(toss,times(1)).cancel(any());
-        assertThatThrownBy(() -> batchStore.summary("other-event",accepted.batchId())).isInstanceOf(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class);
+        assertThatThrownBy(() -> batchStore.summary("other-event",accepted.batchId())).isInstanceOf(CustomException.class);
     }
 
     /** 접수 후 일반 정보 수정 등으로 버전이 바뀌면 예전 후보로 환불하지 않는다. */
@@ -643,7 +713,7 @@ class AdminRefundPreparationDatabaseTest {
         assertThat(batchStore.summary(eventId,accepted.batchId()).counts()).containsEntry("BLOCKED",1L);
         assertThat(batchStore.items(eventId,accepted.batchId(),0,20,false).items().getFirst().errorCode()).isEqualTo("CONCURRENT_MODIFICATION");
         assertThat(cancelCount()).isZero();
-        assertThat(amount("contract_amount")).isEqualByComparingTo("70000");
+        assertThat(findRegistrationAmountByColumn("contract_amount")).isEqualByComparingTo("70000");
         verifyNoInteractions(toss);
     }
 
@@ -695,11 +765,11 @@ class AdminRefundPreparationDatabaseTest {
         AdminRefundPrepared prepared=service.prepareFull(eventId,null,List.of(registrationId),command());
         String cancelId=prepared.refunds().getFirst().paymentCancelId();
         String cancelStatus=jdbc.queryForObject("select status from payment_cancel where id=?",String.class,cancelId);
-        BigDecimal contract=amount("contract_amount"),paid=amount("paid_amount");
+        BigDecimal contract=findRegistrationAmountByColumn("contract_amount"),paid=findRegistrationAmountByColumn("paid_amount");
         String registrationStatus=state();
         int totalCount=count(total),categoryCount=count(capacityA),shirtCount=count(shirt),cancels=cancelCount();
         when(evidenceClient.lookup(anyString())).thenAnswer(invocation -> {
-            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
             return new AdminRefundEvidenceModels.Lookup(401,"TOSS_LOOKUP_HTTP_ERROR",null);
         });
         AdminRefundEvidenceModels.Evidence result=evidenceService.check(eventId,cancelId,"fixture-admin");
@@ -714,31 +784,31 @@ class AdminRefundPreparationDatabaseTest {
                 .ignoringAllOverriddenEquals()
                 .withComparatorForType(BigDecimal::compareTo, BigDecimal.class)
                 .isEqualTo(result);
-        assertThat(amount("contract_amount")).isEqualByComparingTo(contract);
-        assertThat(amount("paid_amount")).isEqualByComparingTo(paid);
+        assertThat(findRegistrationAmountByColumn("contract_amount")).isEqualByComparingTo(contract);
+        assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo(paid);
         assertThat(state()).isEqualTo(registrationStatus);
         assertThat(count(total)).isEqualTo(totalCount);
         assertThat(count(capacityA)).isEqualTo(categoryCount);
         assertThat(count(shirt)).isEqualTo(shirtCount);
         assertThat(cancelCount()).isEqualTo(cancels);
         assertThat(jdbc.queryForObject("select status from payment_cancel where id=?",String.class,cancelId)).isEqualTo(cancelStatus);
-        assertThatThrownBy(() -> evidenceStore.snapshot("other-event",cancelId)).isInstanceOf(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class);
-        assertThatThrownBy(() -> evidenceStore.list(eventId,cancelId,0,101)).isInstanceOf(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class);
+        assertThatThrownBy(() -> evidenceStore.snapshot("other-event",cancelId)).isInstanceOf(CustomException.class);
+        assertThatThrownBy(() -> evidenceStore.list(eventId,cancelId,0,101)).isInstanceOf(CustomException.class);
         verify(evidenceClient,times(1)).lookup(anyString());
         verifyNoInteractions(toss);
     }
 
     /** 정확히 100개 오류 대상은 접수·보존하고 101개는 기록/금융 실행 전에 거절한다. */
     @Test void batchTargetLimitAccepts100AndRejects101BeforeExecution() {
-        List<String> missing=java.util.stream.IntStream.range(0,100).mapToObj(i -> id()).toList();
+        List<String> missing=IntStream.range(0,100).mapToObj(i -> id()).toList();
         Response accepted=batches.full(eventId,"fixture-admin",new AdminPaymentRefundRequest(id(),"상한 검증",missing,List.of()));
         assertThat(accepted.items()).hasSize(100);
         assertThat(accepted.summary().counts()).containsEntry("BLOCKED",100L);
         assertThat(accepted.resultsTruncated()).isFalse();
-        List<String> over=new java.util.ArrayList<>(missing); over.add(id());
+        List<String> over=new ArrayList<>(missing); over.add(id());
         String rejectedRequest=id();
         assertThatThrownBy(() -> batches.full(eventId,"fixture-admin",new AdminPaymentRefundRequest(rejectedRequest,"상한 검증",over,List.of())))
-                .isInstanceOf(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class);
+                .isInstanceOf(CustomException.class);
         assertThat(jdbc.queryForObject("select count(*) from admin_refund_batch where event_id=? and request_id=?",Integer.class,eventId,rejectedRequest)).isZero();
         assertThat(cancelCount()).isZero();
         verifyNoInteractions(toss);
@@ -757,7 +827,7 @@ class AdminRefundPreparationDatabaseTest {
             assertThat(selected).allSatisfy(item -> assertThat(item.organizationId()).isEqualTo(org));
         } else {
             assertThatThrownBy(() -> batches.full(eventId,"fixture-admin",request))
-                    .isInstanceOf(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class);
+                    .isInstanceOf(CustomException.class);
             assertThat(jdbc.queryForObject("select count(*) from admin_refund_batch where event_id=? and request_id=?",Integer.class,eventId,request.requestId())).isZero();
         }
         verifyNoInteractions(toss);
@@ -768,40 +838,40 @@ class AdminRefundPreparationDatabaseTest {
     @ParameterizedTest
     @ValueSource(booleans={true,false})
     void concurrentRequestCannotSendSecondRefund(boolean sameRequest) throws Exception {
-        var entered=new java.util.concurrent.CountDownLatch(1);
-        var release=new java.util.concurrent.CountDownLatch(1);
-        var pool=java.util.concurrent.Executors.newFixedThreadPool(2);
+        var entered=new CountDownLatch(1);
+        var release=new CountDownLatch(1);
+        var pool=Executors.newFixedThreadPool(2);
         AdminPaymentRefundRequest first=new AdminPaymentRefundRequest(id(),"동시 요청",List.of(registrationId),List.of());
         doAnswer(invocation -> {
             TossCancelAttempt attempt=invocation.getArgument(0);
             assertCommittedStart(attempt);
             entered.countDown();
-            if(!release.await(20,java.util.concurrent.TimeUnit.SECONDS)) { throw new IllegalStateException("test release timeout"); }
+            if(!release.await(20,TimeUnit.SECONDS)) { throw new IllegalStateException("test release timeout"); }
             return verifiedOutcome(attempt);
         }).when(toss).cancel(any());
         try {
-            java.util.concurrent.Future<Response> running=pool.submit(() -> batches.full(eventId,"fixture-admin",first));
-            assertThat(entered.await(10,java.util.concurrent.TimeUnit.SECONDS)).as("first request reached mock PG").isTrue();
+            Future<Response> running=pool.submit(() -> batches.full(eventId,"fixture-admin",first));
+            assertThat(entered.await(10,TimeUnit.SECONDS)).as("first request reached mock PG").isTrue();
             AdminPaymentRefundRequest second=sameRequest ? first
                     : new AdminPaymentRefundRequest(id(),"동시 요청",List.of(registrationId),List.of());
             Response other=pool.submit(() -> batches.full(eventId,"fixture-admin",second))
-                    .get(10,java.util.concurrent.TimeUnit.SECONDS);
+                    .get(10,TimeUnit.SECONDS);
             if(sameRequest) {
                 assertThat(other.summary().counts()).containsEntry("RUNNING",1L);
             } else {
                 assertThat(other.summary().counts()).containsEntry("BLOCKED",1L);
             }
             release.countDown();
-            Response completed=running.get(10,java.util.concurrent.TimeUnit.SECONDS);
+            Response completed=running.get(10,TimeUnit.SECONDS);
             assertThat(completed.summary().counts()).containsEntry("SUCCEEDED",1L);
             assertThat(batchStore.byRequest(eventId,first.requestId(),"fixture-admin").summary().counts()).containsEntry("SUCCEEDED",1L);
             assertThat(cancelCount()).isEqualTo(1);
-            assertThat(amount("paid_amount")).isEqualByComparingTo("0");
+            assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo("0");
             verify(toss,times(1)).cancel(any());
         } finally {
             release.countDown();
             pool.shutdownNow();
-            if(!pool.awaitTermination(15,java.util.concurrent.TimeUnit.SECONDS)) {
+            if(!pool.awaitTermination(15,TimeUnit.SECONDS)) {
                 throw new IllegalStateException("테스트 작업이 종료되지 않았습니다. fixture 정리 전 DB 실행 상태 확인 필요");
             }
         }
@@ -828,7 +898,7 @@ class AdminRefundPreparationDatabaseTest {
                     org,eventId,"g"+id().substring(0,15),"Test1234!","selection-only","leader","1990-01-01","010-0000-0000",now);
             for(int i=0;i<members;i++) {
                 Registration member=Registration.builder().event(em.getReference(Event.class,eventId))
-                        .organization(em.getReference(kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization.class,org))
+                        .organization(em.getReference(Organization.class,org))
                         .eventCategory(em.getReference(EventCategory.class,categoryA)).name("selection-"+i)
                         .phNum("010-0000-0000").birth("1990-01-01").gender(GenderClass.M).password("Test1234!")
                         .souvenirJson(List.of(new SouvenirJson(souvenir,"M"))).status(RegistrationStatus.PENDING)
@@ -851,8 +921,8 @@ class AdminRefundPreparationDatabaseTest {
         var response = registrationCommands.deletePaymentPendingRegistration(registrationId);
         assertThat(response).isNotNull();
         assertThat(state()).isEqualTo("EXPIRED");
-        assertThat(amount("contract_amount")).isEqualByComparingTo("0");
-        assertThat(amount("paid_amount")).isEqualByComparingTo("0");
+        assertThat(findRegistrationAmountByColumn("contract_amount")).isEqualByComparingTo("0");
+        assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo("0");
         assertThat(jdbc.queryForObject("select is_del from registration where id=?", Boolean.class, registrationId)).isTrue();
         assertThat(jdbc.queryForObject("select process_status from payment where id=?", String.class, paymentId))
                 .isEqualTo(paymentState.equals("READY") ? "INVALIDATED" : paymentState);
@@ -877,8 +947,8 @@ class AdminRefundPreparationDatabaseTest {
         prepareUnpaid(paymentState);
         var before = unpaidSnapshot();
         assertThatThrownBy(() -> registrationCommands.deletePaymentPendingRegistration(registrationId))
-                .isInstanceOfSatisfying(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class,
-                        e -> assertThat(e.getErrorCode()).isEqualTo(kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode.REGISTRATION_MODIFICATION_PAYMENT_CONFLICT));
+                .isInstanceOfSatisfying(CustomException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.REGISTRATION_MODIFICATION_PAYMENT_CONFLICT));
         assertThat(unpaidSnapshot()).isEqualTo(before);
         verifyNoInteractions(toss);
     }
@@ -903,7 +973,7 @@ class AdminRefundPreparationDatabaseTest {
         });
         var before = unpaidSnapshot();
         assertThatThrownBy(() -> registrationCommands.deletePaymentPendingRegistration(registrationId))
-                .isInstanceOf(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class);
+                .isInstanceOf(CustomException.class);
         assertThat(unpaidSnapshot()).isEqualTo(before);
         verifyNoInteractions(toss);
     }
@@ -916,8 +986,8 @@ class AdminRefundPreparationDatabaseTest {
         jdbc.update("update capacity set held_count=0 where id=?", last);
         var before = unpaidSnapshot();
         assertThatThrownBy(() -> registrationCommands.deletePaymentPendingRegistration(registrationId))
-                .isInstanceOfSatisfying(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class,
-                        e -> assertThat(e.getErrorCode()).isEqualTo(kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode.CAPACITY_COUNTER_MISMATCH));
+                .isInstanceOfSatisfying(CustomException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.CAPACITY_COUNTER_MISMATCH));
         assertThat(unpaidSnapshot()).isEqualTo(before);
         verifyNoInteractions(toss);
     }
@@ -974,8 +1044,8 @@ class AdminRefundPreparationDatabaseTest {
         jdbc.update("update payment_cancel set status=? where id=?", cancellationState, prepared.refunds().getFirst().paymentCancelId());
         var before = unpaidSnapshot();
         assertThatThrownBy(() -> registrationCommands.deletePaymentPendingRegistration(registrationId))
-                .isInstanceOfSatisfying(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class,
-                        e -> assertThat(e.getErrorCode()).isEqualTo(kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode.PAYMENT_CANCEL_CONFLICT));
+                .isInstanceOfSatisfying(CustomException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.PAYMENT_CANCEL_CONFLICT));
         assertThat(unpaidSnapshot()).isEqualTo(before);
         verifyNoInteractions(toss);
     }
@@ -984,9 +1054,9 @@ class AdminRefundPreparationDatabaseTest {
     @Test
     void unpaidCancellationCannotPassApprovalLocksOrConfirmingState() throws Exception {
         prepareUnpaid("READY");
-        var locked = new java.util.concurrent.CountDownLatch(1);
-        var release = new java.util.concurrent.CountDownLatch(1);
-        var pool = java.util.concurrent.Executors.newSingleThreadExecutor();
+        var locked = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var pool = Executors.newSingleThreadExecutor();
         try {
             var approval = pool.submit(() -> tx.executeWithoutResult(status -> {
                 jdbc.queryForObject("select id from event where id=? for update", String.class, eventId);
@@ -996,20 +1066,20 @@ class AdminRefundPreparationDatabaseTest {
                 locked.countDown();
                 awaitUnpaidTest(release);
             }));
-            assertThat(locked.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
             assertThatThrownBy(() -> registrationCommands.deletePaymentPendingRegistration(registrationId))
-                    .isInstanceOfSatisfying(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class,
-                            e -> assertThat(e.getErrorCode()).isEqualTo(kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode.CONCURRENT_MODIFICATION));
-            release.countDown(); approval.get(10, java.util.concurrent.TimeUnit.SECONDS);
+                    .isInstanceOfSatisfying(CustomException.class,
+                            e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.CONCURRENT_MODIFICATION));
+            release.countDown(); approval.get(10, TimeUnit.SECONDS);
             var before = unpaidSnapshot();
             assertThatThrownBy(() -> registrationCommands.deletePaymentPendingRegistration(registrationId))
-                    .isInstanceOfSatisfying(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class,
-                            e -> assertThat(e.getErrorCode()).isEqualTo(kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode.REGISTRATION_MODIFICATION_PAYMENT_CONFLICT));
+                    .isInstanceOfSatisfying(CustomException.class,
+                            e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.REGISTRATION_MODIFICATION_PAYMENT_CONFLICT));
             assertThat(unpaidSnapshot()).isEqualTo(before);
             verifyNoInteractions(toss);
         } finally {
             release.countDown(); pool.shutdownNow();
-            if (!pool.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)) { throw new IllegalStateException("경합 테스트 종료 실패"); }
+            if (!pool.awaitTermination(10, TimeUnit.SECONDS)) { throw new IllegalStateException("경합 테스트 종료 실패"); }
         }
     }
 
@@ -1017,23 +1087,23 @@ class AdminRefundPreparationDatabaseTest {
     @Test
     void unpaidCancellationSerializesDuplicateAndRefundRequests() throws Exception {
         prepareUnpaid("READY");
-        var locked = new java.util.concurrent.CountDownLatch(1);
-        var release = new java.util.concurrent.CountDownLatch(1);
-        var pool = java.util.concurrent.Executors.newSingleThreadExecutor();
+        var locked = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var pool = Executors.newSingleThreadExecutor();
         try {
             var first = pool.submit(() -> tx.executeWithoutResult(status -> {
                 registrationCommands.deletePaymentPendingRegistration(registrationId);
                 locked.countDown(); awaitUnpaidTest(release);
             }));
-            assertThat(locked.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
             for (Runnable competing : List.<Runnable>of(
                     () -> registrationCommands.deletePaymentPendingRegistration(registrationId),
                     () -> service.prepareFull(eventId, null, List.of(registrationId), command()))) {
                 assertThatThrownBy(competing::run)
-                        .isInstanceOfSatisfying(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class,
-                                e -> assertThat(e.getErrorCode()).isEqualTo(kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode.CONCURRENT_MODIFICATION));
+                        .isInstanceOfSatisfying(CustomException.class,
+                                e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.CONCURRENT_MODIFICATION));
             }
-            release.countDown(); first.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            release.countDown(); first.get(10, TimeUnit.SECONDS);
             var once = unpaidSnapshot();
             registrationCommands.deletePaymentPendingRegistration(registrationId);
             assertThat(unpaidSnapshot()).isEqualTo(once);
@@ -1041,7 +1111,7 @@ class AdminRefundPreparationDatabaseTest {
             verifyNoInteractions(toss);
         } finally {
             release.countDown(); pool.shutdownNow();
-            if (!pool.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)) { throw new IllegalStateException("경합 테스트 종료 실패"); }
+            if (!pool.awaitTermination(10, TimeUnit.SECONDS)) { throw new IllegalStateException("경합 테스트 종료 실패"); }
         }
     }
 
@@ -1290,7 +1360,7 @@ class AdminRefundPreparationDatabaseTest {
         }
 
         assertThat(state()).isEqualTo("PAYMENT_PENDING");
-        assertThat(amount("contract_amount")).isEqualByComparingTo("70000");
+        assertThat(findRegistrationAmountByColumn("contract_amount")).isEqualByComparingTo("70000");
         assertThat(jdbc.queryForObject(
                 "select is_del from registration where id=?",
                 Boolean.class,
@@ -1463,21 +1533,21 @@ class AdminRefundPreparationDatabaseTest {
     void batchCollectsLockConflictsAndAllowsRetry() throws Exception {
         prepareUnpaid("READY");
         String otherId = createUnpaidBatchParticipant();
-        java.util.concurrent.CountDownLatch locked = new java.util.concurrent.CountDownLatch(1);
-        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
-        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newSingleThreadExecutor();
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
         UnpaidRegistrationBatchRequest request = new UnpaidRegistrationBatchRequest(
                 List.of(registrationId, otherId)
         );
 
         try {
-            java.util.concurrent.Future<?> competing = pool.submit(() -> tx.executeWithoutResult(status -> {
+            Future<?> competing = pool.submit(() -> tx.executeWithoutResult(status -> {
                 jdbc.queryForObject("select id from event where id=? for update", String.class, eventId);
                 locked.countDown();
                 awaitUnpaidTest(release);
             }));
 
-            assertThat(locked.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
             Map<String, Object> before = unpaidSnapshot();
             UnpaidRegistrationBatchResponse blocked = registrationCommands.cancelUnpaidRegistrations(eventId, request);
 
@@ -1489,7 +1559,7 @@ class AdminRefundPreparationDatabaseTest {
             assertThat(unpaidSnapshot()).isEqualTo(before);
 
             release.countDown();
-            competing.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            competing.get(10, TimeUnit.SECONDS);
 
             UnpaidRegistrationBatchResponse retried = registrationCommands.cancelUnpaidRegistrations(eventId, request);
 
@@ -1506,7 +1576,7 @@ class AdminRefundPreparationDatabaseTest {
         } finally {
             release.countDown();
             pool.shutdownNow();
-            assertThat(pool.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
         }
     }
 
@@ -1564,7 +1634,7 @@ class AdminRefundPreparationDatabaseTest {
     /** 실제 서비스 프록시와 기존 예외 처리기를 사용하여 컨트롤러 경로와 JSON 계약을 검증한다. */
     private MockMvc createRegistrationCommandMvc() {
         return MockMvcBuilders.standaloneSetup(new RegistrationCommandController(registrationCommands,
-                mock(kr.co.teambrain.marvelrun.admin.event.command.application.service.OfflineRegistrationImportService.class)))
+                mock(OfflineRegistrationImportService.class)))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
@@ -1644,7 +1714,7 @@ class AdminRefundPreparationDatabaseTest {
                     orgId, eventId, "g" + id().substring(0, 15), "Test1234!", "fixture group", "leader", "1990-01-01", "010-0000-0000", now);
             jdbc.update("update registration set organization_id=? where id=?", orgId, registrationId);
             jdbc.update("update payment set registration_id=null,organization_id=?,amount=? where id=?", orgId, completed ? 70000 : 140000, paymentId);
-            var org = em.getReference(kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization.class, orgId);
+            var org = em.getReference(Organization.class, orgId);
             Registration other = Registration.builder().organization(org).event(em.getReference(Event.class, eventId))
                     .eventCategory(em.getReference(EventCategory.class, categoryA)).name("other-" + id().substring(0, 8))
                     .phNum("010-0000-0000").birth("1990-01-01").gender(GenderClass.M).password("Test1234!")
@@ -1675,8 +1745,8 @@ class AdminRefundPreparationDatabaseTest {
     }
 
     /** 금융/신청/예약/카운터와 로그를 DB 현재값으로 비교한다. */
-    private java.util.Map<String, Object> unpaidSnapshot() {
-        java.util.Map<String, Object> result = new java.util.LinkedHashMap<>();
+    private Map<String, Object> unpaidSnapshot() {
+        Map<String, Object> result = new LinkedHashMap<>();
         result.put("registration", jdbc.queryForList("select * from registration where event_id=? order by id", eventId));
         result.put("payment", jdbc.queryForList("select * from payment where id=?", paymentId));
         result.put("allocation", jdbc.queryForList("select * from payment_allocation where payment_id=? order by id", paymentId));
@@ -1694,9 +1764,9 @@ class AdminRefundPreparationDatabaseTest {
     }
 
     /** 시간 제한을 둬 경합 테스트가 무한 대기하지 않도록 한다. */
-    private static void awaitUnpaidTest(java.util.concurrent.CountDownLatch latch) {
+    private static void awaitUnpaidTest(CountDownLatch latch) {
         try {
-            if (!latch.await(10, java.util.concurrent.TimeUnit.SECONDS)) { throw new IllegalStateException("경합 테스트 대기 초과"); }
+            if (!latch.await(10, TimeUnit.SECONDS)) { throw new IllegalStateException("경합 테스트 대기 초과"); }
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt(); throw new IllegalStateException(exception);
         }
@@ -1707,7 +1777,7 @@ class AdminRefundPreparationDatabaseTest {
     void adjustmentAdditionalDuePersistsWithoutPaymentAndReplays() {
         jdbc.update("update event_category set amount=90000 where id=?",categoryB);
         String requestId = id();
-        var request = new kr.co.teambrain.marvelrun.admin.payment.command.dto.AdminPaymentPartialRefundRequest(
+        var request = new AdminPaymentPartialRefundRequest(
                 requestId,"성인 요금 정정",List.of(birthTarget()));
         var result = batches.partial(eventId,"fixture-admin",request);
         assertThat(result.items()).hasSize(1);
@@ -1716,8 +1786,8 @@ class AdminRefundPreparationDatabaseTest {
         assertThat(item.preparation().path("members").get(0).path("additionalPaymentAmount").decimalValue()).isEqualByComparingTo("20000");
         assertThat(item.preparation().path("members").get(0).path("paymentOrder").isNull()).isTrue();
         assertThat(item.message()).contains("추가 납부");
-        assertThat(amount("contract_amount")).isEqualByComparingTo("90000");
-        assertThat(amount("paid_amount")).isEqualByComparingTo("70000");
+        assertThat(findRegistrationAmountByColumn("contract_amount")).isEqualByComparingTo("90000");
+        assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo("70000");
         assertThat(state()).isEqualTo("ADDITIONAL_PAYMENT_REQUIRED");
         assertThat(count(total)).isEqualTo(1);
         assertThat(count(capacityA)).isZero(); assertThat(count(capacityB)).isEqualTo(1);
@@ -1755,11 +1825,11 @@ class AdminRefundPreparationDatabaseTest {
         jdbc.update("update event_category set amount=90000 where id=?",categoryB);
         jdbc.update("update capacity set limit_count=0,active=false where id=?",capacityB);
         var result = batches.partial(eventId,"fixture-admin",
-                new kr.co.teambrain.marvelrun.admin.payment.command.dto.AdminPaymentPartialRefundRequest(id(),"정원 부족",List.of(target(true))));
+                new AdminPaymentPartialRefundRequest(id(),"정원 부족",List.of(target(true))));
         assertThat(result.items().getFirst().status()).isEqualTo("BLOCKED");
         assertThat(result.items().getFirst().errorCode()).isEqualTo("CAPACITY_ACQUIRE_FAILED");
         assertThat(result.items().getFirst().message()).contains("한도");
-        assertThat(amount("contract_amount")).isEqualByComparingTo("70000");
+        assertThat(findRegistrationAmountByColumn("contract_amount")).isEqualByComparingTo("70000");
         assertThat(state()).isEqualTo("CONFIRMED");
         assertThat(count(capacityA)).isEqualTo(1); assertThat(count(capacityB)).isZero();
         assertThat(cancelCount()).isZero(); verifyNoInteractions(toss);
@@ -1790,9 +1860,9 @@ class AdminRefundPreparationDatabaseTest {
         assertThat(mockingDetails(storeSpy).isSpy()).isTrue();
         doThrow(new IllegalStateException("fixture evidence failure")).when(storeSpy).recordAdjustmentPrepared(any(),any());
         var result = batches.partial(eventId,"fixture-admin",
-                new kr.co.teambrain.marvelrun.admin.payment.command.dto.AdminPaymentPartialRefundRequest(id(),"원자성",List.of(target(true))));
+                new AdminPaymentPartialRefundRequest(id(),"원자성",List.of(target(true))));
         assertThat(result.items().getFirst().status()).isEqualTo("NEEDS_REVIEW");
-        assertThat(amount("contract_amount")).isEqualByComparingTo("70000");
+        assertThat(findRegistrationAmountByColumn("contract_amount")).isEqualByComparingTo("70000");
         assertThat(state()).isEqualTo("CONFIRMED");
         assertThat(count(capacityA)).isEqualTo(1); assertThat(count(capacityB)).isZero();
         assertThat(cancelCount()).isZero(); verifyNoInteractions(toss);

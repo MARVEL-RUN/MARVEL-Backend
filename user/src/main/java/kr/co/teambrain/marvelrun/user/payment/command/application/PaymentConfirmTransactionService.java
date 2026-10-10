@@ -1,37 +1,43 @@
 package kr.co.teambrain.marvelrun.user.payment.command.application;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_log.PaymentProcessSource;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_log.PaymentProcessType;
+import kr.co.teambrain.marvelrun.user.capacity.command.application.domain.Reservation;
+import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationHistoryRecorder;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationPaymentService;
+import kr.co.teambrain.marvelrun.user.capacity.command.repository.ReservationCommandRepository;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels.*;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.PaymentAllocation;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.PaymentProcessLog;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.PaymentAllocationCommandRepository;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.PaymentCommandRepository;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.PaymentProcessLogCommandRepository;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentConfirmContext;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentConfirmRequest;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentConfirmResponse;
 import kr.co.teambrain.marvelrun.user.payment.command.application.exception.InvalidTossSuccessResponseException;
-import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
-import kr.co.teambrain.marvelrun.user.payment.command.application.domain.PaymentProcessLog;
-import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.PaymentCommandRepository;
-import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.PaymentProcessLogCommandRepository;
 import kr.co.teambrain.marvelrun.user.payment.command.application.valid.EventPaymentPolicyValidator;
 import kr.co.teambrain.marvelrun.user.payment.command.infrastructure.toss.dto.TossPaymentConfirmResponse;
 import kr.co.teambrain.marvelrun.user.payment.command.infrastructure.toss.exception.TossPaymentApiException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.math.BigDecimal;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Objects;
 
 /**
  * 외부 승인 호출 전후의 로컬 결제 트랜잭션을 처리한다.
@@ -44,6 +50,9 @@ import java.util.Objects;
 @Service
 @RequiredArgsConstructor
 public class PaymentConfirmTransactionService {
+    private final ReservationHistoryRecorder historyRecorder;
+    private final ReservationCommandRepository historyReservations;
+    private final RegistrationActionPolicyService actionPolicies;
 
     private final ServerTimeProvider serverTimeProvider;
     private final PaymentConfirmationAllocationSupport allocationSupport;
@@ -153,6 +162,11 @@ public class PaymentConfirmTransactionService {
          */
 
         validateAllocationsBeforeConfirm(payment, allocations, event);
+        List<Policy> policies = actionPolicies.loadEnabledRegistrationActionPolicies(event.getId());
+        // 주문 귀속 인원 전체를 함께 평가하여 목록 순서에 따른 오류 차이를 없앤다.
+        actionPolicies.validateRegistrationActionsPolicy(event,
+                allocations.stream().map(PaymentAllocation::getRegistration).toList(),
+                Action.PAYMENT, now, policies, payment.getOrganization() != null);
 
         /*
          * 예약 상태와 결제 시작 이력을 함께 저장한다.
@@ -378,6 +392,8 @@ public class PaymentConfirmTransactionService {
         for (PaymentAllocation allocation : allocations) {
             Registration registration = allocation.getRegistration();
             registration.applySuccessfulPayment(allocation.getAllocatedAmount());
+            Reservation reservation = historyReservations.findByRegistration_Id(registration.getId()).orElseThrow(() -> new CustomException(ErrorCode.RESERVATION_NOT_FOUND));
+            historyRecorder.recordRegistrationSettlementHistory(reservation, payment.getId(), List.of(allocation.getId()), null, List.of(), now);
         }
 
         saveConfirmSucceededLog(
@@ -521,7 +537,7 @@ public class PaymentConfirmTransactionService {
                         )
                         .metadata(PaymentResultLogMetadata.append(null, "CONFIRM", false, false,
                                 payment.getProcessStatus().name(), "ERROR_RESPONSE", null,
-                                java.util.Map.of("httpStatus", exception.getHttpStatus())))
+                                Map.of("httpStatus", exception.getHttpStatus())))
                         .build();
 
         paymentProcessLogCommandRepository.save(
@@ -949,14 +965,14 @@ public class PaymentConfirmTransactionService {
     }
 
     /** 성공 확정과 동일한 응답 검증을 사용하되 불일치 응답을 외부 성공으로 기록하지 않는다. */
-    private static java.util.Map<String, Object> confirmComparison(PaymentConfirmContext context,
+    private static Map<String, Object> confirmComparison(PaymentConfirmContext context,
             TossPaymentConfirmResponse response, String localState, boolean localTargetReached) {
         Boolean external = null;
         if (response != null) {
             try { validateSuccessResponse(context, response); external = true; }
             catch (InvalidTossSuccessResponseException ignored) { /* 응답 수신만으로 성공을 단정하지 않는다. */ }
         }
-        java.util.Map<String, Object> evidence = new java.util.LinkedHashMap<>();
+        Map<String, Object> evidence = new LinkedHashMap<>();
         if (response != null) {
             evidence.put("amount", response.totalAmount());
             evidence.put("approvedAt", response.approvedAt() == null ? null : response.approvedAt().toString());

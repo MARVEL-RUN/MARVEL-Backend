@@ -1,14 +1,21 @@
 package kr.co.teambrain.marvelrun.user.capacity.command.application.service;
 
 import jakarta.persistence.EntityManager;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.List;
+import java.util.UUID;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.dto.CapacityHoldRequest;
+import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationHistoryRecorder;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -19,16 +26,11 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -43,10 +45,20 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Tag("capacity-db")
 @DataJpaTest
 @ActiveProfiles("capacity-test")
+// 다른 DB 테스트와 동일한 환경변수로 접속 대상을 지정하며 스키마를 자동 변경하지 않는다.
+@TestPropertySource(properties = {
+        "spring.datasource.url=${MARVELRUN_TEST_DB_URL}",
+        "spring.datasource.username=${MARVELRUN_TEST_DB_USERNAME}",
+        "spring.datasource.password=${MARVELRUN_TEST_DB_PASSWORD}",
+        "spring.jpa.hibernate.ddl-auto=none",
+        "spring.sql.init.mode=never"
+})
 @AutoConfigureTestDatabase(
         replace = AutoConfigureTestDatabase.Replace.NONE
 )
 @Import({
+        ReservationHistoryRecorder.class,
+        RegistrationActionPolicyService.class,
         CapacityHoldService.class,
         CapacityRequirementResolver.class
 })
@@ -366,6 +378,7 @@ class CapacityHoldServiceDatabaseTest {
      * 이 테스트는 정책 검증 이후의 확보 계층을 대상으로 하므로
      * 신청 Validator와 Payment 생성은 호출하지 않는다.
      * 기념품 없이 전체·종목 정원 두 자원만 사용한다.
+     * 약관 동의 필수 컬럼은 실제 신청 생성과 동일하게 명시한다.
      */
     private Registration persistRegistration() {
         Registration registration = Registration.builder()
@@ -382,6 +395,10 @@ class CapacityHoldServiceDatabaseTest {
                 .contractAmount(BigDecimal.valueOf(40000))
                 .paidAmount(BigDecimal.ZERO)
                 .status(RegistrationStatus.PAYMENT_PENDING)
+                .termsEssentialAgreed(true)
+                .termsMarketingAgreed(false)
+                .termsMarketingChannelAgreed(false)
+                .termsAgreedAt(NOW)
                 .build();
 
         entityManager.persist(registration);

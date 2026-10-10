@@ -1,36 +1,37 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.*;
+import java.util.stream.Collectors;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.CapacityType;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.domain.Reservation;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.dto.CapacityHoldRequest;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.dto.CapacityRequirementDiff;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.dto.CapacityRequirementInput;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.*;
+import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationHistoryRecorder;
 import kr.co.teambrain.marvelrun.user.capacity.command.repository.CapacityCommandRepository;
 import kr.co.teambrain.marvelrun.user.capacity.command.repository.ReservationCommandRepository;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
-import kr.co.teambrain.marvelrun.user.event.command.application.context.OrgRegistrationModificationCandidateContext;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.OrgRegistrationModificationAccessContext;
+import kr.co.teambrain.marvelrun.user.event.command.application.context.OrgRegistrationModificationCandidateContext;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.OrgRegistrationModificationResult;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.OrgRegistrationParticipantPricing;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationPrice;
-import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrgRegistrationModificationRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.OrgRegistrationModificationParticipantRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.OrgRegistrationParticipantRequest;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrgRegistrationModificationRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.OrgRegistrationModificationAccessValidator;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.OrgRegistrationModificationCandidateValidator;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.*;
-import java.util.stream.Collectors;
-import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
 
 /**
  * 단체 최종 구성원 목록을 기준으로 추가·수정·제거를 반영한다.
@@ -46,6 +47,7 @@ import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment
 @RequiredArgsConstructor
 @Transactional(propagation = Propagation.MANDATORY)
 public class OrgRegistrationModificationService {
+    private final ReservationHistoryRecorder historyRecorder;
 
     private final OrgParticipantPasswordEncoder participantPasswordEncoder;
 
@@ -65,6 +67,7 @@ public class OrgRegistrationModificationService {
     private final ReservationRemovalService removalService;
     private final OrgRegistrationModificationGuard modificationGuard;
     private final RegistrationModificationPaymentGuard paymentGuard;
+    private final RegistrationModificationClassifier classifier = new RegistrationModificationClassifier();
 
     /**
      * 수정 요청의 최종 구성원 전체를 검증하여 단체에 반영한다.
@@ -72,17 +75,17 @@ public class OrgRegistrationModificationService {
      * 요청에서 빠진 기존 구성원은 제거 대상으로 판정한다.
      * 신규와 기존 구성원의 확보 실패 시 제거 처리까지 포함하여 전체 롤백한다.
      */
-    public OrgRegistrationModificationResult modify(
+    public OrgRegistrationModificationResult modifyOrganizationRegistration(
             String eventId,
             String organizationId,
             OrgRegistrationModificationRequest request,
             LocalDateTime now
     ) {
-        return modify(eventId, organizationId, request, now, null);
+        return modifyOrganizationRegistration(eventId, organizationId, request, now, null);
     }
 
     /** Event 다음 단체 잠금을 대기 없이 확보하며, 경합이나 오래된 구성원 snapshot이면 전체 수정을 거절한다. */
-    public OrgRegistrationModificationResult modify(
+    public OrgRegistrationModificationResult modifyOrganizationRegistration(
             String eventId,
             String organizationId,
             OrgRegistrationModificationRequest request,
@@ -118,7 +121,7 @@ public class OrgRegistrationModificationService {
         }
 
         OrgRegistrationModificationCandidateContext candidate =
-                candidateValidator.validate(access);
+                candidateValidator.validateOrganizationModificationCandidates(access);
 
         /** 전체 수정에서도 검증된 단체 프로필을 동일 트랜잭션에 반영한다. */
         access.organization().applyProfileModification(
@@ -126,7 +129,7 @@ public class OrgRegistrationModificationService {
                 request.email(), request.address(), request.addressDetail());
 
         List<OrgRegistrationParticipantPricing> priced =
-                pricingService.repriceOrganization(candidate);
+                pricingService.calculateOrganizationRegistrationModificationPrices(candidate);
 
         List<OrgRegistrationParticipantPricing> existing =
                 priced.stream()
@@ -162,7 +165,9 @@ public class OrgRegistrationModificationService {
          * 기존 참가자의 필요량을 일괄 계산하고 정원 점유를 이동한다.
          * 실제 Registration 변경은 Capacity 이동 성공 이후 수행한다.
          */
-        moveExisting(eventId, candidate, existing, now);
+        moveExisting(eventId, candidate, existing.stream().filter(item -> classifier.classifyOrganizationParticipant(
+                item.candidate().currentRegistration(), item.candidate().request())
+                == RegistrationModificationClassifier.Change.FULL).toList(), now);
 
         /*
          * 제거 대상의 실제 점유를 반환한다.
@@ -178,12 +183,18 @@ public class OrgRegistrationModificationService {
             OrgRegistrationModificationCandidateContext.ParticipantCandidate participant = item.candidate();
             Registration registration = participant.currentRegistration();
 
-            registration.applyOrganizationModification(
+            // 값이 그대로인 참가자의 엔티티·예약 상세·수정 이력을 재적용하지 않는다.
+            if (classifier.classifyOrganizationParticipant(registration, participant.request())
+                    != RegistrationModificationClassifier.Change.NONE) {
+                registration.applyOrganizationModification(
                     participant.eventCategory(),
                     participant.souvenirJsons(),
                     participant.request(),
                     item.price().newContractAmount()
-            );
+                );
+                reservationRepository.findByRegistration_Id(registration.getId())
+                        .ifPresent(historyRecorder::completeReservationModificationSnapshot);
+            }
 
             results.add(
                     new OrgRegistrationModificationResult.Member(
@@ -405,6 +416,6 @@ public class OrgRegistrationModificationService {
                 newRequirements
         );
 
-        modificationService.moveAll(eventId, diffs, now);
+        modificationService.moveReservationCapacities(eventId, diffs, now);
     }
 }

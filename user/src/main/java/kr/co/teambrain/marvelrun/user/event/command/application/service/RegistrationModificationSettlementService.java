@@ -1,10 +1,15 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
-import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.*;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.json_object.ReservationHistoryEntry;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.domain.Reservation;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.dto.ReservationAllocation;
+import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationHistoryRecorder;
 import kr.co.teambrain.marvelrun.user.capacity.command.repository.CapacityCommandRepository;
 import kr.co.teambrain.marvelrun.user.capacity.command.repository.ReservationCommandRepository;
 import kr.co.teambrain.marvelrun.user.capacity.command.repository.ReservationItemCommandRepository;
@@ -14,20 +19,18 @@ import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organizat
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels.*;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import kr.co.teambrain.marvelrun.user.payment.command.application.creator.AdditionalPaymentTargetResolver;
 import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentAllocationCreator;
 import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentCreator;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentAllocationTarget;
+import kr.co.teambrain.marvelrun.user.payment.command.application.ModificationRefundPreparationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import java.math.BigDecimal;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
-import java.time.LocalDateTime;
-import java.util.*;
-import kr.co.teambrain.marvelrun.user.payment.command.application.ModificationRefundPreparationService;
 
 /**
  * 수정된 신청의 금융 상태를 결정하고 최초·추가 결제 주문과 필요한 환불 시도를 구성한다.
@@ -41,6 +44,7 @@ import kr.co.teambrain.marvelrun.user.payment.command.application.ModificationRe
 @RequiredArgsConstructor
 @Transactional(propagation = Propagation.MANDATORY)
 public class RegistrationModificationSettlementService {
+    private final ReservationHistoryRecorder historyRecorder;
 
     private final RegistrationCommandRepository registrationRepository;
     private final ReservationCommandRepository reservationRepository;
@@ -51,6 +55,7 @@ public class RegistrationModificationSettlementService {
     private final PaymentAllocationCreator allocationCreator;
     private final AdditionalPaymentTargetResolver additionalTargetResolver;
     private final ModificationRefundPreparationService refundPreparationService;
+    private final RegistrationActionPolicyService actionPolicies;
 
     /**
      * 수정에 포함된 기존·신규·제거 참가자 전체의 금융 상태를 결정한다.
@@ -58,12 +63,18 @@ public class RegistrationModificationSettlementService {
      * 개인은 organizationId=null 및 참가자 한 명을 전달한다.
      * 단체는 제거 대상도 포함하여 전달한다.
      */
-    public RegistrationModificationSettlementResult settle(
+    public RegistrationModificationSettlementResult settleRegistrationModification(
             String eventId,
             String organizationId,
             List<String> registrationIds,
             LocalDateTime now
     ) {
+        return settleRegistrationModification(eventId, organizationId, registrationIds, now, actionPolicies.loadEnabledRegistrationActionPolicies(eventId));
+    }
+
+    /** 수정 요청에서 읽은 동일 정책과 기준시각으로 무변경 인원을 포함한 정산 대상까지 검증한다. */
+    public RegistrationModificationSettlementResult settleRegistrationModification(String eventId, String organizationId,
+            List<String> registrationIds, LocalDateTime now, List<Policy> policies) {
         if (registrationIds == null
                 || registrationIds.isEmpty()
                 || registrationIds.stream().anyMatch(
@@ -97,6 +108,26 @@ public class RegistrationModificationSettlementService {
 
         Map<String, Reservation> reservations =
                 loadReservations(uniqueIds);
+
+        // 원장 준비 전에 실제 차액이 있는 대상만 검증하며 실패 시 상위 수정도 함께 롤백한다.
+        List<Registration> paymentTargets = new ArrayList<>();
+        List<Registration> refundTargets = new ArrayList<>();
+        for (Registration registration : registrations) {
+            if (registration.getContractAmount() == null || registration.getPaidAmount() == null) {
+                throw new CustomException(ErrorCode.REGISTRATION_FINANCIAL_STATE_INVALID);
+            }
+            int balanceSign = registration.getContractAmount().compareTo(registration.getPaidAmount());
+            if (balanceSign > 0) { paymentTargets.add(registration); }
+            if (balanceSign < 0) { refundTargets.add(registration); }
+        }
+        if (!paymentTargets.isEmpty()) {
+            actionPolicies.validateRegistrationActionsPolicy(paymentTargets.getFirst().getEvent(), paymentTargets,
+                    Action.PAYMENT, now, policies, organizationId != null);
+        }
+        if (!refundTargets.isEmpty()) {
+            actionPolicies.validateRegistrationActionsPolicy(refundTargets.getFirst().getEvent(), refundTargets,
+                    Action.REFUND, now, policies, organizationId != null);
+        }
 
         List<Registration> initialPaymentTargets = new ArrayList<>();
         List<Registration> consumedTargets = new ArrayList<>();
@@ -135,6 +166,7 @@ public class RegistrationModificationSettlementService {
                 consumedTargets.add(registration);
             }
 
+            historyRecorder.recordRegistrationSettlementHistory(reservation, null, List.of(), null, List.of(), now);
             members.add(
                     new RegistrationModificationSettlementResult.Member(
                             registration.getId(),
@@ -382,7 +414,7 @@ public class RegistrationModificationSettlementService {
 
         reservation.consumeWithoutPayment();
 
-        reservation.appendHistory(
+        historyRecorder.appendReservationHistorySnapshot(reservation, 
                 ReservationHistoryEntry.Action.ZERO_AMOUNT_CONFIRMED,
                 now,
                 null,
