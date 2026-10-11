@@ -29,7 +29,7 @@ class ModificationRefundExecutorTest {
         when(transactions.begin("event", null, refund)).thenReturn(Optional.empty());
         executor.execute("event", null, List.of(refund));
         verifyNoInteractions(toss);
-        verify(transactions, never()).apply(any(), any());
+        verify(transactions, never()).applyRefundExecutionOutcome(any(), any());
     }
 
     /** 성공 저장 실패 시 외부 성공 증거를 유지하여 UNKNOWN 저장을 요청한다. */
@@ -41,10 +41,10 @@ class ModificationRefundExecutorTest {
         when(transactions.begin("event", null, refund)).thenReturn(Optional.of(ticket));
         when(toss.cancel(ticket.attempt())).thenReturn(success);
         doThrow(new CustomException(ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR))
-                .when(transactions).apply(ticket, success);
+                .when(transactions).applyRefundExecutionOutcome(ticket, success);
         executor.execute("event", null, List.of(refund));
         ArgumentCaptor<TossCancelOutcome> outcomes = ArgumentCaptor.forClass(TossCancelOutcome.class);
-        verify(transactions, times(2)).apply(eq(ticket), outcomes.capture());
+        verify(transactions, times(2)).applyRefundExecutionOutcome(eq(ticket), outcomes.capture());
         TossCancelOutcome fallback = outcomes.getAllValues().get(1);
         assertThat(fallback.kind()).isEqualTo(TossCancelOutcome.Kind.UNKNOWN);
         assertThat(fallback.cancellation()).isEqualTo(success.cancellation());
@@ -65,8 +65,8 @@ class ModificationRefundExecutorTest {
         when(toss.cancel(one.attempt())).thenReturn(unknown);
         when(toss.cancel(two.attempt())).thenReturn(success);
         executor.execute("event", null, List.of(first, second));
-        verify(transactions).apply(one, unknown);
-        verify(transactions).apply(two, success);
+        verify(transactions).applyRefundExecutionOutcome(one, unknown);
+        verify(transactions).applyRefundExecutionOutcome(two, success);
         verify(toss, times(1)).cancel(one.attempt());
         verify(toss, times(1)).cancel(two.attempt());
     }

@@ -24,6 +24,7 @@ import java.util.*;
 @RequiredArgsConstructor
 @Transactional(propagation = Propagation.MANDATORY)
 public class ReservationPaymentService {
+    private final ReservationHistoryRecorder historyRecorder;
     private final CapacityCommandRepository capacities;
 
     /** 결제 귀속과 수량을 확정하고 외부결제 확정 이력은 참가자의 현장 KST로 기록한다. */
@@ -52,8 +53,9 @@ public class ReservationPaymentService {
             reservation.consumeAfterPayment();
             LocalDateTime occurredAt = reservation.getRegistration().isExternalPayment()
                     ? reservation.getRegistration().getTermsAgreedAt() : now;
-            reservation.appendHistory(ReservationHistoryEntry.Action.PAYMENT_CONFIRMED, occurredAt, payment.getId(),
+            historyRecorder.appendReservationHistorySnapshot(reservation, ReservationHistoryEntry.Action.PAYMENT_CONFIRMED, occurredAt, payment.getId(),
                     "외부 단말기 결제 완료 관리자 등록", List.of());
+            historyRecorder.recordCompletedPaymentHistory(reservation, payment.getId(), occurredAt);
         }
     }
 }

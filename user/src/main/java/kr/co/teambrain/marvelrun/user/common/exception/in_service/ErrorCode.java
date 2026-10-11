@@ -13,6 +13,13 @@ public enum ErrorCode {
             "외부 결제로 등록된 신청은 온라인에서 변경·취소·결제할 수 없습니다."
     ),
 
+    REGISTRATION_MODIFICATION_POLICY_BLOCKED(HttpStatus.FORBIDDEN,
+            "해당 신청일의 정보 수정이 마감되었습니다. 수정이 필요하면 관리자에게 문의해 주세요."),
+    REGISTRATION_REFUND_POLICY_BLOCKED(HttpStatus.FORBIDDEN,
+            "해당 신청일의 환불이 마감되었습니다. 관리자에게 문의해 주세요."),
+    REGISTRATION_PAYMENT_POLICY_BLOCKED(HttpStatus.FORBIDDEN,
+            "해당 신청일의 결제가 마감되었습니다. 최초 미결제 인원이 포함된 경우 해당 인원을 삭제한 뒤 재시도해 주세요. 추가결제 대상은 관리자에게 문의해 주세요."),
+
     ORGANIZATION_LEADER_BIRTH_REQUIRED(
             HttpStatus.BAD_REQUEST,
             "단체장 생년월일을 입력해주세요."

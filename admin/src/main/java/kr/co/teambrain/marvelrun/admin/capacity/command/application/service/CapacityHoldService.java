@@ -25,6 +25,7 @@ import java.util.*;
 @RequiredArgsConstructor
 @Transactional(propagation = Propagation.MANDATORY)
 public class CapacityHoldService {
+    private final ReservationHistoryRecorder historyRecorder;
     private final CapacityCommandRepository capacities;
     private final ReservationCommandRepository reservations;
     private final ReservationItemCommandRepository items;
@@ -55,7 +56,7 @@ public class CapacityHoldService {
             }
             LocalDateTime occurredAt = reservation.getRegistration().isExternalPayment()
                     ? reservation.getRegistration().getTermsAgreedAt() : now;
-            reservation.appendHistory(ReservationHistoryEntry.Action.HOLD, occurredAt, null, "관리자 신규 신청 자원 확보", history);
+            historyRecorder.appendReservationHistorySnapshot(reservation, ReservationHistoryEntry.Action.HOLD, occurredAt, null, "관리자 신규 신청 자원 확보", history);
             created.add(reservation);
         }
         return created;

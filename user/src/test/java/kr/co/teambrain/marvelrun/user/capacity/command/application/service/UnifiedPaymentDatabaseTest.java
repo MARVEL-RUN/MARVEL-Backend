@@ -1,35 +1,43 @@
 package kr.co.teambrain.marvelrun.user.capacity.command.application.service;
 
-import java.math.BigDecimal;
 import java.io.IOException;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.HashMap;
+import java.math.BigDecimal;
 import java.util.concurrent.*;
-import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult.Order;
-import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrganizationAccessRequest;
-import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationAccessRequest;
-import kr.co.teambrain.marvelrun.user.payment.command.application.PaymentRetryPreparationService;
-import kr.co.teambrain.marvelrun.user.payment.command.infrastructure.toss.exception.TossPaymentTransportException;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
-import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
-import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.PaymentCommandRepository;
 import java.util.List;
 import java.util.Map;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
+import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult.Order;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrganizationAccessRequest;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationAccessRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.OrgRegistrationCreateResponse;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.RegistrationCreateResponse;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.RegistrationModificationSettlementService;
+import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentCreator;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.PaymentCommandRepository;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentConfirmContext;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentConfirmRequest;
+import kr.co.teambrain.marvelrun.user.payment.command.application.PaymentRetryPreparationService;
 import kr.co.teambrain.marvelrun.user.payment.command.infrastructure.toss.dto.TossPaymentConfirmRequest;
-import org.junit.jupiter.api.Test;
 import kr.co.teambrain.marvelrun.user.payment.command.infrastructure.toss.exception.TossPaymentApiException;
+import kr.co.teambrain.marvelrun.user.payment.command.infrastructure.toss.exception.TossPaymentTransportException;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.util.AopTestUtils;
+
 import static org.assertj.core.api.Assertions.*;
-import static org.mockito.Mockito.*;
 import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 /** 실제 정산·승인·귀속·정원 처리를 검증하며 외부 Toss는 공통 대역을 사용한다. */
 @Import({RegistrationModificationSettlementService.class, PaymentRetryPreparationService.class})
@@ -46,7 +54,7 @@ class UnifiedPaymentDatabaseTest extends CapacityMvpTestSupport {
     @ValueSource(strings = {"READY", "COMPLETED"})
     void rejectsExternalPaymentConfirmationAndRetryWithoutChangingResources(String paymentState) {
         // 정상 fixture의 상태와 외부 결제 여부를 명시적으로 설정한다.
-        RegistrationCreateResponse created = personal(categoryA, "S", "1990-01-01");
+        RegistrationCreateResponse created = createPersonalRegistration(categoryA, "S", "1990-01-01");
         if (paymentState.equals("COMPLETED")) {
             mockApprovalSuccess();
             payments.confirm(confirmRequest(created.paymentId()));
@@ -54,9 +62,9 @@ class UnifiedPaymentDatabaseTest extends CapacityMvpTestSupport {
         String id = created.registrationId();
         jdbc.update("update registration set external_payment=1 where id=?", id);
         RegistrationAccessRequest access = new RegistrationAccessRequest(
-                s("select name from registration where id=?", id), "1990-01-01", "010-0000-0000", "Test1234!");
+                queryStringValue("select name from registration where id=?", id), "1990-01-01", "010-0000-0000", "Test1234!");
         List<Map<String, Object>> before = reservationSnapshot(id);
-        int orderCount = n("select count(*) from payment where registration_id=?", id);
+        int orderCount = queryIntegerValue("select count(*) from payment where registration_id=?", id);
         BigDecimal paid = money(id);
         clearInvocations(toss);
 
@@ -68,8 +76,8 @@ class UnifiedPaymentDatabaseTest extends CapacityMvpTestSupport {
 
         // 거절된 요청이 예약·주문·금액을 바꾸거나 PG를 호출하지 않아야 한다.
         assertThat(reservationSnapshot(id)).isEqualTo(before);
-        assertThat(n("select count(*) from payment where registration_id=?", id)).isEqualTo(orderCount);
-        assertThat(s("select process_status from payment where id=?", created.paymentId())).isEqualTo(paymentState);
+        assertThat(queryIntegerValue("select count(*) from payment where registration_id=?", id)).isEqualTo(orderCount);
+        assertThat(queryStringValue("select process_status from payment where id=?", created.paymentId())).isEqualTo(paymentState);
         assertThat(money(id)).isEqualByComparingTo(paid);
         verifyNoInteractions(toss);
     }
@@ -88,36 +96,38 @@ class UnifiedPaymentDatabaseTest extends CapacityMvpTestSupport {
         expectError(ErrorCode.EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED,
                 () -> retries.prepareOrganization(eventId, fixture.organizationId(), fixture.paymentId(), groupAccess(fixture)));
         assertThat(reservationSnapshot(fixture.newId())).isEqualTo(before);
-        assertThat(s("select process_status from payment where id=?", fixture.paymentId())).isEqualTo("READY");
+        assertThat(queryStringValue("select process_status from payment where id=?", fixture.paymentId())).isEqualTo("READY");
         verifyNoInteractions(toss);
     }
 
     /** 신규 참가비와 기존 참가자의 추가금을 한 번 승인하고 중복 결과 반영을 막는다. */
     @Test
-    void mixedOrderConfirmsOnlyNewReservationAndCreditsEachParticipantOnce() {
+    void mixedOrderConfirmsOnlyNewReservationAndCreditsEachParticipantOnce() throws JsonProcessingException {
         Fixture fixture = prepareMixedOrder();
-        assertThat(s("select purpose from payment where id = ?", fixture.paymentId())).isEqualTo("MIXED_PAYMENT");
+        assertThat(queryStringValue("select purpose from payment where id = ?", fixture.paymentId())).isEqualTo("MIXED_PAYMENT");
         assertThat(allocationSum(fixture.paymentId())).isEqualByComparingTo("60000");
         assertThat(allocationCount(fixture.paymentId())).isEqualTo(2);
-        assertThat(s("select allocation_purpose from payment_allocation where payment_id = ? and registration_id = ?",
+        assertThat(queryStringValue("select allocation_purpose from payment_allocation where payment_id = ? and registration_id = ?",
                 fixture.paymentId(), fixture.existingId())).isEqualTo("ADDITIONAL_PAYMENT");
-        assertThat(s("select allocation_purpose from payment_allocation where payment_id = ? and registration_id = ?",
+        assertThat(queryStringValue("select allocation_purpose from payment_allocation where payment_id = ? and registration_id = ?",
                 fixture.paymentId(), fixture.newId())).isEqualTo("REGISTRATION_TRY");
         List<Map<String, Object>> oldReservation = reservationSnapshot(fixture.existingId());
 
         payments.confirm(confirmRequest(fixture.paymentId()));
+        assertAdditionalPaymentHistoryPreservesReservation(fixture.existingId(), oldReservation, fixture.paymentId());
+        List<Map<String, Object>> afterApproval = reservationSnapshot(fixture.existingId());
         PaymentConfirmContext context = savedContext(fixture.paymentId());
         paymentTransactions.completeConfirm(context,
-                approved(context.paymentKey(), context.orderId(), context.amount()), NOW.plusSeconds(3));
+                createApprovedTossPaymentResponse(context.paymentKey(), context.orderId(), context.amount()), NOW.plusSeconds(3));
 
         assertThat(money(fixture.existingId())).isEqualByComparingTo("60000");
         assertThat(money(fixture.newId())).isEqualByComparingTo("40000");
-        assertThat(reservationSnapshot(fixture.existingId())).isEqualTo(oldReservation);
-        assertThat(s("select status from reservation where registration_id = ?", fixture.newId())).isEqualTo("CONSUMED");
-        counters(total, 0, 2);
-        counters(categoryACapacity, 0, 1);
-        counters(categoryBCapacity, 0, 1);
-        counters(shirtS, 0, 2);
+        assertThat(reservationSnapshot(fixture.existingId())).isEqualTo(afterApproval);
+        assertThat(queryStringValue("select status from reservation where registration_id = ?", fixture.newId())).isEqualTo("CONSUMED");
+        assertCapacityCounts(total, 0, 2);
+        assertCapacityCounts(categoryACapacity, 0, 1);
+        assertCapacityCounts(categoryBCapacity, 0, 1);
+        assertCapacityCounts(shirtS, 0, 2);
         verify(toss, times(1)).confirm(any(TossPaymentConfirmRequest.class), anyString());
     }
 
@@ -130,7 +140,7 @@ class UnifiedPaymentDatabaseTest extends CapacityMvpTestSupport {
                 .stream().map(Payment::getId).toList());
         assertThat(ids).contains(fixture.paymentId());
         for (String id : ids) {
-            assertThat(s("select process_status from payment where id = ?", id)).isNotEqualTo("COMPLETED");
+            assertThat(queryStringValue("select process_status from payment where id = ?", id)).isNotEqualTo("COMPLETED");
         }
     }
 
@@ -144,13 +154,13 @@ class UnifiedPaymentDatabaseTest extends CapacityMvpTestSupport {
         PaymentConfirmRequest request = confirmRequest(fixture.paymentId());
         expectError(ErrorCode.PAYMENT_CONFIRM_FAILED, () -> payments.confirm(request));
         paymentTransactions.failConfirm(savedContext(fixture.paymentId()), failure);
-        assertThat(s("select process_status from payment where id = ?", fixture.paymentId())).isEqualTo("FAILED");
-        assertThat(s("select status from reservation where registration_id = ?", fixture.newId())).isEqualTo("HELD");
+        assertThat(queryStringValue("select process_status from payment where id = ?", fixture.paymentId())).isEqualTo("FAILED");
+        assertThat(queryStringValue("select status from reservation where registration_id = ?", fixture.newId())).isEqualTo("HELD");
         assertThat(reservationSnapshot(fixture.existingId())).isEqualTo(oldReservation);
         assertThat(money(fixture.existingId())).isEqualByComparingTo("40000");
         assertThat(money(fixture.newId())).isEqualByComparingTo("0");
-        counters(total, 1, 1);
-        assertThat(n("select count(*) from payment_process_log where payment_id = ? and process_type = 'CONFIRM_FAILED'",
+        assertCapacityCounts(total, 1, 1);
+        assertThat(queryIntegerValue("select count(*) from payment_process_log where payment_id = ? and process_type = 'CONFIRM_FAILED'",
                 fixture.paymentId())).isEqualTo(1);
     }
 
@@ -161,9 +171,9 @@ class UnifiedPaymentDatabaseTest extends CapacityMvpTestSupport {
         jdbc.update("update registration set contract_amount = 70000, version = version + 1 where id = ?", fixture.existingId());
         PaymentConfirmRequest request = confirmRequest(fixture.paymentId());
         expectError(ErrorCode.PAYMENT_ALLOCATION_INTEGRITY_ERROR, () -> payments.confirm(request));
-        assertThat(s("select process_status from payment where id = ?", fixture.paymentId())).isEqualTo("READY");
-        assertThat(s("select status from reservation where registration_id = ?", fixture.newId())).isEqualTo("HELD");
-        counters(total, 1, 1);
+        assertThat(queryStringValue("select process_status from payment where id = ?", fixture.paymentId())).isEqualTo("READY");
+        assertThat(queryStringValue("select status from reservation where registration_id = ?", fixture.newId())).isEqualTo("HELD");
+        assertCapacityCounts(total, 1, 1);
         verifyNoInteractions(toss);
     }
 
@@ -189,7 +199,7 @@ class UnifiedPaymentDatabaseTest extends CapacityMvpTestSupport {
 
     /** 실패한 혼합 주문을 한 건으로 재준비하고 같은 요청에서는 그 주문을 재사용한다. */
     @Test
-    void failedMixedOrderRetriesAllSharesOnce() {
+    void failedMixedOrderRetriesAllSharesOnce() throws JsonProcessingException {
         Fixture fixture = failedMixedOrder();
         List<Map<String, Object>> oldReservation = reservationSnapshot(fixture.existingId());
         Order first = retries.prepareOrganization(eventId, fixture.organizationId(), fixture.paymentId(), groupAccess(fixture));
@@ -197,16 +207,16 @@ class UnifiedPaymentDatabaseTest extends CapacityMvpTestSupport {
         assertThat(second.paymentId()).isEqualTo(first.paymentId());
         assertThat(first.amount()).isEqualByComparingTo("60000");
         assertThat(allocationCount(first.paymentId())).isEqualTo(2);
-        assertThat(s("select process_status from payment where id = ?", fixture.paymentId())).isEqualTo("FAILED");
+        assertThat(queryStringValue("select process_status from payment where id = ?", fixture.paymentId())).isEqualTo("FAILED");
         doAnswer(invocation -> {
             TossPaymentConfirmRequest request = invocation.getArgument(0);
-            return approved(request.paymentKey(), request.orderId(), request.amount());
+            return createApprovedTossPaymentResponse(request.paymentKey(), request.orderId(), request.amount());
         }).when(toss).confirm(any(TossPaymentConfirmRequest.class), anyString());
         payments.confirm(confirmRequest(first.paymentId()));
         assertThat(money(fixture.existingId())).isEqualByComparingTo("60000");
         assertThat(money(fixture.newId())).isEqualByComparingTo("40000");
-        assertThat(reservationSnapshot(fixture.existingId())).isEqualTo(oldReservation);
-        counters(total, 0, 2);
+        assertAdditionalPaymentHistoryPreservesReservation(fixture.existingId(), oldReservation, first.paymentId());
+        assertCapacityCounts(total, 0, 2);
     }
 
     /** 반환된 신규 참가자만 재확보하고 기존 참가자의 예약은 유지한다. */
@@ -215,13 +225,13 @@ class UnifiedPaymentDatabaseTest extends CapacityMvpTestSupport {
         Fixture fixture = failedMixedOrder();
         organizations.releaseReservations(eventId, fixture.organizationId(), List.of(fixture.newId()));
         List<Map<String, Object>> existing = reservationSnapshot(fixture.existingId());
-        int sequence = n("select hold_sequence from reservation where registration_id = ?", fixture.newId());
+        int sequence = queryIntegerValue("select hold_sequence from reservation where registration_id = ?", fixture.newId());
         Order order = retries.prepareOrganization(eventId, fixture.organizationId(), fixture.paymentId(), groupAccess(fixture));
         assertThat(order.amount()).isEqualByComparingTo("60000");
-        assertThat(n("select hold_sequence from reservation where registration_id = ?", fixture.newId())).isEqualTo(sequence + 1);
-        assertThat(s("select status from reservation where registration_id = ?", fixture.newId())).isEqualTo("HELD");
+        assertThat(queryIntegerValue("select hold_sequence from reservation where registration_id = ?", fixture.newId())).isEqualTo(sequence + 1);
+        assertThat(queryStringValue("select status from reservation where registration_id = ?", fixture.newId())).isEqualTo("HELD");
         assertThat(reservationSnapshot(fixture.existingId())).isEqualTo(existing);
-        counters(total, 1, 1);
+        assertCapacityCounts(total, 1, 1);
     }
 
     /** 재확보 후 주문 생성이 실패하면 정원·확보 회차·새 주문을 모두 롤백한다. */
@@ -230,17 +240,17 @@ class UnifiedPaymentDatabaseTest extends CapacityMvpTestSupport {
         Fixture fixture = failedMixedOrder();
         organizations.releaseReservations(eventId, fixture.organizationId(), List.of(fixture.newId()));
         List<Map<String, Object>> before = reservationSnapshot(fixture.newId());
-        int count = n("select count(*) from payment where organization_id = ?", fixture.organizationId());
-        kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentCreator creatorSpy =
-                org.springframework.test.util.AopTestUtils.getUltimateTargetObject(paymentCreator);
-        doThrow(new kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException(
+        int count = queryIntegerValue("select count(*) from payment where organization_id = ?", fixture.organizationId());
+        PaymentCreator creatorSpy =
+                AopTestUtils.getUltimateTargetObject(paymentCreator);
+        doThrow(new CustomException(
                 ErrorCode.PAYMENT_ALLOCATION_INTEGRITY_ERROR))
                 .when(creatorSpy).createMixedPayment(any(), any(BigDecimal.class), anyString());
         expectError(ErrorCode.PAYMENT_ALLOCATION_INTEGRITY_ERROR, () -> retries.prepareOrganization(
                 eventId, fixture.organizationId(), fixture.paymentId(), groupAccess(fixture)));
         assertThat(reservationSnapshot(fixture.newId())).isEqualTo(before);
-        assertThat(n("select count(*) from payment where organization_id = ?", fixture.organizationId())).isEqualTo(count);
-        counters(total, 0, 1);
+        assertThat(queryIntegerValue("select count(*) from payment where organization_id = ?", fixture.organizationId())).isEqualTo(count);
+        assertCapacityCounts(total, 0, 1);
     }
 
     /** 결과 불명인 혼합 주문은 신규 재결제와 최초 예약 반환을 모두 차단한다. */
@@ -254,9 +264,9 @@ class UnifiedPaymentDatabaseTest extends CapacityMvpTestSupport {
                 eventId, fixture.organizationId(), fixture.paymentId(), groupAccess(fixture)));
         expectError(ErrorCode.PAYMENT_NOT_CONFIRMABLE, () -> organizations.releaseReservations(
                 eventId, fixture.organizationId(), List.of(fixture.newId())));
-        assertThat(s("select status from reservation where registration_id = ?", fixture.newId())).isEqualTo("PROCESSING");
-        assertThat(s("select status from reservation where registration_id = ?", fixture.existingId())).isEqualTo("CONSUMED");
-        counters(total, 1, 1);
+        assertThat(queryStringValue("select status from reservation where registration_id = ?", fixture.newId())).isEqualTo("PROCESSING");
+        assertThat(queryStringValue("select status from reservation where registration_id = ?", fixture.existingId())).isEqualTo("CONSUMED");
+        assertCapacityCounts(total, 1, 1);
     }
 
     /** 다른 단체의 경로나 틀린 현재 인증정보로는 재결제 주문을 준비하지 못한다. */
@@ -292,7 +302,7 @@ class UnifiedPaymentDatabaseTest extends CapacityMvpTestSupport {
             Order firstResult = first.get(30, TimeUnit.SECONDS);
             Order secondResult = second.get(30, TimeUnit.SECONDS);
             assertThat(firstResult.paymentId()).isEqualTo(secondResult.paymentId());
-            assertThat(n("select count(*) from payment where organization_id = ? and process_status = 'READY'", fixture.organizationId())).isEqualTo(1);
+            assertThat(queryIntegerValue("select count(*) from payment where organization_id = ? and process_status = 'READY'", fixture.organizationId())).isEqualTo(1);
         } finally {
             start.countDown();
             pool.shutdownNow();
@@ -304,7 +314,7 @@ class UnifiedPaymentDatabaseTest extends CapacityMvpTestSupport {
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void personalInitialAndAdditionalUseSameRetryFlow(boolean additional) {
-        RegistrationCreateResponse participant = personal(categoryA, "S", "1990-01-01");
+        RegistrationCreateResponse participant = createPersonalRegistration(categoryA, "S", "1990-01-01");
         String sourceId = participant.paymentId();
         if (additional) {
             mockApprovalSuccess();
@@ -312,7 +322,7 @@ class UnifiedPaymentDatabaseTest extends CapacityMvpTestSupport {
             RegistrationModificationSettlementResult changed = tx.execute(status -> {
                 jdbc.update("update registration set contract_amount = 60000, status = 'ADDITIONAL_PAYMENT_REQUIRED', version = version + 1 where id = ?", participant.registrationId());
                 em.clear();
-                return settlement.settle(eventId, null, List.of(participant.registrationId()), NOW);
+                return settlement.settleRegistrationModification(eventId, null, List.of(participant.registrationId()), NOW);
             });
             sourceId = changed.orders().get(0).paymentId();
         }
@@ -322,8 +332,8 @@ class UnifiedPaymentDatabaseTest extends CapacityMvpTestSupport {
         expectError(ErrorCode.PAYMENT_CONFIRM_FAILED, () -> payments.confirm(confirmRequest(failedId)));
         String id = participant.registrationId();
         RegistrationAccessRequest access = new RegistrationAccessRequest(
-                s("select name from registration where id = ?", id), s("select birth from registration where id = ?", id),
-                s("select ph_num from registration where id = ?", id), "Test1234!");
+                queryStringValue("select name from registration where id = ?", id), queryStringValue("select birth from registration where id = ?", id),
+                queryStringValue("select ph_num from registration where id = ?", id), "Test1234!");
         Order order = retries.preparePersonal(eventId, id, failedId, access);
         assertThat(order.amount()).isEqualByComparingTo(additional ? "20000" : "40000");
         assertThat(money(id)).isEqualByComparingTo(additional ? "40000" : "0");
@@ -341,7 +351,7 @@ class UnifiedPaymentDatabaseTest extends CapacityMvpTestSupport {
 
     /** 테스트가 생성한 단체의 현재 로그인 식별자를 사용한다. */
     private OrganizationAccessRequest groupAccess(Fixture fixture) {
-        return new OrganizationAccessRequest(s("select login_id from organization where id = ?", fixture.organizationId()), "Test1234!");
+        return new OrganizationAccessRequest(queryStringValue("select login_id from organization where id = ?", fixture.organizationId()), "Test1234!");
     }
 
     /**
@@ -349,17 +359,17 @@ class UnifiedPaymentDatabaseTest extends CapacityMvpTestSupport {
      * 신청 수정 자체의 회귀 검증은 기존 RegistrationModificationDatabaseTest에서 유지한다.
      */
     private Fixture prepareMixedOrder() {
-        OrgRegistrationCreateResponse group = group(categoryA);
+        OrgRegistrationCreateResponse group = createOrganizationRegistration(categoryA);
         mockApprovalSuccess();
         payments.confirm(confirmRequest(group.paymentId()));
-        RegistrationCreateResponse newcomer = personal(categoryB, "S", "1990-01-01");
+        RegistrationCreateResponse newcomer = createPersonalRegistration(categoryB, "S", "1990-01-01");
         String existingId = group.registrationIds().get(0);
         RegistrationModificationSettlementResult result = tx.execute(status -> {
             jdbc.update("update registration set contract_amount = 60000, status = 'ADDITIONAL_PAYMENT_REQUIRED', version = version + 1 where id = ?", existingId);
             jdbc.update("update registration set organization_id = ?, version = version + 1 where id = ?", group.organizationId(), newcomer.registrationId());
             jdbc.update("update payment set process_status = 'INVALIDATED', version = version + 1 where id = ?", newcomer.paymentId());
             em.clear();
-            return settlement.settle(eventId, group.organizationId(), List.of(existingId, newcomer.registrationId()), NOW);
+            return settlement.settleRegistrationModification(eventId, group.organizationId(), List.of(existingId, newcomer.registrationId()), NOW);
         });
         assertThat(result).isNotNull();
         assertThat(result.orders()).hasSize(1);
@@ -376,6 +386,43 @@ class UnifiedPaymentDatabaseTest extends CapacityMvpTestSupport {
     /** 기존 확정 예약의 상태·확보 회차·버전·이력 전체가 유지되는지 비교한다. */
     private List<Map<String, Object>> reservationSnapshot(String registrationId) {
         return jdbc.queryForList("select * from reservation where registration_id = ?", registrationId);
+    }
+
+    /** 추가결제 확정 이력 한 건과 버전만 갱신되고 기존 예약 상태와 이전 이력이 보존되는지 검증한다. */
+    private void assertAdditionalPaymentHistoryPreservesReservation(String registrationId,
+            List<Map<String, Object>> beforeRows, String paymentId) throws JsonProcessingException {
+        // 이력 저장에 필요한 메타데이터 외에는 예약 행의 모든 컬럼을 그대로 유지한다.
+        List<Map<String, Object>> afterRows = reservationSnapshot(registrationId);
+        assertThat(beforeRows).hasSize(1);
+        assertThat(afterRows).hasSize(1);
+        Map<String, Object> before = new HashMap<>(beforeRows.getFirst());
+        Map<String, Object> after = new HashMap<>(afterRows.getFirst());
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode beforeHistory = mapper.readTree((String) before.remove("history"));
+        JsonNode afterHistory = mapper.readTree((String) after.remove("history"));
+        Number beforeVersion = (Number) before.remove("version");
+        Number afterVersion = (Number) after.remove("version");
+        before.remove("updated_at");
+        after.remove("updated_at");
+        assertThat(after).isEqualTo(before);
+        assertThat(afterVersion.longValue()).isEqualTo(beforeVersion.longValue() + 1);
+
+        // 이전 이력을 변경하지 않고 현재 결제의 참가자 귀속 및 확정 금액을 한 번만 추가한다.
+        assertThat(afterHistory.size()).isEqualTo(beforeHistory.size() + 1);
+        for (int index = 0; index < beforeHistory.size(); index++) {
+            assertThat(afterHistory.get(index)).isEqualTo(beforeHistory.get(index));
+        }
+        JsonNode added = afterHistory.get(beforeHistory.size());
+        assertThat(added.path("paymentId").asText()).isEqualTo(paymentId);
+        assertThat(added.path("action").asText()).isEqualTo("PAYMENT_CONFIRMED");
+        assertThat(added.path("detail").path("eventType").asText()).isEqualTo("PAYMENT_APPLIED");
+        assertThat(added.path("detail").path("financiallyConfirmed").asBoolean()).isTrue();
+        assertThat(added.path("detail").path("after").path("paidAmount").decimalValue()).isEqualByComparingTo("60000");
+        assertThat(added.path("detail").path("after").path("contractAmount").decimalValue()).isEqualByComparingTo("60000");
+        List<String> allocationIds = jdbc.queryForList(
+                "select id from payment_allocation where payment_id=? and registration_id=?",
+                String.class, paymentId, registrationId);
+        assertThat(added.path("detail").path("paymentAllocationIds")).isEqualTo(mapper.valueToTree(allocationIds));
     }
 
     /** 혼합 주문 검증에 필요한 식별자만 전달한다. */

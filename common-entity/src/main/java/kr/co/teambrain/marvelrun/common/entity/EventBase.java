@@ -52,10 +52,11 @@ public abstract class EventBase {
     @Column(name = "regist_start_date", nullable = false)
     protected LocalDateTime registStartDate;
 
-    @Column(name = "regist_deadline", nullable = false)
+    // 마감 미설정은 전역 종료 제한을 생략하며 신청일 정책은 별도로 적용한다.
+    @Column(name = "regist_deadline")
     protected LocalDateTime registDeadline;
 
-    @Column(name = "payment_deadline", nullable = false)
+    @Column(name = "payment_deadline")
     protected LocalDateTime paymentDeadline;
 
     @Column(name = "auto_max_regist", nullable = false)

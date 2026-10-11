@@ -1,18 +1,18 @@
 package kr.co.teambrain.marvelrun.user.payment.command.application;
 
-import org.springframework.security.crypto.password.PasswordEncoder;
-
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.*;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.domain.Reservation;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
+import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
@@ -21,14 +21,17 @@ import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.Orga
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationAccessRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.support.OrganizationLockSupport;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationAccessVerifier;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels.*;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentAllocationCreator;
 import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentCreator;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.PaymentAllocation;
-import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.PaymentCommandRepository;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.PaymentAllocationCommandRepository;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.PaymentCommandRepository;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentAllocationTarget;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,6 +44,8 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 @Transactional
 public class AdditionalPaymentPreparationService {
+    private final RegistrationActionPolicyService actionPolicies;
+    private final ServerTimeProvider time;
     private final PasswordEncoder passwordEncoder;
     private final EntityManager entityManager;
     private final PaymentCommandRepository payments;
@@ -59,7 +64,7 @@ public class AdditionalPaymentPreparationService {
             throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
         }
         RegistrationAccessVerifier.verifyPersonal(registration, access, passwordEncoder);
-        return prepare(locked, List.of(registration), null);
+        return prepareAdditionalPaymentOrder(locked, List.of(registration), null);
     }
 
     /** 단체장은 확정된 구성원 중 추가 납부가 남은 인원들의 금액만 한 주문으로 납부한다. */
@@ -84,7 +89,7 @@ public class AdditionalPaymentPreparationService {
             throw new CustomException(ErrorCode.PAYMENT_NOT_CONFIRMABLE, " 추가 결제 대상이 100명을 초과합니다. 관리자에게 문의해 주세요.");
         }
         for (Registration target : targets) { entityManager.refresh(target, LockModeType.PESSIMISTIC_WRITE); }
-        return prepare(locked, targets, organization);
+        return prepareAdditionalPaymentOrder(locked, targets, organization);
     }
 
     /** 진행 중 거래는 차단하고 잠금 현재값만 사용한다. */
@@ -102,11 +107,17 @@ public class AdditionalPaymentPreparationService {
     }
 
     /** 같은 부족액의 READY 주문은 재사용한다. 다른 READY 주문이 있으면 임의 폐기하지 않는다. */
-    private Order prepare(List<Payment> locked, List<Registration> registrations, Organization organization) {
+    private Order prepareAdditionalPaymentOrder(List<Payment> locked, List<Registration> registrations, Organization organization) {
         // 외부 결제 신청은 기존 주문 재사용과 신규 추가 결제 준비 모두 허용하지 않는다.
         registrations.forEach(Registration::validateOnlineRegistrationProcessingAllowed);
 
         if (registrations.isEmpty()) { throw new CustomException(ErrorCode.PAYMENT_NOT_CONFIRMABLE, " 추가 납부할 금액이 없습니다."); }
+        LocalDateTime now = time.currentDateTime();
+        Event event = registrations.getFirst().getEvent();
+        List<Policy> policies = actionPolicies.loadEnabledRegistrationActionPolicies(event.getId());
+        // 실제 추가결제 귀속 전체에 같은 대표 사유 우선순위를 적용한다.
+        actionPolicies.validateRegistrationActionsPolicy(event, registrations, Action.PAYMENT, now, policies,
+                organization != null);
         Map<String, BigDecimal> due = new TreeMap<>();
         for (Registration row : registrations) {
             if (row.isSoftDeleted() || row.getStatus() != RegistrationStatus.ADDITIONAL_PAYMENT_REQUIRED

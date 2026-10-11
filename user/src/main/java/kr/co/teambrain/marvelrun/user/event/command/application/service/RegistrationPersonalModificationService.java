@@ -2,7 +2,11 @@ package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
-
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.domain.Reservation;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.dto.CapacityRequirementDiff;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.dto.CapacityRequirementInput;
@@ -10,6 +14,7 @@ import kr.co.teambrain.marvelrun.user.capacity.command.application.service.Capac
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.CapacityRequirementResolver;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.RegistrationCapacityService;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationCapacityDiffService;
+import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationHistoryRecorder;
 import kr.co.teambrain.marvelrun.user.capacity.command.repository.ReservationCommandRepository;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
@@ -28,12 +33,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-
 /**
  * 개인 신청 수정의 정책·가격·Capacity·신청정보 반영을 연결한다.
  *
@@ -46,6 +45,7 @@ import java.util.Objects;
 @RequiredArgsConstructor
 @Transactional(propagation = Propagation.MANDATORY)
 public class RegistrationPersonalModificationService {
+    private final ReservationHistoryRecorder historyRecorder;
 
     private final RegistrationCapacityService registrationCapacityService;
 
@@ -72,13 +72,13 @@ public class RegistrationPersonalModificationService {
      * Capacity 확보 실패 시 실제 Registration 필드는 변경하지 않는다.
      * 마지막 Registration flush 실패 시 먼저 이동한 Capacity도 롤백된다.
      */
-    public RegistrationPersonalModificationResult modify(
+    public RegistrationPersonalModificationResult modifyPersonalRegistration(
             String eventId,
             String registrationId,
             RegistrationModificationRequest request,
             LocalDateTime now
     ) {
-        return modify(eventId, registrationId, request, now, null);
+        return modifyPersonalRegistration(eventId, registrationId, request, now, null);
     }
 
     /**
@@ -86,7 +86,7 @@ public class RegistrationPersonalModificationService {
      * Event → Payment 이후에만 Registration을 최신 잠금 조회하므로 잠금 순서를 뒤집지 않는다.
      * version이 달라졌으면 오래된 요청을 재적용하지 않고 전체 트랜잭션을 종료한다.
      */
-    public RegistrationPersonalModificationResult modify(
+    public RegistrationPersonalModificationResult modifyPersonalRegistration(
             String eventId,
             String registrationId,
             RegistrationModificationRequest request,
@@ -175,7 +175,7 @@ public class RegistrationPersonalModificationService {
          * 검증·계산 중에는 실제 Registration을 변경하지 않는다.
          * 필요한 Capacity 이동에 성공한 뒤 후보를 반영한다.
          */
-        capacityModificationService.moveAll(
+        capacityModificationService.moveReservationCapacities(
                 eventId,
                 diffs,
                 now
@@ -194,6 +194,7 @@ public class RegistrationPersonalModificationService {
          *
          * flush는 커밋이 아니며 후속 금융 처리 실패 시에도 함께 롤백된다.
          */
+        historyRecorder.completeReservationModificationSnapshot(reservation);
         registrationRepository.flush();
 
         return new RegistrationPersonalModificationResult(

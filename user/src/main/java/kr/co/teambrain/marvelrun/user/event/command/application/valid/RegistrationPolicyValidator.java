@@ -1,30 +1,31 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.valid;
 
+import java.time.Clock;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.time.format.ResolverStyle;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.List;
+import java.util.regex.Pattern;
+import java.util.Set;
+import java.util.stream.Collectors;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventStatus;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategorySouvenir;
-import kr.co.teambrain.marvelrun.user.event.command.application.domain.Souvenir;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.policy.EventCategoryRegistrationPolicy;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.policy.EventCategorySouvenirPolicy;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.policy.EventRegistrationPolicy;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.Souvenir;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.dto.RegistrationPolicyInput;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
-
-import java.time.Clock;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
-import java.time.format.ResolverStyle;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Set;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 /**
  * 참가신청의 기간·출생일·보호자·사이즈 정책을 검증한다.
@@ -52,38 +53,13 @@ public class RegistrationPolicyValidator {
      * 시작 정각은 허용하고, 마감 정각부터 차단한다.
      * autoStart / autoDeadline / visibleStatus는 다루지 않는다.
      */
-    public void validateNewApplication(
+    public void validateNewRegistrationPeriod(
             Event event,
             LocalDateTime now
     ) {
 
-        if (event.getEventStatus() != EventStatus.OPEN) {
-            throw new CustomException(
-                    ErrorCode.EVENT_NOT_OPEN
-            );
-        }
-
-        LocalDateTime start = event.getRegistStartDate();
-        LocalDateTime deadline = event.getRegistDeadline();
-
-        if (start == null
-                || deadline == null
-                || !start.isBefore(deadline)) {
-
-            throw configurationError();
-        }
-
-        if (now.isBefore(start)) {
-            throw new CustomException(
-                    ErrorCode.EVENT_REGISTRATION_NOT_STARTED
-            );
-        }
-
-        if (!now.isBefore(deadline)) {
-            throw new CustomException(
-                    ErrorCode.EVENT_REGISTRATION_CLOSED
-            );
-        }
+        RegistrationActionPolicyService.validateGlobalRegistrationActionPolicy(
+                event, RegistrationActionPolicyModels.Action.ADD_MEMBER, now);
     }
 
     /**

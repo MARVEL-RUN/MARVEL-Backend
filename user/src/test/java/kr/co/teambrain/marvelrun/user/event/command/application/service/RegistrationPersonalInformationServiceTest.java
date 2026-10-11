@@ -1,11 +1,14 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
-import kr.co.teambrain.marvelrun.user.event.command.repository.EventRegistrationPolicyRepository;
-import kr.co.teambrain.marvelrun.user.event.command.application.domain.policy.EventRegistrationPolicy;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import jakarta.validation.Validation;
 import jakarta.validation.ValidatorFactory;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
@@ -15,37 +18,37 @@ import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.policy.EventRegistrationPolicy;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationPersonalModificationResult;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationAccessRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationModificationRequest;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.OrgRegistrationModificationAccessValidator;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.OrgRegistrationPersonalInformationValidator;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationInformationPolicyValidator;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationModificationAccessValidator;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationPersonalInformationValidator;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationPolicyValidator;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationUniqueInfoValidator;
-import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationInformationPolicyValidator;
-import kr.co.teambrain.marvelrun.user.event.command.application.valid.OrgRegistrationModificationAccessValidator;
-import kr.co.teambrain.marvelrun.user.event.command.application.valid.OrgRegistrationPersonalInformationValidator;
+import kr.co.teambrain.marvelrun.user.event.command.repository.EventRegistrationPolicyRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
-
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 /** 실제 CommandService 분기와 개인정보 검증을 연결하여 불필요한 서비스 호출 생략을 확인한다. */
 class RegistrationPersonalInformationServiceTest {
-    private final org.springframework.security.crypto.password.PasswordEncoder passwordEncoder =
-            new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder(4);
+    private final PasswordEncoder passwordEncoder =
+            new BCryptPasswordEncoder(4);
     private static final ValidatorFactory INPUTS = Validation.buildDefaultValidatorFactory();
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 9, 20, 12, 0);
     private final RegistrationCommandRepository repository = mock(RegistrationCommandRepository.class);
@@ -56,13 +59,13 @@ class RegistrationPersonalInformationServiceTest {
     private final RegistrationModificationSettlementService settlement = mock(RegistrationModificationSettlementService.class);
     private final ServerTimeProvider time = mock(ServerTimeProvider.class);
     private final RegistrationPersonalInformationValidator validator = new RegistrationPersonalInformationValidator(
-            INPUTS.getValidator(), new RegistrationInformationPolicyValidator(new RegistrationPolicyValidator()), new RegistrationUniqueInfoValidator(repository),
+            INPUTS.getValidator(), new RegistrationInformationPolicyValidator(), new RegistrationUniqueInfoValidator(repository),
             guardianPolicies, new RegistrationPolicyValidator());
     private final RegistrationModificationTransactionService commands = new RegistrationModificationTransactionService(
             full, organization, settlement, time, new RegistrationModificationAccessValidator(passwordEncoder, repository), validator,
             new RegistrationModificationClassifier(), new RegistrationPersonalInformationService(validator, repository, entityManager),
             mock(OrgRegistrationModificationAccessValidator.class), mock(OrgRegistrationPersonalInformationValidator.class),
-            mock(OrgRegistrationPersonalInformationService.class));
+            mock(OrgRegistrationPersonalInformationService.class), mock(RegistrationActionPolicyService.class));
 
     /** 테스트에서 생성한 Bean Validation 자원만 닫는다. */
     @AfterAll
@@ -73,7 +76,7 @@ class RegistrationPersonalInformationServiceTest {
     @EnumSource(value = RegistrationStatus.class, names = {"PAYMENT_PENDING", "CONFIRMED", "ADDITIONAL_PAYMENT_REQUIRED", "PARTIAL_REFUND_REQUIRED"})
     void updatesOnlyPersonalInformation(RegistrationStatus status) {
         Registration current = fixture(status, NOW.minusDays(1), NOW.plusDays(1), EventStatus.OPEN);
-        RegistrationModificationSettlementResult result = commands.modifyPersonal("e", "r", request("새 이름", "c", "1990-01-01"));
+        RegistrationModificationSettlementResult result = commands.modifyPersonalRegistration("e", "r", request("새 이름", "c", "1990-01-01"));
         assertThat(current.getName()).isEqualTo("새 이름");
         assertThat(current.getAddress()).isEqualTo("정정 주소");
         assertThat(current.getBirth()).isEqualTo("1990-01-01");
@@ -90,7 +93,7 @@ class RegistrationPersonalInformationServiceTest {
     @Test
     void noChangeDoesNotWrite() {
         fixture(RegistrationStatus.CONFIRMED, NOW.minusDays(1), NOW.plusDays(1), EventStatus.OPEN);
-        RegistrationModificationSettlementResult result = commands.modifyPersonal("e", "r", request("기존 이름", "c", "1990-01-01"));
+        RegistrationModificationSettlementResult result = commands.modifyPersonalRegistration("e", "r", request("기존 이름", "c", "1990-01-01"));
         assertThat(result.orders()).isEmpty();
         verify(repository, never()).flush();
         verify(entityManager).lock(any(Registration.class), eq(LockModeType.OPTIMISTIC));
@@ -106,9 +109,9 @@ class RegistrationPersonalInformationServiceTest {
                 field.equals("birth") ? "1990-01-02" : "1990-01-01");
         RegistrationPersonalModificationResult modified = mock(RegistrationPersonalModificationResult.class);
         when(modified.registrationId()).thenReturn("r");
-        when(full.modify("e", "r", request, NOW, 7L)).thenReturn(modified);
-        commands.modifyPersonal("e", "r", request);
-        verify(settlement).settle("e", null, List.of("r"), NOW);
+        when(full.modifyPersonalRegistration("e", "r", request, NOW, 7L)).thenReturn(modified);
+        commands.modifyPersonalRegistration("e", "r", request);
+        verify(settlement).settleRegistrationModification("e", null, List.of("r"), NOW, List.of());
         verify(repository, never()).flush();
         verifyNoInteractions(entityManager);
     }
@@ -136,7 +139,7 @@ class RegistrationPersonalInformationServiceTest {
     @Test
     void acceptsStartBoundary() {
         fixture(RegistrationStatus.CONFIRMED, NOW, NOW.plusDays(1), EventStatus.OPEN);
-        assertThat(commands.modifyPersonal("e", "r", request("새 이름", "c", "1990-01-01"))).isNotNull();
+        assertThat(commands.modifyPersonalRegistration("e", "r", request("새 이름", "c", "1990-01-01"))).isNotNull();
     }
 
     /** 입력 누락·인증 실패·활성 중복은 엔티티를 변경하거나 전체 경로를 호출하기 전에 차단한다. */
@@ -173,7 +176,7 @@ class RegistrationPersonalInformationServiceTest {
         Registration current = fixture(RegistrationStatus.CONFIRMED, NOW.minusDays(1), NOW.plusDays(1), EventStatus.OPEN);
         EventRegistrationPolicy policy = mock(EventRegistrationPolicy.class);
         when(policy.getEvent()).thenReturn(current.getEvent());
-        when(policy.getGuardianRequiredBirthFrom()).thenReturn(java.time.LocalDate.of(1990, 1, 1));
+        when(policy.getGuardianRequiredBirthFrom()).thenReturn(LocalDate.of(1990, 1, 1));
         when(guardianPolicies.findByEventId("e")).thenReturn(Optional.of(policy));
         RegistrationModificationRequest original = request("기존 이름", "c", "1990-01-01");
         RegistrationModificationRequest changed = new RegistrationModificationRequest(original.access(),
@@ -191,7 +194,7 @@ class RegistrationPersonalInformationServiceTest {
                 "부",
                 original.email());
         if (consent) {
-            assertThat(commands.modifyPersonal("e", "r", changed).orders()).isEmpty();
+            assertThat(commands.modifyPersonalRegistration("e", "r", changed).orders()).isEmpty();
             assertThat(current.getGuardianName()).isEqualTo("보호자");
             assertThat(current.getGuardianPhNum()).isEqualTo("010-3333-4444");
             assertThat(current.getGuardianRelationship()).isEqualTo("부");
@@ -245,7 +248,7 @@ class RegistrationPersonalInformationServiceTest {
 
     /** 업무 오류와 저장·전체 경로 미호출을 함께 확인한다. */
     private void expect(ErrorCode code, RegistrationModificationRequest request) {
-        assertThatThrownBy(() -> commands.modifyPersonal("e", "r", request)).isInstanceOfSatisfying(CustomException.class,
+        assertThatThrownBy(() -> commands.modifyPersonalRegistration("e", "r", request)).isInstanceOfSatisfying(CustomException.class,
                 exception -> assertThat(exception.getErrorCode()).isEqualTo(code));
         verify(repository, never()).flush();
         verifyNoInteractions(full, organization, settlement);

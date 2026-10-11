@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.user.event.query.repository;
 
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels.EventInput;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -24,12 +25,12 @@ public final class RegistrationQueryData {
             GuardianBase guardianBase, boolean guardianConsent, String guardianName, String guardianPhNum, String guardianRelationShip,
             RegistrationStatus status, BigDecimal contractAmount, BigDecimal paidAmount,
             boolean deleted, ReservationStatus reservationStatus, LocalDateTime paymentDeadline,
-            boolean externalPayment) { }
+            boolean externalPayment, LocalDateTime registrationDate, EventInput policyEvent) { }
 
     /** 단체 인증·대표자 정보의 내부 행이다. 비밀번호를 응답으로 직렬화하지 않는다. */
     public record Organization(String id, String loginId, String password, String name,
             String leaderName, String birth, String phNum, String email,
-            String address, String addressDetail, LocalDateTime paymentDeadline) { }
+            String address, String addressDetail, LocalDateTime paymentDeadline, EventInput policyEvent) { }
 
     /** 버튼 판단에 필요한 주문 컬럼만 읽는다. */
     public record Payment(String id, String registrationId, String orderId, BigDecimal amount,

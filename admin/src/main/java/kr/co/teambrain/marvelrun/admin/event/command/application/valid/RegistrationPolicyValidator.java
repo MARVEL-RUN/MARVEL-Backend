@@ -49,10 +49,10 @@ public class RegistrationPolicyValidator {
     /**
      * 신규신청의 대회 상태와 기간을 검증한다.
      *
-     * 시작 정각은 허용하고, 마감 정각부터 차단한다.
+     * 시작 정각은 허용하고, 마감이 있을 때만 마감 정각부터 차단한다.
      * autoStart / autoDeadline / visibleStatus는 다루지 않는다.
      */
-    public void validateNewApplication(
+    public void validateNewRegistrationPeriod(
             Event event,
             LocalDateTime now
     ) {
@@ -67,8 +67,7 @@ public class RegistrationPolicyValidator {
         LocalDateTime deadline = event.getRegistDeadline();
 
         if (start == null
-                || deadline == null
-                || !start.isBefore(deadline)) {
+                || (deadline != null && !start.isBefore(deadline))) {
 
             throw configurationError();
         }
@@ -79,7 +78,7 @@ public class RegistrationPolicyValidator {
             );
         }
 
-        if (!now.isBefore(deadline)) {
+        if (deadline != null && !now.isBefore(deadline)) {
             throw new CustomException(
                     ErrorCode.EVENT_REGISTRATION_CLOSED
             );

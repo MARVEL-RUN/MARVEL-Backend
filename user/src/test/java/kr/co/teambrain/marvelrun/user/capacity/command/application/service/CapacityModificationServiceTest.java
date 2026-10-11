@@ -41,7 +41,7 @@ class CapacityModificationServiceTest {
             mock(ReservationItemCommandRepository.class);
 
     private final CapacityModificationService service =
-            new CapacityModificationService(
+            new CapacityModificationService(mock(ReservationHistoryRecorder.class),
                     capacityRepository,
                     reservationRepository,
                     itemRepository,
@@ -83,7 +83,7 @@ class CapacityModificationServiceTest {
                     .thenReturn(1);
         }
 
-        service.moveAll("event", List.of(diff(status, 3L)), now);
+        service.moveReservationCapacities("event", List.of(diff(status, 3L)), now);
 
         InOrder order = inOrder(
                 reservationRepository,
@@ -155,7 +155,7 @@ class CapacityModificationServiceTest {
                 .thenReturn(0);
 
         assertThatThrownBy(
-                () -> service.moveAll(
+                () -> service.moveReservationCapacities(
                         "event",
                         List.of(diff(ReservationStatus.HELD, 3L)),
                         now
@@ -184,7 +184,7 @@ class CapacityModificationServiceTest {
         prepareReservation(ReservationStatus.HELD, 4L);
 
         assertThatThrownBy(
-                () -> service.moveAll(
+                () -> service.moveReservationCapacities(
                         "event",
                         List.of(diff(ReservationStatus.HELD, 3L)),
                         now
@@ -214,7 +214,7 @@ class CapacityModificationServiceTest {
                 ));
 
         assertThatThrownBy(
-                () -> service.moveAll(
+                () -> service.moveReservationCapacities(
                         "event",
                         List.of(diff(ReservationStatus.HELD, 3L)),
                         now

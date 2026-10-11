@@ -1,14 +1,15 @@
 package kr.co.teambrain.marvelrun.user.capacity.command.application.service;
 
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.util.UUID;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.RegistrationCreateResponse;
+import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentConfirmContext;
 import kr.co.teambrain.marvelrun.user.payment.command.infrastructure.toss.dto.TossPaymentConfirmRequest;
 import kr.co.teambrain.marvelrun.user.payment.command.infrastructure.toss.exception.TossPaymentApiException;
 import kr.co.teambrain.marvelrun.user.payment.command.infrastructure.toss.exception.TossPaymentTransportException;
 import org.junit.jupiter.api.Test;
-
-import java.io.IOException;
-import java.math.BigDecimal;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -19,13 +20,33 @@ import static org.mockito.Mockito.*;
  */
 class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
 
+    /** 초기 검증을 통과한 승인은 전역·구간 마감이 지난 뒤에도 결과만 정상 반영한다. */
+    @Test
+    void approvalStartedBeforeCutoffCompletesAfterCutoff() {
+        RegistrationCreateResponse created =
+                createPersonalRegistration(categoryA, "S", "1990-01-01");
+        jdbc.update("update event set payment_deadline=? where id=?", NOW.plusSeconds(1), eventId);
+        // 신청일도 고정하여 구간 정책이 실제로 해당 신청을 대상으로 하도록 구성한다.
+        jdbc.update("update registration set registration_date=? where id=?", NOW, created.registrationId());
+        jdbc.update("insert into registration_action_policy(id,event_id,action_type,registration_start_at,registration_end_at,effective_from,enabled) values(?,?,'PAYMENT',?,?,?,true)",
+                UUID.randomUUID().toString(), eventId, NOW.minusDays(1), NOW.plusDays(1), NOW.plusSeconds(1));
+        PaymentConfirmContext context =
+                paymentTransactions.beginConfirm(confirmRequest(created.paymentId()), UUID.randomUUID().toString(), NOW);
+        paymentTransactions.completeConfirm(context, createApprovedTossPaymentResponse(context.paymentKey(), context.orderId(), context.amount()),
+                NOW.plusSeconds(2));
+        assertThat(queryStringValue("select process_status from payment where id=?", created.paymentId())).isEqualTo("COMPLETED");
+        assertThat(queryStringValue("select status from registration where id=?", created.registrationId())).isEqualTo("CONFIRMED");
+        assertReservationStateAndHistory(created.registrationId(), "CONSUMED", 1, 3);
+        verifyNoInteractions(toss);
+    }
+
     /**
      * 개인 승인 성공 시 수량과 납부금액을 확정한다.
      * 완료 처리를 다시 호출해도 금액·수량·성공 이력을 중복 반영하지 않는다.
      */
     @Test
     void personalSuccessAndDuplicateCompletionAreConsistent() {
-        var result = personal(categoryA, "S", "1990-01-01");
+        var result = createPersonalRegistration(categoryA, "S", "1990-01-01");
         mockApprovalSuccess();
 
         payments.confirm(confirmRequest(result.paymentId()));
@@ -34,16 +55,16 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
 
         paymentTransactions.completeConfirm(
                 context,
-                approved(context.paymentKey(), context.orderId(), context.amount()),
+                createApprovedTossPaymentResponse(context.paymentKey(), context.orderId(), context.amount()),
                 NOW.plusSeconds(2)
         );
 
-        assertThat(s(
+        assertThat(queryStringValue(
                 "select process_status from payment where id = ?",
                 result.paymentId()
         )).isEqualTo("COMPLETED");
 
-        assertThat(s(
+        assertThat(queryStringValue(
                 "select status from registration where id = ?",
                 result.registrationId()
         )).isEqualTo("CONFIRMED");
@@ -54,12 +75,12 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
                 result.registrationId()
         )).isEqualByComparingTo("40000");
 
-        reservation(result.registrationId(), "CONSUMED", 1, 3);
-        counters(total, 0, 1);
-        counters(categoryACapacity, 0, 1);
-        counters(shirtS, 0, 1);
+        assertReservationStateAndHistory(result.registrationId(), "CONSUMED", 1, 3);
+        assertCapacityCounts(total, 0, 1);
+        assertCapacityCounts(categoryACapacity, 0, 1);
+        assertCapacityCounts(shirtS, 0, 1);
 
-        assertThat(n(
+        assertThat(queryIntegerValue(
                 """
                 select count(*) from payment_process_log
                 where payment_id = ? and process_type = 'CONFIRM_SUCCEEDED'
@@ -70,7 +91,7 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
         verify(toss, times(1)).confirm(
                 any(TossPaymentConfirmRequest.class), anyString()
         );
-        assertThat(s("select JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.resultComparison.status')) from payment_process_log where payment_id=? and process_type='CONFIRM_SUCCEEDED'", result.paymentId())).isEqualTo("SUCCESS");
+        assertThat(queryStringValue("select JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.resultComparison.status')) from payment_process_log where payment_id=? and process_type='CONFIRM_SUCCEEDED'", result.paymentId())).isEqualTo("SUCCESS");
     }
 
     /**
@@ -79,7 +100,7 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
      */
     @Test
     void groupSuccessAllocatesEachRegistrationAmountOnce() {
-        var group = group(categoryA, categoryB);
+        var group = createOrganizationRegistration(categoryA, categoryB);
         mockApprovalSuccess();
 
         payments.confirm(confirmRequest(group.paymentId()));
@@ -88,14 +109,14 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
 
         paymentTransactions.completeConfirm(
                 context,
-                approved(context.paymentKey(), context.orderId(), context.amount()),
+                createApprovedTossPaymentResponse(context.paymentKey(), context.orderId(), context.amount()),
                 NOW.plusSeconds(2)
         );
 
         for (String registrationId : group.registrationIds()) {
-            reservation(registrationId, "CONSUMED", 1, 3);
+            assertReservationStateAndHistory(registrationId, "CONSUMED", 1, 3);
 
-            assertThat(s(
+            assertThat(queryStringValue(
                     "select status from registration where id = ?", registrationId
             )).isEqualTo("CONFIRMED");
 
@@ -112,12 +133,12 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
                 group.organizationId()
         )).isEqualByComparingTo("80000");
 
-        counters(total, 0, 2);
-        counters(categoryACapacity, 0, 1);
-        counters(categoryBCapacity, 0, 1);
-        counters(shirtS, 0, 2);
+        assertCapacityCounts(total, 0, 2);
+        assertCapacityCounts(categoryACapacity, 0, 1);
+        assertCapacityCounts(categoryBCapacity, 0, 1);
+        assertCapacityCounts(shirtS, 0, 2);
 
-        assertThat(n(
+        assertThat(queryIntegerValue(
                 """
                 select count(*) from payment_process_log
                 where payment_id = ? and process_type = 'CONFIRM_SUCCEEDED'
@@ -132,7 +153,7 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
      */
     @Test
     void definiteFailureRestoresHeldWithoutReturningQuantity() {
-        var result = personal(categoryA, "S", "1990-01-01");
+        var result = createPersonalRegistration(categoryA, "S", "1990-01-01");
 
         TossPaymentApiException failure = new TossPaymentApiException(
                 403,
@@ -153,15 +174,15 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
                 failure
         );
 
-        assertThat(s(
+        assertThat(queryStringValue(
                 "select process_status from payment where id = ?",
                 result.paymentId()
         )).isEqualTo("FAILED");
 
-        reservation(result.registrationId(), "HELD", 1, 3);
-        counters(total, 1, 0);
-        counters(categoryACapacity, 1, 0);
-        counters(shirtS, 1, 0);
+        assertReservationStateAndHistory(result.registrationId(), "HELD", 1, 3);
+        assertCapacityCounts(total, 1, 0);
+        assertCapacityCounts(categoryACapacity, 1, 0);
+        assertCapacityCounts(shirtS, 1, 0);
 
         assertThat(jdbc.queryForObject(
                 "select paid_amount from registration where id = ?",
@@ -169,14 +190,14 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
                 result.registrationId()
         )).isEqualByComparingTo("0");
 
-        assertThat(n(
+        assertThat(queryIntegerValue(
                 """
                 select count(*) from payment_process_log
                 where payment_id = ? and process_type = 'CONFIRM_FAILED'
                 """,
                 result.paymentId()
         )).isEqualTo(1);
-        assertThat(s("select JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.resultComparison.status')) from payment_process_log where payment_id=? and process_type='CONFIRM_FAILED'", result.paymentId())).isEqualTo("FAILED");
+        assertThat(queryStringValue("select JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.resultComparison.status')) from payment_process_log where payment_id=? and process_type='CONFIRM_FAILED'", result.paymentId())).isEqualTo("FAILED");
     }
 
     /**
@@ -185,7 +206,7 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
      */
     @Test
     void unknownPaymentKeepsHoldAndRejectsRelease() {
-        var result = personal(categoryA, "S", "1990-01-01");
+        var result = createPersonalRegistration(categoryA, "S", "1990-01-01");
 
         when(toss.confirm(any(TossPaymentConfirmRequest.class), anyString()))
                 .thenThrow(new TossPaymentTransportException(
@@ -204,22 +225,22 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
                 )
         );
 
-        assertThat(s(
+        assertThat(queryStringValue(
                 "select process_status from payment where id = ?",
                 result.paymentId()
         )).isEqualTo("UNKNOWN");
 
-        reservation(result.registrationId(), "PROCESSING", 1, 2);
-        counters(total, 1, 0);
-        counters(categoryACapacity, 1, 0);
-        counters(shirtS, 1, 0);
+        assertReservationStateAndHistory(result.registrationId(), "PROCESSING", 1, 2);
+        assertCapacityCounts(total, 1, 0);
+        assertCapacityCounts(categoryACapacity, 1, 0);
+        assertCapacityCounts(shirtS, 1, 0);
 
         assertThat(jdbc.queryForObject(
                 "select paid_amount from registration where id = ?",
                 BigDecimal.class,
                 result.registrationId()
         )).isEqualByComparingTo("0");
-        assertThat(s("select JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.resultComparison.status')) from payment_process_log where payment_id=? and process_type='CONFIRM_UNKNOWN'", result.paymentId())).isEqualTo("UNVERIFIED");
+        assertThat(queryStringValue("select JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.resultComparison.status')) from payment_process_log where payment_id=? and process_type='CONFIRM_UNKNOWN'", result.paymentId())).isEqualTo("UNVERIFIED");
     }
 
     /**
@@ -228,7 +249,7 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
      */
     @Test
     void paymentDeadlineRejectsApprovalWithoutDeletingOrReleasing() {
-        var result = personal(categoryA, "S", "1990-01-01");
+        var result = createPersonalRegistration(categoryA, "S", "1990-01-01");
 
         jdbc.update(
                 "update event set payment_deadline = ? where id = ?",
@@ -242,25 +263,25 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
 
         verifyNoInteractions(toss);
 
-        assertThat(s(
+        assertThat(queryStringValue(
                 "select process_status from payment where id = ?",
                 result.paymentId()
         )).isEqualTo("READY");
 
-        assertThat(s(
+        assertThat(queryStringValue(
                 "select status from registration where id = ?",
                 result.registrationId()
         )).isEqualTo("PAYMENT_PENDING");
 
-        assertThat(n(
+        assertThat(queryIntegerValue(
                 "select count(*) from registration where id = ? and is_del = false",
                 result.registrationId()
         )).isEqualTo(1);
 
-        reservation(result.registrationId(), "HELD", 1, 1);
-        counters(total, 1, 0);
-        counters(categoryACapacity, 1, 0);
-        counters(shirtS, 1, 0);
+        assertReservationStateAndHistory(result.registrationId(), "HELD", 1, 1);
+        assertCapacityCounts(total, 1, 0);
+        assertCapacityCounts(categoryACapacity, 1, 0);
+        assertCapacityCounts(shirtS, 1, 0);
     }
 
     /**
@@ -271,7 +292,7 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
      */
     @Test
     void localCompletionFailureRollsBackAndMarksUnknown() {
-        var result = personal(categoryA, "S", "1990-01-01");
+        var result = createPersonalRegistration(categoryA, "S", "1990-01-01");
 
         when(toss.confirm(any(TossPaymentConfirmRequest.class), anyString()))
                 .thenAnswer(invocation -> {
@@ -287,7 +308,7 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
                             categoryACapacity
                     );
 
-                    return approved(
+                    return createApprovedTossPaymentResponse(
                             request.paymentKey(),
                             request.orderId(),
                             request.amount()
@@ -299,21 +320,21 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
                 () -> payments.confirm(confirmRequest(result.paymentId()))
         );
 
-        assertThat(s(
+        assertThat(queryStringValue(
                 "select process_status from payment where id = ?",
                 result.paymentId()
         )).isEqualTo("UNKNOWN");
 
-        reservation(result.registrationId(), "PROCESSING", 1, 2);
+        assertReservationStateAndHistory(result.registrationId(), "PROCESSING", 1, 2);
 
         // 전체 정원의 먼저 실행된 확정 UPDATE도 롤백되어야 한다.
-        counters(total, 1, 0);
-        counters(shirtS, 1, 0);
+        assertCapacityCounts(total, 1, 0);
+        assertCapacityCounts(shirtS, 1, 0);
 
         // 테스트가 주입한 불일치 값은 Tx2 이전에 저장했으므로 그대로 남는다.
-        counters(categoryACapacity, 0, 0);
+        assertCapacityCounts(categoryACapacity, 0, 0);
 
-        assertThat(s(
+        assertThat(queryStringValue(
                 "select status from registration where id = ?",
                 result.registrationId()
         )).isEqualTo("PAYMENT_PENDING");
@@ -324,26 +345,26 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
                 result.registrationId()
         )).isEqualByComparingTo("0");
 
-        assertThat(n(
+        assertThat(queryIntegerValue(
                 """
                 select count(*) from payment_process_log
                 where payment_id = ? and process_type = 'CONFIRM_SUCCEEDED'
                 """,
                 result.paymentId()
         )).isZero();
-        assertThat(s("select JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.resultComparison.status')) from payment_process_log where payment_id=? and process_type='CONFIRM_UNKNOWN'", result.paymentId())).isEqualTo("MISMATCH");
+        assertThat(queryStringValue("select JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.resultComparison.status')) from payment_process_log where payment_id=? and process_type='CONFIRM_UNKNOWN'", result.paymentId())).isEqualTo("MISMATCH");
     }
 
     /** 실제 미납액만 추가 납부하고 기존 확정 정원·예약 및 중복 반영 방지를 검증한다. */
     @Test
     void additionalPaymentIncreasesPaidAmountWithoutChangingCapacity() {
-        kr.co.teambrain.marvelrun.user.event.command.application.dto.response.RegistrationCreateResponse result = personal(categoryA, "S", "1990-01-01");
+        RegistrationCreateResponse result = createPersonalRegistration(categoryA, "S", "1990-01-01");
         mockApprovalSuccess();
         payments.confirm(confirmRequest(result.paymentId()));
 
         assertThat(jdbc.queryForObject("select paid_amount from registration where id = ?", BigDecimal.class, result.registrationId()))
                 .isEqualByComparingTo("40000");
-        counters(categoryACapacity, 0, 1); // 정원 1명 확정 확인
+        assertCapacityCounts(categoryACapacity, 0, 1); // 정원 1명 확정 확인
 
         String additionalPaymentId = UUID.randomUUID().toString();
         tx.executeWithoutResult(status -> {
@@ -364,19 +385,21 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
         });
 
         payments.confirm(confirmRequest(additionalPaymentId));
-        kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentConfirmContext context = savedContext(additionalPaymentId);
-        paymentTransactions.completeConfirm(context, approved(context.paymentKey(), context.orderId(), context.amount()), NOW.plusSeconds(3));
+        PaymentConfirmContext context = savedContext(additionalPaymentId);
+        paymentTransactions.completeConfirm(context, createApprovedTossPaymentResponse(context.paymentKey(), context.orderId(), context.amount()), NOW.plusSeconds(3));
 
         assertThat(jdbc.queryForObject("select paid_amount from registration where id = ?", BigDecimal.class, result.registrationId()))
                 .isEqualByComparingTo("50000");
-        counters(categoryACapacity, 0, 1);
-        reservation(result.registrationId(), "CONSUMED", 1, 3); // 상태는 그대로 CONSUMED
+        assertCapacityCounts(categoryACapacity, 0, 1);
+        assertReservationStateAndHistory(result.registrationId(), "CONSUMED", 1, 4); // 추가결제 확정 근거 1건만 기록한다.
+        assertThat(queryStringValue("select JSON_UNQUOTE(JSON_EXTRACT(history,'$[last].detail.eventType')) from reservation where registration_id=?",
+                result.registrationId())).isEqualTo("PAYMENT_APPLIED");
     }
 
     // [TO-BE] 단체 A 완료 후, 새 B만 주문 승인 시 A 금액·정원 불변 검증 (명세서 4번)
     @Test
     void partialGroupNewOrderApprovalPreservesCompletedMembers() {
-        var group = group(categoryA, categoryB);
+        var group = createOrganizationRegistration(categoryA, categoryB);
         String memberA = group.registrationIds().get(0);
         String memberB = group.registrationIds().get(1);
 
@@ -394,7 +417,7 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
         mockApprovalSuccess();
         payments.confirm(confirmRequest(repayment.paymentId()));
         var context = savedContext(repayment.paymentId());
-        paymentTransactions.completeConfirm(context, approved(context.paymentKey(), context.orderId(), context.amount()), NOW.plusSeconds(2));
+        paymentTransactions.completeConfirm(context, createApprovedTossPaymentResponse(context.paymentKey(), context.orderId(), context.amount()), NOW.plusSeconds(2));
 
         // 5. 검증: A의 금액은 불변, B의 금액만 추가됨. 전체 납부액 합산 검증.
         assertThat(jdbc.queryForObject("select paid_amount from registration where id = ?", BigDecimal.class, memberA))
@@ -405,16 +428,16 @@ class CapacityPaymentMvpDatabaseTest extends CapacityMvpTestSupport {
     /** 다른 결제의 DONE 응답은 검증 성공이나 확정 실패로 오인하지 않는다. */
     @Test
     void mismatchedDoneResponseIsLoggedAsUnverified() {
-        kr.co.teambrain.marvelrun.user.event.command.application.dto.response.RegistrationCreateResponse result =
-                personal(categoryA, "S", "1990-01-01");
+        RegistrationCreateResponse result =
+                createPersonalRegistration(categoryA, "S", "1990-01-01");
         doAnswer(invocation -> {
             TossPaymentConfirmRequest request = invocation.getArgument(0);
-            return approved("different-payment-key", request.orderId(), request.amount());
+            return createApprovedTossPaymentResponse("different-payment-key", request.orderId(), request.amount());
         }).when(toss).confirm(any(TossPaymentConfirmRequest.class), anyString());
         expectError(ErrorCode.PAYMENT_CONFIRM_UNKNOWN, () -> payments.confirm(confirmRequest(result.paymentId())));
-        assertThat(s("select process_status from payment where id=?", result.paymentId())).isEqualTo("UNKNOWN");
+        assertThat(queryStringValue("select process_status from payment where id=?", result.paymentId())).isEqualTo("UNKNOWN");
         assertThat(jdbc.queryForObject("select paid_amount from registration where id=?", BigDecimal.class, result.registrationId())).isEqualByComparingTo("0");
-        assertThat(s("select JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.resultComparison.status')) from payment_process_log where payment_id=? and process_type='CONFIRM_UNKNOWN'",result.paymentId())).isEqualTo("UNVERIFIED");
-        assertThat(n("select count(*) from payment_process_log where payment_id=? and process_type='CONFIRM_SUCCEEDED'", result.paymentId())).isZero();
+        assertThat(queryStringValue("select JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.resultComparison.status')) from payment_process_log where payment_id=? and process_type='CONFIRM_UNKNOWN'",result.paymentId())).isEqualTo("UNVERIFIED");
+        assertThat(queryIntegerValue("select count(*) from payment_process_log where payment_id=? and process_type='CONFIRM_SUCCEEDED'", result.paymentId())).isZero();
     }
 }

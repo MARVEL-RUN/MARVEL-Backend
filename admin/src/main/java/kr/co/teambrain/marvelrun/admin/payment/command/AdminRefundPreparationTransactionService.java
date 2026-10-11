@@ -4,31 +4,36 @@ import jakarta.validation.Validator;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
+import kr.co.teambrain.marvelrun.admin.capacity.command.application.domain.Reservation;
+import kr.co.teambrain.marvelrun.admin.capacity.command.application.dto.CapacityRequirementInput;
+import kr.co.teambrain.marvelrun.admin.capacity.command.application.service.*;
+import kr.co.teambrain.marvelrun.admin.capacity.command.application.service.ReservationHistoryRecorder;
+import kr.co.teambrain.marvelrun.admin.common.exception.*;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.*;
+import kr.co.teambrain.marvelrun.admin.event.command.application.service.RegistrationPricingService;
+import kr.co.teambrain.marvelrun.admin.event.command.application.valid.dto.*;
+import kr.co.teambrain.marvelrun.admin.event.command.application.valid.RegistrationPolicyCandidateValidator;
+import kr.co.teambrain.marvelrun.admin.payment.command.application.creator.*;
+import kr.co.teambrain.marvelrun.admin.payment.command.application.domain.PaymentAllocation;
+import kr.co.teambrain.marvelrun.admin.payment.command.application.domain.PaymentProcessLog;
+import kr.co.teambrain.marvelrun.admin.payment.command.application.dto.*;
+import kr.co.teambrain.marvelrun.admin.payment.command.dto.AdminPaymentPartialRefundTarget;
+import kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_log.*;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
+import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import kr.co.teambrain.marvelrun.admin.common.exception.*;
-import kr.co.teambrain.marvelrun.admin.event.command.application.domain.*;
-import kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization;
-import kr.co.teambrain.marvelrun.admin.event.command.application.service.RegistrationPricingService;
-import kr.co.teambrain.marvelrun.admin.event.command.application.valid.RegistrationPolicyCandidateValidator;
-import kr.co.teambrain.marvelrun.admin.event.command.application.valid.dto.*;
-import kr.co.teambrain.marvelrun.admin.capacity.command.application.domain.Reservation;
-import kr.co.teambrain.marvelrun.admin.capacity.command.application.dto.CapacityRequirementInput;
-import kr.co.teambrain.marvelrun.admin.capacity.command.application.service.*;
-import kr.co.teambrain.marvelrun.admin.payment.command.dto.AdminPaymentPartialRefundTarget;
-import kr.co.teambrain.marvelrun.admin.payment.command.application.creator.*;
-import kr.co.teambrain.marvelrun.admin.payment.command.application.dto.*;
-import kr.co.teambrain.marvelrun.admin.payment.command.application.domain.PaymentProcessLog;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_log.*;
 
 /** 정책·정원·계약·원귀속·환불 시도·로그를 한 범위의 트랜잭션에 저장한다. PG는 호출하지 않는다. */
 @Service
 @RequiredArgsConstructor
 public class AdminRefundPreparationTransactionService {
+    private final ReservationHistoryRecorder historyRecorder;
     private final AdminRefundAccessService access;
     private final AdminRefundPreparationStore store;
     private final RegistrationPolicyCandidateValidator policies;
@@ -46,7 +51,7 @@ public class AdminRefundPreparationTransactionService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public AdminRefundPrepared prepareFull(String eventId, String organizationId, List<String> registrationIds,
             AdminRefundCommandContext command) {
-        return prepare(eventId, organizationId, registrationIds, null, command);
+        return prepareAdminRegistrationSettlement(eventId, organizationId, registrationIds, null, command);
     }
 
     /** 관리자 정보 변경의 환불·추가 납부·동일 금액을 서버 가격으로 계산한다. 추가 주문은 만들지 않는다. */
@@ -57,12 +62,12 @@ public class AdminRefundPreparationTransactionService {
         for (var target : targets) {
             if (target == null || !validator.validate(target).isEmpty()) { throw invalid(); }
         }
-        return prepare(eventId, organizationId, targets.stream().map(AdminPaymentPartialRefundTarget::registrationId).toList(),
+        return prepareAdminRegistrationSettlement(eventId, organizationId, targets.stream().map(AdminPaymentPartialRefundTarget::registrationId).toList(),
                 targets, command);
     }
 
     /* 잠금 조회 후 외부 결제를 차단하고 계산·변경 전에 접근과 원귀속을 검증한다. */
-    private AdminRefundPrepared prepare(String eventId, String organizationId, List<String> ids,
+    private AdminRefundPrepared prepareAdminRegistrationSettlement(String eventId, String organizationId, List<String> ids,
             List<AdminPaymentPartialRefundTarget> targets, AdminRefundCommandContext command) {
         Objects.requireNonNull(command, "관리자 추적정보");
         AdminRefundLockedScope scope = targets == null ? access.lock(eventId, organizationId, ids)
@@ -145,7 +150,7 @@ public class AdminRefundPreparationTransactionService {
                 .build()).toList();
         List<RefundPaymentLedger> ledgers = store.ledgers(scope);
         for (RefundPaymentLedger ledger : ledgers) {
-            for (kr.co.teambrain.marvelrun.admin.payment.command.application.domain.PaymentAllocation allocation : ledger.allocations()) {
+            for (PaymentAllocation allocation : ledger.allocations()) {
                 Registration owner = allocation.getRegistration();
                 if (owner == null || owner.getEvent() == null || !eventId.equals(owner.getEvent().getId())
                         || !Objects.equals(organizationId, owner.getOrganization() == null ? null : owner.getOrganization().getId())) {
@@ -157,7 +162,7 @@ public class AdminRefundPreparationTransactionService {
         Set<String> selectedIds = new HashSet<>(ids);
         for (RefundPaymentLedger ledger : ledgers) {
             if (ledger.payment().getProcessStatus()
-                    != kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus.READY) { continue; }
+                    != PaymentProcessStatus.READY) { continue; }
             boolean selected = ledger.allocations().stream().anyMatch(a -> selectedIds.contains(a.getRegistration().getId()))
                     || (ledger.payment().getRegistration() != null && selectedIds.contains(ledger.payment().getRegistration().getId()));
             if (!selected) { continue; }
@@ -199,6 +204,8 @@ public class AdminRefundPreparationTransactionService {
             if (candidate.cancel()) { registration.cancelParticipation(); }
             Reservation reservation = byRegistration.get(registration.getId());
             registration.reconcileModificationFinancialState(reservation.getStatus());
+            historyRecorder.completeReservationModificationSnapshot(reservation);
+            historyRecorder.recordRegistrationSettlementHistory(reservation, null, List.of(), null, List.of(), now);
             members.add(new AdminRefundPrepared.Member(registration.getId(), previous, registration.getContractAmount(),
                     registration.getPaidAmount(), registration.getStatus(), reservation.getStatus(), registration.isSoftDeleted(),
                     previousBirth, registration.getBirth(), previousCategory, registration.getEventCategory().getId()));
@@ -236,6 +243,6 @@ public class AdminRefundPreparationTransactionService {
 
     /** 정책 계산 결과와 참가 취소 분기를 분리한다. 결제 롤백 기능은 여기 포함하지 않는다. */
     private record Candidate(Registration registration, EventCategory category,
-            List<kr.co.teambrain.marvelrun.common.json_object.SouvenirJson> souvenirs, String birth, BigDecimal amount, boolean cancel) { }
+            List<SouvenirJson> souvenirs, String birth, BigDecimal amount, boolean cancel) { }
     private static CustomException invalid() { return new CustomException(ErrorCode.PAYMENT_CANCEL_INTEGRITY_ERROR); }
 }

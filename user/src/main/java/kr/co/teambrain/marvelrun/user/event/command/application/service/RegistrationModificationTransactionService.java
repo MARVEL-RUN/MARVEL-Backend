@@ -18,6 +18,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.ArrayList;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels.*;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.OrgRegistrationModificationParticipantRequest;
 
 /**
  * 신청 수정 전체의 트랜잭션 경계를 제공한다.
@@ -42,12 +47,13 @@ public class RegistrationModificationTransactionService {
     private final OrgRegistrationModificationAccessValidator organizationAccessValidator;
     private final OrgRegistrationPersonalInformationValidator organizationInformationValidator;
     private final OrgRegistrationPersonalInformationService organizationInformationService;
+    private final RegistrationActionPolicyService actionPolicies;
 
     /**
      * 개인 신청을 잠금용 부가 조회 전에 분류하고 전체 수정에만 금융 상태 처리를 연결한다.
      */
     @Transactional
-    public RegistrationModificationSettlementResult modifyPersonal(
+    public RegistrationModificationSettlementResult modifyPersonalRegistration(
             String eventId,
             String registrationId,
             RegistrationModificationRequest request
@@ -57,12 +63,14 @@ public class RegistrationModificationTransactionService {
         informationValidator.validateInput(request);
         RegistrationModificationAccessContext access = accessValidator.validate(eventId, registrationId, request, now);
         RegistrationModificationClassifier.Change change = classifier.classifyPersonal(access.registration(), request);
+        List<Policy> policies = actionPolicies.loadEnabledRegistrationActionPolicies(eventId);
+        actionPolicies.validateRegistrationActionPolicy(access.event(), access.registration(), Action.MODIFY, now, policies);
         if (change != RegistrationModificationClassifier.Change.FULL) {
             return informationService.modify(access, change);
         }
 
         RegistrationPersonalModificationResult result =
-                personalService.modify(
+                personalService.modifyPersonalRegistration(
                         eventId,
                         registrationId,
                         request,
@@ -70,11 +78,11 @@ public class RegistrationModificationTransactionService {
                         access.registration().getVersion()
                 );
 
-        return settlementService.settle(
+        return settlementService.settleRegistrationModification(
                 eventId,
                 null,
                 List.of(result.registrationId()),
-                now
+                now, policies
         );
     }
 
@@ -82,7 +90,7 @@ public class RegistrationModificationTransactionService {
      * 단체 전체 목록을 자원 조회·잠금 전에 분류하며 추가·제거·정책 영향이 있는 요청만 전체 수정한다.
      */
     @Transactional
-    public RegistrationModificationSettlementResult modifyOrganization(
+    public RegistrationModificationSettlementResult modifyOrganizationRegistration(
             String eventId,
             String organizationId,
             OrgRegistrationModificationRequest request
@@ -94,12 +102,14 @@ public class RegistrationModificationTransactionService {
                 eventId, organizationId, request, now);
         RegistrationModificationClassifier.Change change = classifier.classifyOrganization(
                 access.currentRegistrations(), request);
+        List<Policy> policies = actionPolicies.loadEnabledRegistrationActionPolicies(eventId);
+        validateOrganizationActions(access, policies);
         if (change != RegistrationModificationClassifier.Change.FULL) {
             return organizationInformationService.modify(access, change);
         }
 
         OrgRegistrationModificationResult result =
-                organizationService.modify(
+                organizationService.modifyOrganizationRegistration(
                         eventId,
                         organizationId,
                         request,
@@ -112,11 +122,41 @@ public class RegistrationModificationTransactionService {
                         .map(OrgRegistrationModificationResult.Member::registrationId)
                         .toList();
 
-        return settlementService.settle(
+        return settlementService.settleRegistrationModification(
                 eventId,
                 organizationId,
                 registrationIds,
-                now
+                now, policies
         );
+    }
+
+    /** 요청에 실제 포함된 공통정보·인원별 변경·삭제·추가를 서로 독립적으로 검증한다. */
+    private void validateOrganizationActions(OrgRegistrationModificationAccessContext access, List<Policy> policies) {
+        boolean commonChanged = classifier.organizationProfileChanged(access.organization(), access.request());
+        if (access.request().registrations().stream().anyMatch(r -> r.registrationId() == null)) {
+            RegistrationActionPolicyService.validateGlobalRegistrationActionPolicy(access.event(), Action.ADD_MEMBER, access.now());
+        }
+        // 같은 작업의 대상을 모아 단체 정책 우선순위로 한 번 검증한다.
+        List<Registration> modifiedMembers = new ArrayList<>();
+        List<Registration> deletedMembers = new ArrayList<>();
+        for (Registration member : access.currentRegistrations()) {
+            OrgRegistrationModificationParticipantRequest requested = access.request().registrations().stream()
+                    .filter(r -> member.getId().equals(r.registrationId())).findFirst().orElse(null);
+            if (commonChanged || (requested != null && classifier.classifyOrganizationParticipant(member, requested)
+                    != RegistrationModificationClassifier.Change.NONE)) {
+                modifiedMembers.add(member);
+            }
+            if (requested == null) {
+                deletedMembers.add(member);
+            }
+        }
+        if (!modifiedMembers.isEmpty()) {
+            actionPolicies.validateRegistrationActionsPolicy(access.event(), modifiedMembers, Action.MODIFY,
+                    access.now(), policies, commonChanged);
+        }
+        if (!deletedMembers.isEmpty()) {
+            actionPolicies.validateRegistrationActionsPolicy(access.event(), deletedMembers, Action.DELETE_MEMBER,
+                    access.now(), policies, false);
+        }
     }
 }

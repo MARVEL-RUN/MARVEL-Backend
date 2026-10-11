@@ -29,6 +29,7 @@ import java.util.Objects;
 public class RegistrationModificationPricingService {
 
     private final RegistrationPricingService registrationPricingService;
+    private final RegistrationModificationClassifier classifier = new RegistrationModificationClassifier();
 
     /**
      * 개인 수정 후보의 이전 계약금액과 새 계약금액을 비교한다.
@@ -53,7 +54,7 @@ public class RegistrationModificationPricingService {
      * 신규 참가자는 최초 계약금액만 계산한다.
      * 최종목록에서 빠진 제거 후보의 금액 처리는 수행하지 않는다.
      */
-    public List<OrgRegistrationParticipantPricing> repriceOrganization(
+    public List<OrgRegistrationParticipantPricing> calculateOrganizationRegistrationModificationPrices(
             OrgRegistrationModificationCandidateContext candidate
     ) {
         List<OrgRegistrationParticipantPricing> results =
@@ -61,6 +62,15 @@ public class RegistrationModificationPricingService {
 
         for (OrgRegistrationModificationCandidateContext.ParticipantCandidate participant
                 : candidate.registrations()) {
+
+            // 자원·가격 입력이 그대로인 기존 참가자는 과거 계약금액을 보존한다.
+            Registration current = participant.currentRegistration();
+            if (current != null && classifier.classifyOrganizationParticipant(current, participant.request())
+                    != RegistrationModificationClassifier.Change.FULL) {
+                results.add(new OrgRegistrationParticipantPricing(participant,
+                        RegistrationModificationPrice.forExisting(current.getContractAmount(), current.getContractAmount())));
+                continue;
+            }
 
             RegistrationModificationPrice price =
                     reprice(

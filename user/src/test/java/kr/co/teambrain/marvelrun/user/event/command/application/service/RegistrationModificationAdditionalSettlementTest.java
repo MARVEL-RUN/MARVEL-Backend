@@ -1,10 +1,16 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
-import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_cancel.PaymentCancelStatus;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.domain.Reservation;
+import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationHistoryRecorder;
 import kr.co.teambrain.marvelrun.user.capacity.command.repository.CapacityCommandRepository;
 import kr.co.teambrain.marvelrun.user.capacity.command.repository.ReservationCommandRepository;
 import kr.co.teambrain.marvelrun.user.capacity.command.repository.ReservationItemCommandRepository;
@@ -15,24 +21,21 @@ import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organizat
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import kr.co.teambrain.marvelrun.user.payment.command.application.creator.AdditionalPaymentTargetResolver;
 import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentAllocationCreator;
 import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentCreator;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentAllocationTarget;
+import kr.co.teambrain.marvelrun.user.payment.command.application.ModificationRefundPreparationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
+
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
-import kr.co.teambrain.marvelrun.user.payment.command.application.ModificationRefundPreparationService;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_cancel.PaymentCancelStatus;
 
 /** 기존 수정 정산 호출 한 번에서 추가 주문과 귀속이 함께 준비되는지 검증한다. */
 class RegistrationModificationAdditionalSettlementTest {
@@ -45,9 +48,9 @@ class RegistrationModificationAdditionalSettlementTest {
     private final ModificationRefundPreparationService refundPreparation =
             mock(ModificationRefundPreparationService.class);
     private final Event event = mock(Event.class);
-    private final RegistrationModificationSettlementService service = new RegistrationModificationSettlementService(
+    private final RegistrationModificationSettlementService service = new RegistrationModificationSettlementService(mock(ReservationHistoryRecorder.class),
             registrations, reservations, items, capacities, creator, allocationCreator,
-            new AdditionalPaymentTargetResolver(), refundPreparation);
+            new AdditionalPaymentTargetResolver(), refundPreparation, mock(RegistrationActionPolicyService.class));
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 9, 22, 10, 0);
 
     /** 현재 수정 범위의 대회 식별자를 구성한다. */
@@ -65,7 +68,7 @@ class RegistrationModificationAdditionalSettlementTest {
         Payment payment = payment("additional", debt, PaymentPurpose.ADDITIONAL_PAYMENT);
         when(creator.createAdditionalPayment(eq(registration), eq(new BigDecimal(debt)), anyString())).thenReturn(payment);
 
-        RegistrationModificationSettlementResult result = service.settle("event", null, List.of("r"), NOW);
+        RegistrationModificationSettlementResult result = service.settleRegistrationModification("event", null, List.of("r"), NOW);
 
         assertThat(result.orders()).hasSize(1);
         assertThat(result.orders().get(0).paymentId()).isEqualTo("additional");
@@ -85,7 +88,7 @@ class RegistrationModificationAdditionalSettlementTest {
         Registration registration = participant("r", null, contract, "40000", false);
         scope(List.of(registration), List.of(reservation(registration, ReservationStatus.CONSUMED)));
 
-        RegistrationModificationSettlementResult result = service.settle("event", null, List.of("r"), NOW);
+        RegistrationModificationSettlementResult result = service.settleRegistrationModification("event", null, List.of("r"), NOW);
 
         assertThat(result.orders()).isEmpty();
         assertThat(result.members().get(0).status()).isEqualTo(expected);
@@ -110,7 +113,7 @@ class RegistrationModificationAdditionalSettlementTest {
         when(creator.createMixedPayment(eq(organization), eq(new BigDecimal("50000")), anyString()))
                 .thenReturn(combined);
 
-        RegistrationModificationSettlementResult result = service.settle("event", "org", List.of("a", "b", "c", "d"), NOW);
+        RegistrationModificationSettlementResult result = service.settleRegistrationModification("event", "org", List.of("a", "b", "c", "d"), NOW);
 
         assertThat(result.orders()).extracting(RegistrationModificationSettlementResult.Order::paymentId)
                 .containsExactly("combined");
@@ -138,7 +141,7 @@ class RegistrationModificationAdditionalSettlementTest {
         doThrow(new CustomException(ErrorCode.PAYMENT_ALLOCATION_INTEGRITY_ERROR))
                 .when(allocationCreator).create(eq(payment), anyList());
 
-        assertThatThrownBy(() -> service.settle("event", null, List.of("r"), NOW))
+        assertThatThrownBy(() -> service.settleRegistrationModification("event", null, List.of("r"), NOW))
                 .isInstanceOfSatisfying(CustomException.class,
                         error -> assertThat(error.getErrorCode()).isEqualTo(ErrorCode.PAYMENT_ALLOCATION_INTEGRITY_ERROR));
         verify(registrations, never()).flush();
@@ -154,7 +157,7 @@ class RegistrationModificationAdditionalSettlementTest {
                 PaymentCancelStatus.PROCESSING,
                 "trace");
         when(refundPreparation.prepare("event", null, List.of(registration))).thenReturn(List.of(refund));
-        RegistrationModificationSettlementResult result = service.settle("event", null, List.of("r"), NOW);
+        RegistrationModificationSettlementResult result = service.settleRegistrationModification("event", null, List.of("r"), NOW);
         assertThat(result.refunds()).containsExactly(refund);
         assertThat(result.orders()).isEmpty();
         assertThat(registration.getPaidAmount()).isEqualByComparingTo("40000");

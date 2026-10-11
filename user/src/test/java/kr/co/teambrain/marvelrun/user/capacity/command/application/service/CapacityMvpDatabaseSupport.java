@@ -1,8 +1,12 @@
 package kr.co.teambrain.marvelrun.user.capacity.command.application.service;
 
 import jakarta.persistence.EntityManager;
+import java.math.BigDecimal;
+import java.time.*;
+import java.util.*;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
+import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationHistoryRecorder;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
@@ -10,34 +14,34 @@ import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.*;
-import kr.co.teambrain.marvelrun.user.payment.command.application.generator.PaymentOrderIdGenerator;
+import kr.co.teambrain.marvelrun.user.event.command.application.service.OrgParticipantPasswordEncoder;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.loader.RegistrationPolicyLoader;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import kr.co.teambrain.marvelrun.user.payment.command.application.*;
 import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentCreator;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.*;
+import kr.co.teambrain.marvelrun.user.payment.command.application.generator.PaymentOrderIdGenerator;
 import kr.co.teambrain.marvelrun.user.payment.command.application.valid.EventPaymentPolicyValidator;
-import kr.co.teambrain.marvelrun.user.payment.command.infrastructure.toss.TossConfirmFailureClassifier;
 import kr.co.teambrain.marvelrun.user.payment.command.infrastructure.toss.client.TossPaymentClient;
 import kr.co.teambrain.marvelrun.user.payment.command.infrastructure.toss.dto.*;
+import kr.co.teambrain.marvelrun.user.payment.command.infrastructure.toss.TossConfirmFailureClassifier;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
-import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
-
-import java.math.BigDecimal;
-import java.time.*;
-import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -61,12 +65,22 @@ import static org.mockito.Mockito.when;
         }
 )
 @ActiveProfiles("capacity-test")
+// 다른 DB 테스트와 동일한 환경변수로 접속 대상을 지정하며 스키마를 자동 변경하지 않는다.
+@TestPropertySource(properties = {
+        "spring.datasource.url=${MARVELRUN_TEST_DB_URL}",
+        "spring.datasource.username=${MARVELRUN_TEST_DB_USERNAME}",
+        "spring.datasource.password=${MARVELRUN_TEST_DB_PASSWORD}",
+        "spring.jpa.hibernate.ddl-auto=none",
+        "spring.sql.init.mode=never"
+})
 @AutoConfigureTestDatabase(
         replace = AutoConfigureTestDatabase.Replace.NONE
 )
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Import({
-        org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder.class,
+        ReservationHistoryRecorder.class,
+        RegistrationActionPolicyService.class,
+        BCryptPasswordEncoder.class,
         CapacityHoldService.class,
         CapacityRequirementResolver.class,
         RegistrationCapacityService.class,
@@ -74,7 +88,7 @@ import static org.mockito.Mockito.when;
         ReservationPaymentService.class,
         RegistrationCommandService.class,
         OrgRegistrationCommandService.class,
-        kr.co.teambrain.marvelrun.user.event.command.application.service.OrgParticipantPasswordEncoder.class,
+        OrgParticipantPasswordEncoder.class,
         RegistrationApplyValidator.class,
         OrgRegistrationApplyValidator.class,
         RegistrationPolicyValidator.class,
@@ -314,7 +328,7 @@ abstract class CapacityMvpDatabaseSupport {
      *
      * 테스트 간 중복 참가자 충돌을 피하도록 매번 다른 이름을 사용한다.
      */
-    protected RegistrationCreateResponse personal(
+    protected RegistrationCreateResponse createPersonalRegistration(
             String categoryId,
             String size,
             String birth
@@ -347,7 +361,7 @@ abstract class CapacityMvpDatabaseSupport {
      * 매개변수로 전달한 종목마다 성인 참가자 한 명을 생성한다.
      * 모든 참가자는 공유 티셔츠의 S 사이즈를 선택한다.
      */
-    protected OrgRegistrationCreateResponse group(String... categoryIds) {
+    protected OrgRegistrationCreateResponse createOrganizationRegistration(String... categoryIds) {
         List<OrgRegistrationParticipantRequest> members = new ArrayList<>();
 
         for (int i = 0; i < categoryIds.length; i++) {
@@ -387,7 +401,7 @@ abstract class CapacityMvpDatabaseSupport {
     /**
      * 정수형 단일 조회 결과를 반환한다.
      */
-    protected int n(String sql, Object... args) {
+    protected int queryIntegerValue(String sql, Object... args) {
         return jdbc.queryForObject(sql, Integer.class, args);
     }
 
@@ -396,19 +410,19 @@ abstract class CapacityMvpDatabaseSupport {
      *
      * nullable 컬럼은 null을 반환할 수 있다.
      */
-    protected String s(String sql, Object... args) {
+    protected String queryStringValue(String sql, Object... args) {
         return jdbc.queryForObject(sql, String.class, args);
     }
 
     /**
      * DB의 임시·확정 수량을 함께 검증한다.
      */
-    protected void counters(String capacityId, int held, int confirmed) {
-        assertThat(n(
+    protected void assertCapacityCounts(String capacityId, int held, int confirmed) {
+        assertThat(queryIntegerValue(
                 "select held_count from capacity where id = ?", capacityId
         )).isEqualTo(held);
 
-        assertThat(n(
+        assertThat(queryIntegerValue(
                 "select confirmed_count from capacity where id = ?", capacityId
         )).isEqualTo(confirmed);
     }
@@ -417,7 +431,7 @@ abstract class CapacityMvpDatabaseSupport {
      * 신청에 연결된 예약 식별자를 조회한다.
      */
     protected String reservationId(String registrationId) {
-        return s(
+        return queryStringValue(
                 "select id from reservation where registration_id = ?",
                 registrationId
         );
@@ -426,7 +440,7 @@ abstract class CapacityMvpDatabaseSupport {
     /**
      * 예약 상태·확보 회차·JSON 이력 개수·무기한 확보 설정을 검증한다.
      */
-    protected void reservation(
+    protected void assertReservationStateAndHistory(
             String registrationId,
             String expectedStatus,
             int sequence,
@@ -434,19 +448,19 @@ abstract class CapacityMvpDatabaseSupport {
     ) {
         String id = reservationId(registrationId);
 
-        assertThat(s(
+        assertThat(queryStringValue(
                 "select status from reservation where id = ?", id
         )).isEqualTo(expectedStatus);
 
-        assertThat(n(
+        assertThat(queryIntegerValue(
                 "select hold_sequence from reservation where id = ?", id
         )).isEqualTo(sequence);
 
-        assertThat(n(
+        assertThat(queryIntegerValue(
                 "select json_length(history) from reservation where id = ?", id
         )).isEqualTo(historySize);
 
-        assertThat(n(
+        assertThat(queryIntegerValue(
                 "select count(*) from reservation where id = ? and expires_at is null",
                 id
         )).isEqualTo(1);
@@ -481,7 +495,7 @@ abstract class CapacityMvpDatabaseSupport {
     protected PaymentConfirmRequest confirmRequest(String paymentId) {
         return new PaymentConfirmRequest(
                 "test-key-" + UUID.randomUUID(),
-                s("select order_id from payment where id = ?", paymentId),
+                queryStringValue("select order_id from payment where id = ?", paymentId),
                 jdbc.queryForObject(
                         "select amount from payment where id = ?",
                         BigDecimal.class,
@@ -496,16 +510,16 @@ abstract class CapacityMvpDatabaseSupport {
     protected PaymentConfirmContext savedContext(String paymentId) {
         return new PaymentConfirmContext(
                 paymentId,
-                s("select registration_id from payment where id = ?", paymentId),
-                s("select organization_id from payment where id = ?", paymentId),
-                s("select payment_key from payment where id = ?", paymentId),
-                s("select order_id from payment where id = ?", paymentId),
+                queryStringValue("select registration_id from payment where id = ?", paymentId),
+                queryStringValue("select organization_id from payment where id = ?", paymentId),
+                queryStringValue("select payment_key from payment where id = ?", paymentId),
+                queryStringValue("select order_id from payment where id = ?", paymentId),
                 jdbc.queryForObject(
                         "select amount from payment where id = ?",
                         BigDecimal.class,
                         paymentId
                 ).longValueExact(),
-                s(
+                queryStringValue(
                         "select confirm_idempotency_key from payment where id = ?",
                         paymentId
                 ),
@@ -555,7 +569,7 @@ abstract class CapacityMvpDatabaseSupport {
                                     .isActualTransactionActive()
                     ).isFalse();
 
-                    assertThat(s(
+                    assertThat(queryStringValue(
                             "select process_status from payment where order_id = ?",
                             request.orderId()
                     )).isEqualTo("CONFIRMING");
@@ -572,7 +586,7 @@ abstract class CapacityMvpDatabaseSupport {
      * 테스트 대회에 연결된 Payment 개수를 조회한다.
      */
     protected int paymentCount() {
-        return n(
+        return queryIntegerValue(
                 """
                 select count(*) from payment
                 where registration_id in (

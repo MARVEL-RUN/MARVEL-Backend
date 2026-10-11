@@ -9,14 +9,24 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 class EventPaymentPolicyValidatorTest {
     private final EventPaymentPolicyValidator validator = new EventPaymentPolicyValidator();
-    @Test void additionalCanBePaidAfterInitialDeadline() {
+    @Test void allPaymentPurposesCloseAtDeadline() {
         Event event = mock(Event.class);
         LocalDateTime now = LocalDateTime.of(2026,11,2,12,0);
         when(event.getPaymentDeadline()).thenReturn(now.minusDays(1));
-        assertThatCode(() -> validator.validateForPurpose(event,now,PaymentPurpose.ADDITIONAL_PAYMENT)).doesNotThrowAnyException();
-        for (PaymentPurpose purpose : new PaymentPurpose[]{PaymentPurpose.REGISTRATION_TRY,PaymentPurpose.MIXED_PAYMENT}) {
+
+        for (PaymentPurpose purpose : new PaymentPurpose[]{PaymentPurpose.REGISTRATION_TRY,PaymentPurpose.MIXED_PAYMENT,PaymentPurpose.ADDITIONAL_PAYMENT}) {
             assertThatThrownBy(() -> validator.validateForPurpose(event,now,purpose)).isInstanceOfSatisfying(CustomException.class,
                     e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.EVENT_PAYMENT_CLOSED));
+        }
+    }
+
+    /** NULL 마감은 제한 없음이며 모든 결제 목적에 동일하게 적용한다. */
+    @Test void nullableDeadlineDoesNotBlockAnyPaymentPurpose() {
+        Event event = mock(Event.class);
+        LocalDateTime now = LocalDateTime.of(2026, 11, 2, 12, 0);
+        for (PaymentPurpose purpose : new PaymentPurpose[]{PaymentPurpose.REGISTRATION_TRY,
+                PaymentPurpose.MIXED_PAYMENT, PaymentPurpose.ADDITIONAL_PAYMENT}) {
+            assertThatCode(() -> validator.validateForPurpose(event, now, purpose)).doesNotThrowAnyException();
         }
     }
 }
