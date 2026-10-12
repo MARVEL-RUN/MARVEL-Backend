@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventStatus;
 import kr.co.teambrain.marvelrun.admin.event.policy.RegistrationActionPolicyReasons.*;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 /** 신청 정책의 내부 입력과 대상별 명시적인 API 응답을 정의한다. */
 public final class RegistrationActionPolicyModels {
@@ -12,13 +13,13 @@ public final class RegistrationActionPolicyModels {
     private RegistrationActionPolicyModels() { }
 
     /** DELETE_MEMBER는 취소 문맥이며 DB 정책 작업 REFUND를 사용한다. */
-    public enum Action { ADD_MEMBER, MODIFY, REFUND, PAYMENT, DELETE_MEMBER }
+    public enum Action { REGIST, ADD_MEMBER, MODIFY, REFUND, PAYMENT, DELETE_MEMBER }
 
     /** 내부 판정 근거이며 API에는 작업별 enum과 메시지로 변환해서 제공한다. */
     public enum Reason {
         CONFIGURATION_INVALID, EVENT_NOT_OPEN, REGISTRATION_NOT_STARTED,
         REGISTRATION_CLOSED, PAYMENT_CLOSED, EXTERNAL_PAYMENT,
-        REGISTRATION_PERIOD_MODIFY, REGISTRATION_PERIOD_REFUND, REGISTRATION_PERIOD_PAYMENT
+        REGISTRATION_PERIOD_BLOCKED, REGISTRATION_PERIOD_MODIFY, REGISTRATION_PERIOD_REFUND, REGISTRATION_PERIOD_PAYMENT
     }
 
     /** 한 요청이 공유하는 대회 전역 조건이다. */
@@ -35,11 +36,24 @@ public final class RegistrationActionPolicyModels {
     }
 
     /** 신청일 대상 구간과 적용 개시를 분리한 정책 행이다. */
-    public record Policy(String id, String eventId, Action action, LocalDateTime registrationStart,
+    public record RegistrationActionPolicyInput(String id, String eventId, Action action, LocalDateTime registrationStart,
             LocalDateTime registrationEnd, LocalDateTime effectiveFrom, boolean enabled) { }
 
     /** 내부 단일 대표 사유이며 null이면 해당 정책 검증을 통과한다. */
-    public record Decision(Reason reason) {
+    public record Decision(Reason reason, LocalDateTime restrictionStart, LocalDateTime restrictionEnd) {
+        /** 기간 안내가 필요 없는 기존 작업의 결과를 생성한다. */
+        public Decision(Reason reason) { this(reason, null, null); }
+
+        /** 판정된 실제 연속 차단 구간을 KST 문구로 제공한다. */
+        public String restrictionPeriodMessage() {
+            if (reason != Reason.REGISTRATION_PERIOD_BLOCKED || restrictionStart == null || restrictionEnd == null) {
+                return "";
+            }
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss");
+            return " 신청 제한 기간(KST): " + restrictionStart.format(formatter)
+                    + " ~ " + restrictionEnd.format(formatter) + " (종료시각 제외)";
+        }
+
         /** 금융·재고·동시성 검증과 별개의 정책상 허용 여부다. */
         public boolean allowed() { return reason == null; }
     }
@@ -141,7 +155,7 @@ public final class RegistrationActionPolicyModels {
         public static OrganizationAddMemberRestrictionReasonResponse fromDecision(Decision decision) {
             if (decision.allowed()) { return null; }
             OrganizationAddMemberRestrictionReason code = OrganizationAddMemberRestrictionReason.valueOf(decision.reason().name());
-            return new OrganizationAddMemberRestrictionReasonResponse(code, code.message());
+            return new OrganizationAddMemberRestrictionReasonResponse(code, code.message() + decision.restrictionPeriodMessage());
         }
     }
 }

@@ -7,11 +7,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyReasons.*;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
+import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorResponse;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventStatus;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.RegistrationActionPolicy;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
+import kr.co.teambrain.marvelrun.user.event.query.dto.response.RegistrationRestrictionReasonResponse;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -42,7 +47,7 @@ class RegistrationActionPolicyEvaluatorTest {
 
     /** 여러 차수의 적용 시작이 겹쳐도 신청일 구간과 작업이 일치하는 정책만 적용한다. */
     @Test void separateStagesAndActions() {
-        List<Policy> policies = List.of(createEnabledRegistrationActionPolicy(Action.MODIFY, start, end),
+        List<RegistrationActionPolicyInput> policies = List.of(createEnabledRegistrationActionPolicy(Action.MODIFY, start, end),
                 createEnabledRegistrationActionPolicy(Action.MODIFY, end, end.plusDays(12)), createEnabledRegistrationActionPolicy(Action.REFUND, start, end));
         ParticipantInput participant = new ParticipantInput(end, false, false);
         assertThat(evaluator.evaluateRegistrationActionPolicy(event, participant, Action.MODIFY, end.plusMonths(1), policies).allowed()).isFalse();
@@ -52,7 +57,7 @@ class RegistrationActionPolicyEvaluatorTest {
 
     /** 미결제 수정·취소 면제와 결제 제한을 구분하고 0원 확정도 보호한다. */
     @Test void unpaidAndConfirmedZeroFeeAreDifferent() {
-        List<Policy> policies = List.of(createEnabledRegistrationActionPolicy(Action.MODIFY, start, end), createEnabledRegistrationActionPolicy(Action.REFUND, start, end), createEnabledRegistrationActionPolicy(Action.PAYMENT, start, end));
+        List<RegistrationActionPolicyInput> policies = List.of(createEnabledRegistrationActionPolicy(Action.MODIFY, start, end), createEnabledRegistrationActionPolicy(Action.REFUND, start, end), createEnabledRegistrationActionPolicy(Action.PAYMENT, start, end));
         ParticipantInput unpaid = new ParticipantInput(start, true, false);
         assertThat(evaluator.evaluateRegistrationUserPolicy(event, unpaid, effective, policies).modifyAllowed()).isTrue();
         assertThat(evaluator.evaluateRegistrationUserPolicy(event, unpaid, effective, policies).refundAllowed()).isFalse();
@@ -74,8 +79,8 @@ class RegistrationActionPolicyEvaluatorTest {
 
     /** 비활성·다른 대회의 정책과 정책 부재는 차단 사유를 만들지 않는다. */
     @Test void inactiveAndOtherEventPoliciesDoNotBlock() {
-        List<Policy> policies = List.of(new Policy("x", "other", Action.MODIFY, start, end, effective, true),
-                new Policy("y", "e", Action.MODIFY, start, end, effective, false));
+        List<RegistrationActionPolicyInput> policies = List.of(new RegistrationActionPolicyInput("x", "other", Action.MODIFY, start, end, effective, true),
+                new RegistrationActionPolicyInput("y", "e", Action.MODIFY, start, end, effective, false));
         assertThat(evaluator.evaluateRegistrationActionPolicy(event, new ParticipantInput(start, false, false),
                 Action.MODIFY, effective, policies).allowed()).isTrue();
         assertThat(evaluator.evaluateRegistrationActionPolicy(event, null, Action.PAYMENT, effective, List.of()).allowed()).isTrue();
@@ -101,15 +106,15 @@ class RegistrationActionPolicyEvaluatorTest {
                         .registrationEndAt(end).effectiveFrom(effective).enabled(true).build();
 
         // 저장된 시각을 변환 없이 보존하며 작업 종류만 판정 enum으로 변환한다.
-        Mockito.when(repository.findAllByEventIdAndEnabledTrueOrderByActionTypeAscRegistrationStartAtAscIdAsc("e"))
+        Mockito.when(repository.findAllByEventIdAndActionTypeAndEnabledTrueOrderByRegistrationStartAtAscIdAsc("e", RegistrationActionType.MODIFY))
                 .thenReturn(List.of(stored));
-        assertThat(service.loadEnabledRegistrationActionPolicies("e"))
-                .containsExactly(new Policy("b36f269a-7aee-4c61-9a05-8ce153f09f1d", "e", Action.MODIFY, start, end, effective, true));
+        assertThat(service.loadEnabledRegistrationActionPolicies("e", RegistrationActionType.MODIFY))
+                .containsExactly(new RegistrationActionPolicyInput("b36f269a-7aee-4c61-9a05-8ce153f09f1d", "e", Action.MODIFY, start, end, effective, true));
 
         // 저장소 오류가 빈 정책으로 처리되어 제한을 우회하지 않는지 확인한다.
-        Mockito.when(repository.findAllByEventIdAndEnabledTrueOrderByActionTypeAscRegistrationStartAtAscIdAsc("e"))
+        Mockito.when(repository.findAllByEventIdAndActionTypeAndEnabledTrueOrderByRegistrationStartAtAscIdAsc("e", RegistrationActionType.MODIFY))
                 .thenThrow(new DataAccessResourceFailureException("test"));
-        assertThatThrownBy(() -> service.loadEnabledRegistrationActionPolicies("e"))
+        assertThatThrownBy(() -> service.loadEnabledRegistrationActionPolicies("e", RegistrationActionType.MODIFY))
                 .isInstanceOf(DataAccessResourceFailureException.class);
     }
 
@@ -117,7 +122,7 @@ class RegistrationActionPolicyEvaluatorTest {
     @Test
     void unpaidMemberDeletionDoesNotExposeRefundOrPaymentFields() {
         ParticipantInput unpaid = new ParticipantInput(start, true, false, true);
-        List<Policy> policies = List.of(createEnabledRegistrationActionPolicy(Action.REFUND, start, end));
+        List<RegistrationActionPolicyInput> policies = List.of(createEnabledRegistrationActionPolicy(Action.REFUND, start, end));
         UserPolicy personal = evaluator.evaluateRegistrationUserPolicy(event, unpaid, effective, policies);
         OrganizationMemberPolicy member = evaluator.evaluateOrganizationMemberPolicy(event, unpaid, effective, policies);
 
@@ -151,7 +156,7 @@ class RegistrationActionPolicyEvaluatorTest {
     /** 완납자의 결제 제한은 신규 인원에게 전파하지 않지만 추가금이 있으면 통합 결제를 막는다. */
     @Test
     void organizationPaymentUsesOnlyOutstandingParticipants() {
-        List<Policy> policies = List.of(createEnabledRegistrationActionPolicy(Action.PAYMENT, start, end));
+        List<RegistrationActionPolicyInput> policies = List.of(createEnabledRegistrationActionPolicy(Action.PAYMENT, start, end));
         ParticipantInput paid = new ParticipantInput(start, false, false, false);
         ParticipantInput laterUnpaid = new ParticipantInput(end, true, false, true);
         ParticipantInput additional = new ParticipantInput(start, false, false, true);
@@ -177,7 +182,7 @@ class RegistrationActionPolicyEvaluatorTest {
     void organizationReasonsAreIndependentOfMemberOrder() {
         ParticipantInput restricted = new ParticipantInput(start, false, false, true);
         ParticipantInput external = new ParticipantInput(end, false, true, true);
-        List<Policy> policies = List.of(createEnabledRegistrationActionPolicy(Action.MODIFY, start, end),
+        List<RegistrationActionPolicyInput> policies = List.of(createEnabledRegistrationActionPolicy(Action.MODIFY, start, end),
                 createEnabledRegistrationActionPolicy(Action.REFUND, start, end),
                 createEnabledRegistrationActionPolicy(Action.PAYMENT, start, end));
         OrganizationPolicy forward = evaluator.evaluateOrganizationUserPolicy(event,
@@ -207,7 +212,7 @@ class RegistrationActionPolicyEvaluatorTest {
     void globalDeadlinePrecedesPeriodForEachOperation() {
         EventInput closed = new EventInput("e", EventStatus.OPEN, start.minusDays(1), effective, effective);
         ParticipantInput paid = new ParticipantInput(start, false, false, true);
-        List<Policy> policies = List.of(createEnabledRegistrationActionPolicy(Action.MODIFY, start, end),
+        List<RegistrationActionPolicyInput> policies = List.of(createEnabledRegistrationActionPolicy(Action.MODIFY, start, end),
                 createEnabledRegistrationActionPolicy(Action.REFUND, start, end),
                 createEnabledRegistrationActionPolicy(Action.PAYMENT, start, end));
         UserPolicy personal = evaluator.evaluateRegistrationUserPolicy(closed, paid, effective, policies);
@@ -223,7 +228,7 @@ class RegistrationActionPolicyEvaluatorTest {
     /** 실제 결제한 구성원은 삭제 시 환불 정책을 적용하며 문구는 삭제 작업으로 제공한다. */
     @Test
     void paidMemberDeletionUsesRefundPolicyAndDeletionMessage() {
-        List<Policy> policies = List.of(createEnabledRegistrationActionPolicy(Action.REFUND, start, end));
+        List<RegistrationActionPolicyInput> policies = List.of(createEnabledRegistrationActionPolicy(Action.REFUND, start, end));
         OrganizationMemberPolicy member = evaluator.evaluateOrganizationMemberPolicy(event,
                 new ParticipantInput(start, false, false), effective, policies);
         assertThat(member.deleteMemberAllowed()).isFalse();
@@ -240,7 +245,7 @@ class RegistrationActionPolicyEvaluatorTest {
     void commandErrorUsesTheSameRepresentativeReasonAsOrganizationDetail() {
         List<ParticipantInput> members = List.of(new ParticipantInput(start, false, false, true),
                 new ParticipantInput(end, false, true, true));
-        List<Policy> policies = List.of(createEnabledRegistrationActionPolicy(Action.PAYMENT, start, end));
+        List<RegistrationActionPolicyInput> policies = List.of(createEnabledRegistrationActionPolicy(Action.PAYMENT, start, end));
         OrganizationPolicy detail = evaluator.evaluateOrganizationUserPolicy(event, members, effective, policies);
         Decision command = evaluator.evaluateRegistrationActionsPolicy(event, members,
                 Action.PAYMENT, effective, policies, true);
@@ -260,19 +265,179 @@ class RegistrationActionPolicyEvaluatorTest {
         RegistrationActionPolicy stored = RegistrationActionPolicy.builder().eventId("e")
                 .actionType(storedAction).registrationStartAt(start).registrationEndAt(end)
                 .effectiveFrom(effective).enabled(true).build();
-        Mockito.when(repository.findAllByEventIdAndEnabledTrueOrderByActionTypeAscRegistrationStartAtAscIdAsc("e"))
+        Mockito.when(repository.findAllByEventIdAndActionTypeAndEnabledTrueOrderByRegistrationStartAtAscIdAsc("e", storedAction))
                 .thenReturn(List.of(stored));
         Action expected = switch (storedAction) {
+            case REGIST -> Action.REGIST;
             case MODIFY -> Action.MODIFY;
             case REFUND -> Action.REFUND;
             case PAYMENT -> Action.PAYMENT;
         };
         assertThat(stored.getActionType()).isEqualTo(storedAction);
-        assertThat(service.loadEnabledRegistrationActionPolicies("e").getFirst().action()).isEqualTo(expected);
+        assertThat(service.loadEnabledRegistrationActionPolicies("e", storedAction).getFirst().action()).isEqualTo(expected);
+    }
+
+    /** REGIST는 신청일 대신 요청시각을 쓰며 시작 포함·종료 제외를 지킨다. */
+    @Test
+    void registrationRestrictionUsesRequestTimeAndPreservesOtherActions() {
+        RegistrationActionPolicyInput restriction = new RegistrationActionPolicyInput("regist", "e", Action.REGIST, start, end, effective, true);
+        assertThat(evaluator.evaluateRegistrationActionPolicy(event, null, Action.REGIST,
+                effective.minusNanos(1), List.of(restriction)).allowed()).isTrue();
+        Decision blocked = evaluator.evaluateRegistrationActionPolicy(event, null, Action.REGIST,
+                effective, List.of(restriction));
+        assertThat(blocked.reason()).isEqualTo(Reason.REGISTRATION_PERIOD_BLOCKED);
+        assertThat(blocked.restrictionStart()).isEqualTo(effective);
+        assertThat(blocked.restrictionEnd()).isEqualTo(end);
+        assertThatThrownBy(() -> RegistrationActionPolicyService.requireRegistrationActionAllowed(blocked, Action.REGIST))
+                .isInstanceOfSatisfying(CustomException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.REGISTRATION_PERIOD_BLOCKED));
+        assertThat(evaluator.evaluateRegistrationActionPolicy(event, null, Action.REGIST,
+                end, List.of(restriction)).allowed()).isTrue();
+
+        // 새 접수 차단을 기존 참가자의 수정·결제·환불·삭제에 전파하지 않는다.
+        ParticipantInput member = new ParticipantInput(start, false, false);
+        for (Action action : List.of(Action.MODIFY, Action.PAYMENT, Action.REFUND, Action.DELETE_MEMBER)) {
+            assertThat(evaluator.evaluateRegistrationActionPolicy(event, member, action,
+                    effective, List.of(restriction)).allowed()).as(action.name()).isTrue();
+        }
+    }
+
+    /** 빈 정책·비활성·다른 대회와 유효 구간 밖 요청은 신규 구간 제한을 만들지 않는다. */
+    @Test
+    void missingOrInapplicableRegistrationPoliciesAllowRequest() {
+        assertThat(evaluator.evaluateRegistrationActionPolicy(event, null, Action.REGIST,
+                effective, List.of()).allowed()).isTrue();
+        List<RegistrationActionPolicyInput> policies = List.of(
+                new RegistrationActionPolicyInput("disabled", "e", Action.REGIST, start, end, start, false),
+                new RegistrationActionPolicyInput("other", "other-event", Action.REGIST, start, end, start, true),
+                new RegistrationActionPolicyInput("future", "e", Action.REGIST, end, end.plusDays(1), end, true),
+                new RegistrationActionPolicyInput("empty", "e", Action.REGIST, start, end, end, true));
+        assertThat(evaluator.evaluateRegistrationActionPolicy(event, null, Action.REGIST,
+                effective, policies).allowed()).isTrue();
+    }
+
+    /** 전역 마감은 REGIST보다 우선하지만 미래 전역 마감의 존재는 REGIST를 생략하지 않는다. */
+    @Test
+    void globalDeadlineTakesPriorityOnlyWhenRequestIsClosed() {
+        RegistrationActionPolicyInput restriction = new RegistrationActionPolicyInput("regist", "e", Action.REGIST, start, end, start, true);
+        EventInput closed = new EventInput("e", EventStatus.OPEN, start.minusDays(1), effective, null);
+        Decision global = evaluator.evaluateRegistrationActionPolicy(closed, null, Action.REGIST,
+                effective, List.of(restriction));
+        assertThat(global.reason()).isEqualTo(Reason.REGISTRATION_CLOSED);
+        assertThat(global.restrictionPeriodMessage()).isEmpty();
+        EventInput open = new EventInput("e", EventStatus.OPEN, start.minusDays(1), end.plusDays(1), null);
+        assertThat(evaluator.evaluateRegistrationActionPolicy(open, null, Action.REGIST,
+                effective, List.of(restriction)).reason()).isEqualTo(Reason.REGISTRATION_PERIOD_BLOCKED);
+    }
+
+    /** 중첩·연속 구간의 끝까지 표시하되 공백 뒤의 구간은 합치지 않는다. */
+    @Test
+    void registrationReasonDisplaysMergedActualKstInterval() {
+        List<RegistrationActionPolicyInput> policies = List.of(
+                new RegistrationActionPolicyInput("later", "e", Action.REGIST, end, end.plusHours(2), end, true),
+                new RegistrationActionPolicyInput("first", "e", Action.REGIST, start, end, effective, true),
+                new RegistrationActionPolicyInput("overlap", "e", Action.REGIST, effective, end.plusHours(1), effective, true),
+                new RegistrationActionPolicyInput("gap", "e", Action.REGIST, end.plusHours(3), end.plusHours(4), end, true));
+        Decision decision = evaluator.evaluateRegistrationActionPolicy(event, null, Action.REGIST, effective, policies);
+        assertThat(decision.restrictionStart()).isEqualTo(effective);
+        assertThat(decision.restrictionEnd()).isEqualTo(end.plusHours(2));
+        assertThat(RegistrationRestrictionReasonResponse.fromDecision(decision).message()).isEqualTo(
+                "현재는 신청이 일시 중단된 기간입니다. 신청 제한 기간(KST): 2026/10/12 17:00:00 ~ 2026/10/13 02:00:00 (종료시각 제외)");
+        OrganizationPolicy organization = evaluator.evaluateOrganizationUserPolicy(event,
+                List.of(new ParticipantInput(start, false, false)), effective, policies);
+        assertThat(organization.addMemberAllowed()).isFalse();
+        assertThat(organization.addMemberReason().message()).contains("구성원을 추가할 수 없습니다.", decision.restrictionPeriodMessage());
+        assertThat(organization.modifyAllowed()).isTrue();
+        assertThat(organization.refundAllowed()).isTrue();
+        assertThat(RegistrationRestrictionReasonResponse.fromDecision(new Decision(null))).isNull();
+    }
+
+    /** 신규 접수 서비스는 전역 차단이면 정책을 조회하지 않고, 허용이면 REGIST만 읽는다. */
+    @Test
+    void registrationServiceLoadsOnlyRegistAfterGlobalValidation() {
+        RegistrationActionPolicyRepository repository = Mockito.mock(RegistrationActionPolicyRepository.class);
+        RegistrationActionPolicyService service = new RegistrationActionPolicyService(repository);
+        Event storedEvent = Event.builder().id("e").eventStatus(EventStatus.OPEN)
+                .registStartDate(start.minusDays(1)).registDeadline(effective).build();
+        assertThat(service.evaluateNewRegistrationPolicy(storedEvent, effective).reason()).isEqualTo(Reason.REGISTRATION_CLOSED);
+        Mockito.verifyNoInteractions(repository);
+
+        Event openEvent = Event.builder().id("e").eventStatus(EventStatus.OPEN)
+                .registStartDate(start.minusDays(1)).registDeadline(end.plusDays(1)).build();
+        Mockito.when(repository.findAllByEventIdAndActionTypeAndEnabledTrueOrderByRegistrationStartAtAscIdAsc(
+                "e", RegistrationActionType.REGIST)).thenReturn(List.of());
+        assertThat(service.evaluateNewRegistrationPolicy(openEvent, effective).allowed()).isTrue();
+        Mockito.verify(repository).findAllByEventIdAndActionTypeAndEnabledTrueOrderByRegistrationStartAtAscIdAsc(
+                "e", RegistrationActionType.REGIST);
+        Mockito.when(repository.findAllByEventIdAndActionTypeAndEnabledTrueOrderByRegistrationStartAtAscIdAsc(
+                "e", RegistrationActionType.REGIST)).thenThrow(new DataAccessResourceFailureException("test"));
+        assertThatThrownBy(() -> service.evaluateNewRegistrationPolicy(openEvent, effective))
+                .isInstanceOf(DataAccessResourceFailureException.class);
+    }
+
+    /** 복수 작업은 필요한 enum 집합을 한 번의 IN 조회에 전달한다. */
+    @Test
+    void policyServiceLoadsRequestedActionsInSingleQuery() {
+        RegistrationActionPolicyRepository repository = Mockito.mock(RegistrationActionPolicyRepository.class);
+        RegistrationActionPolicyService service = new RegistrationActionPolicyService(repository);
+        List<RegistrationActionType> types = List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT);
+        service.loadEnabledRegistrationActionPolicies("e", types);
+        Mockito.verify(repository).findAllByEventIdAndActionTypeInAndEnabledTrueOrderByActionTypeAscRegistrationStartAtAscIdAsc("e", types);
+        Mockito.verifyNoMoreInteractions(repository);
+    }
+
+    /** 신청·구성원 추가의 실제 예외 응답에도 병합된 KST 기간을 전달한다. */
+    @ParameterizedTest
+    @EnumSource(value = Action.class, names = {"REGIST", "ADD_MEMBER"})
+    void registrationCommandResponseIncludesMergedKstPeriod(Action action) {
+        // 적용 시작 보정과 연속 구간 병합, 공백 구간 분리를 함께 검증한다.
+        List<RegistrationActionPolicyInput> policies = List.of(
+                new RegistrationActionPolicyInput("first", "e", Action.REGIST, start, end, effective, true),
+                new RegistrationActionPolicyInput("next", "e", Action.REGIST, end, end.plusHours(2), end, true),
+                new RegistrationActionPolicyInput("gap", "e", Action.REGIST, end.plusHours(3), end.plusHours(4), end, true));
+        Decision decision = evaluator.evaluateRegistrationActionPolicy(event, null, action, effective, policies);
+
+        // 정책 판정부터 업무 예외·HTTP 응답 변환까지 실제 연결을 확인한다.
+        CustomException exception = catchThrowableOfType(
+                () -> RegistrationActionPolicyService.requireRegistrationActionAllowed(decision, action), CustomException.class);
+        assertThat(exception).isNotNull();
+        ResponseEntity<ErrorResponse> response = ErrorResponse.error(exception);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo("REGISTRATION_PERIOD_BLOCKED");
+        assertThat(response.getBody().getMessage()).isEqualTo(
+                "현재는 신청이 일시 중단된 기간입니다. 신청 제한 기간(KST): 2026/10/12 17:00:00 ~ 2026/10/13 02:00:00 (종료시각 제외)");
+        assertThat(response.getBody().getErrors()).isNull();
+
+        // 시작 직전과 종료 정각에는 기간 차단 예외를 발생시키지 않는다.
+        for (LocalDateTime requestTime : List.of(effective.minusNanos(1), end.plusHours(2))) {
+            Decision allowed = evaluator.evaluateRegistrationActionPolicy(event, null, action, requestTime, policies);
+            assertThatCode(() -> RegistrationActionPolicyService.requireRegistrationActionAllowed(allowed, action))
+                    .doesNotThrowAnyException();
+        }
+    }
+
+    /** 수정·환불·결제 구간 오류는 기존 코드와 기본 문구를 유지한다. */
+    @ParameterizedTest
+    @CsvSource({
+            "MODIFY,REGISTRATION_PERIOD_MODIFY,REGISTRATION_MODIFICATION_POLICY_BLOCKED",
+            "REFUND,REGISTRATION_PERIOD_REFUND,REGISTRATION_REFUND_POLICY_BLOCKED",
+            "PAYMENT,REGISTRATION_PERIOD_PAYMENT,REGISTRATION_PAYMENT_POLICY_BLOCKED"
+    })
+    void existingPolicyErrorsKeepDefaultMessages(Action action, Reason reason, ErrorCode code) {
+        // 기존 구간 정책의 업무 예외 변환과 최종 응답을 확인한다.
+        CustomException exception = catchThrowableOfType(
+                () -> RegistrationActionPolicyService.requireRegistrationActionAllowed(new Decision(reason), action), CustomException.class);
+        assertThat(exception).isNotNull();
+        ResponseEntity<ErrorResponse> response = ErrorResponse.error(exception);
+        assertThat(response.getStatusCode()).isEqualTo(code.getHttpStatus());
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo(code.name());
+        assertThat(response.getBody().getMessage()).isEqualTo(code.getMessage());
     }
 
     /** 테스트 정책의 적용 시작을 고정한다. */
-    private Policy createEnabledRegistrationActionPolicy(Action action, LocalDateTime from, LocalDateTime to) {
-        return new Policy(action.name() + from, "e", action, from, to, effective, true);
+    private RegistrationActionPolicyInput createEnabledRegistrationActionPolicy(Action action, LocalDateTime from, LocalDateTime to) {
+        return new RegistrationActionPolicyInput(action.name() + from, "e", action, from, to, effective, true);
     }
 }

@@ -26,7 +26,7 @@ public class RegistrationPaymentQueryResolver {
     public Result resolveRegistrationPaymentGuidance(List<RegistrationQueryData.Member> members,
             List<RegistrationQueryData.Payment> payments, List<RegistrationQueryData.Allocation> allocations,
             List<RegistrationQueryData.Refund> refunds, LocalDateTime deadline, LocalDateTime now,
-            List<RegistrationActionPolicyModels.Policy> policies) {
+            List<RegistrationActionPolicyModels.RegistrationActionPolicyInput> policies) {
         Result result = resolveRegistrationPaymentGuidance(members, payments, allocations, refunds, deadline, now);
         if (result.action() != RegistrationPaymentAction.PREPARE_PAYMENT
                 && result.action() != RegistrationPaymentAction.PREPARE_ADDITIONAL_PAYMENT) { return result; }

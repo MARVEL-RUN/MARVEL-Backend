@@ -156,13 +156,13 @@ class AdminRefundPreparationDatabaseTest {
 
         // 비활성 정책과 다른 대회는 제외하고 원래 KST 값을 유지한다.
         List<RegistrationActionPolicy> policies =
-                actionPolicyRepository.findAllByEventIdAndEnabledTrueOrderByActionTypeAscRegistrationStartAtAscIdAsc(eventId);
+                actionPolicyRepository.findAllByEventIdAndActionTypeInAndEnabledTrueOrderByActionTypeAscRegistrationStartAtAscIdAsc(eventId, List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT));
         assertThat(policies).extracting(RegistrationActionPolicy::getId)
                 .containsExactly(saved.getFirst().getId());
         assertThat(policies.getFirst().getRegistrationStartAt()).isEqualTo(start);
         assertThat(policies.getFirst().getRegistrationEndAt()).isEqualTo(now);
         assertThat(policies.getFirst().getEffectiveFrom()).isEqualTo(now);
-        assertThat(actionPolicyRepository.findAllByEventIdAndEnabledTrueOrderByActionTypeAscRegistrationStartAtAscIdAsc(id())).isEmpty();
+        assertThat(actionPolicyRepository.findAllByEventIdAndActionTypeInAndEnabledTrueOrderByActionTypeAscRegistrationStartAtAscIdAsc(id(), List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT))).isEmpty();
     }
 
     /** 상세 조회에서 외부결제 표시를 보존하고, 종료 대회·마감 조건 중 우선 사유를 반환한다. */

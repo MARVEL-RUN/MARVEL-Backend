@@ -12,6 +12,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.domain.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationApplyValidator;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.OrgRegistrationApplyValidator;
 import kr.co.teambrain.marvelrun.user.event.command.repository.*;
 import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentCreator;
@@ -38,6 +39,7 @@ import static org.mockito.Mockito.*;
 /** 생성 서비스를 통과한 저장값이 해시이며 요청 DTO의 원문은 유지되는지 확인한다. */
 @ExtendWith(MockitoExtension.class)
 class RegistrationPasswordStorageTest {
+    @Mock private RegistrationActionPolicyService actionPolicies;
     @Spy private PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(4);
     @Spy private OrgParticipantPasswordEncoder participantPasswordEncoder =
             new OrgParticipantPasswordEncoder(new BCryptPasswordEncoder(4));

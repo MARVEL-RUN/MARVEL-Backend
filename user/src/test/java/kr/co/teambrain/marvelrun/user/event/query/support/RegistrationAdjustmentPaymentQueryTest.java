@@ -1,4 +1,6 @@
 package kr.co.teambrain.marvelrun.user.event.query.support;
+
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventStatus;
@@ -86,7 +88,7 @@ class RegistrationAdjustmentPaymentQueryTest {
                 "org", "login", "encoded", "단체", "대표자", "1990-01-01", "010-0000-0000",
                 null, "주소", "상세", null, event)));
         when(repository.members("e", "org")).thenReturn(List.of(paid, unpaid));
-        when(policies.loadEnabledRegistrationActionPolicies("e")).thenReturn(List.of(new Policy(
+        when(policies.loadEnabledRegistrationActionPolicies("e", List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT, RegistrationActionType.REGIST))).thenReturn(List.of(new RegistrationActionPolicyInput(
                 "p", "e", Action.PAYMENT, now.minusDays(4), now.minusDays(1), now, true)));
         RegistrationQueryService service = new RegistrationQueryService(encoder, repository, resolver, time, policies);
         OrgRegistrationQueryResponse response = service.findOrganizationRegistrationDetails(
@@ -100,7 +102,7 @@ class RegistrationAdjustmentPaymentQueryTest {
         assertThat(memberPolicy.get("deleteMemberAllowed").asBoolean()).isTrue();
         assertThat(memberPolicy.has("paymentAllowed")).isFalse();
         assertThat(memberPolicy.has("refundAllowed")).isFalse();
-        verify(policies, times(1)).loadEnabledRegistrationActionPolicies("e");
+        verify(policies, times(1)).loadEnabledRegistrationActionPolicies("e", List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT, RegistrationActionType.REGIST));
     }
 
     /** DB 필수값을 갖춘 상세 조회 행을 구성한다. */

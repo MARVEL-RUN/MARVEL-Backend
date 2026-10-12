@@ -13,6 +13,7 @@ public enum ErrorCode {
             "외부 결제로 등록된 신청은 온라인에서 변경·취소·결제할 수 없습니다."
     ),
 
+    REGISTRATION_PERIOD_BLOCKED(HttpStatus.FORBIDDEN, "현재는 신청이 일시 중단된 기간입니다."),
     REGISTRATION_MODIFICATION_POLICY_BLOCKED(HttpStatus.FORBIDDEN,
             "해당 신청일의 정보 수정이 마감되었습니다. 수정이 필요하면 관리자에게 문의해 주세요."),
     REGISTRATION_REFUND_POLICY_BLOCKED(HttpStatus.FORBIDDEN,

@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -69,12 +71,12 @@ public class RegistrationModificationSettlementService {
             List<String> registrationIds,
             LocalDateTime now
     ) {
-        return settleRegistrationModification(eventId, organizationId, registrationIds, now, actionPolicies.loadEnabledRegistrationActionPolicies(eventId));
+        return settleRegistrationModification(eventId, organizationId, registrationIds, now, actionPolicies.loadEnabledRegistrationActionPolicies(eventId, List.of(RegistrationActionType.PAYMENT, RegistrationActionType.REFUND)));
     }
 
     /** 수정 요청에서 읽은 동일 정책과 기준시각으로 무변경 인원을 포함한 정산 대상까지 검증한다. */
     public RegistrationModificationSettlementResult settleRegistrationModification(String eventId, String organizationId,
-            List<String> registrationIds, LocalDateTime now, List<Policy> policies) {
+            List<String> registrationIds, LocalDateTime now, List<RegistrationActionPolicyInput> policies) {
         if (registrationIds == null
                 || registrationIds.isEmpty()
                 || registrationIds.stream().anyMatch(

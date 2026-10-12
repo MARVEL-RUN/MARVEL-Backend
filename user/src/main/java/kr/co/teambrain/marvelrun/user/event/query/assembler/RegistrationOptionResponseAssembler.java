@@ -2,6 +2,8 @@ package kr.co.teambrain.marvelrun.user.event.query.assembler;
 
 
 import kr.co.teambrain.marvelrun.user.event.query.dto.response.RegistrationOptionResponse;
+import kr.co.teambrain.marvelrun.user.event.query.dto.response.RegistrationRestrictionReasonResponse;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels;
 
 import kr.co.teambrain.marvelrun.user.event.query.repository.projection.RegistrationOptionProjection;
 import org.springframework.stereotype.Component;
@@ -12,12 +14,15 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/** 종목·기념품 목록을 접수 허용 여부와 무관하게 보존하여 응답을 조립한다. */
 @Component
 public class RegistrationOptionResponseAssembler {
 
 
+    /** 목록을 모두 조립한 뒤 별도로 계산한 접수 정책 결과를 함께 제공한다. */
     public RegistrationOptionResponse assemble(
-            List<RegistrationOptionProjection> projections
+            List<RegistrationOptionProjection> projections,
+            RegistrationActionPolicyModels.Decision registrationDecision
     ) {
 
         Map<String, CategoryAccumulator> categoryMap =
@@ -66,7 +71,9 @@ public class RegistrationOptionResponseAssembler {
 
 
         return new RegistrationOptionResponse(
-                categories
+                categories,
+                registrationDecision.allowed(),
+                RegistrationRestrictionReasonResponse.fromDecision(registrationDecision)
         );
     }
 

@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.query.service;
 
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -85,7 +87,7 @@ public class RegistrationQueryService {
         if (members.isEmpty()) {
             throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
         }
-        List<Policy> policies = actionPolicies.loadEnabledRegistrationActionPolicies(eventId);
+        List<RegistrationActionPolicyInput> policies = actionPolicies.loadEnabledRegistrationActionPolicies(eventId, List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT));
         Map<String, String> names = souvenirNames(eventId, members);
         List<RegistrationQueryData.Payment> payments = repository.personalPayments(eventId,
                 members.stream().map(RegistrationQueryData.Member::id).toList());
@@ -116,7 +118,7 @@ public class RegistrationQueryService {
     public List<OrgRegistrationQueryResponse> findOrganizationRegistrationDetails(String eventId, OrganizationAccessRequest access) {
         LocalDateTime now = time.currentDateTime();
         List<OrgRegistrationQueryResponse> result = new ArrayList<>();
-        List<Policy> loadedPolicies = null;
+        List<RegistrationActionPolicyInput> loadedPolicies = null;
         for (RegistrationQueryData.Organization org : repository.organizations(eventId, access.loginId())) {
             try {
                 RegistrationAccessVerifier.verifyOrganization(org.loginId(), org.password(), access, passwordEncoder);
@@ -125,8 +127,8 @@ public class RegistrationQueryService {
                 throw exception;
             }
             List<RegistrationQueryData.Member> members = repository.members(eventId, org.id());
-            if (loadedPolicies == null) { loadedPolicies = actionPolicies.loadEnabledRegistrationActionPolicies(eventId); }
-            List<Policy> policies = loadedPolicies;
+            if (loadedPolicies == null) { loadedPolicies = actionPolicies.loadEnabledRegistrationActionPolicies(eventId, List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT, RegistrationActionType.REGIST)); }
+            List<RegistrationActionPolicyInput> policies = loadedPolicies;
             Map<String, String> names = souvenirNames(eventId, members);
             List<RegistrationQueryData.Payment> payments = repository.payments(eventId, org.id(), true);
             List<String> ids = payments.stream().map(RegistrationQueryData.Payment::id).toList();

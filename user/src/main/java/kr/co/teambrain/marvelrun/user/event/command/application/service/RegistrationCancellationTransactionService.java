@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
+
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import jakarta.persistence.EntityManager;
@@ -100,7 +102,7 @@ public class RegistrationCancellationTransactionService {
             return new Prepared(snapshot(members, payments, List.of()), false);
         }
         LocalDateTime now = time.currentDateTime();
-        List<Policy> policies = actionPolicies.loadEnabledRegistrationActionPolicies(event.getId());
+        List<RegistrationActionPolicyInput> policies = actionPolicies.loadEnabledRegistrationActionPolicies(event.getId(), RegistrationActionType.REFUND);
         // 환불 없는 취소 면제를 적용한 뒤 전체 대상에서 대표 정책 사유를 선택한다.
         actionPolicies.validateRegistrationActionsPolicy(event, active, Action.DELETE_MEMBER, now, policies,
                 organizationId != null);

@@ -38,7 +38,7 @@ public abstract class RegistrationActionPolicyBase {
     @Column(name = "action_type", nullable = false, length = 16)
     protected RegistrationActionType actionType;
 
-    // 모든 정책 시각은 KST이며 대상 신청일 종료는 제외한다.
+    // KST 시작 포함·종료 제외. REGIST는 요청시각, 나머지는 기존 신청일과 비교한다.
     @Column(name = "registration_start_at", nullable = false)
     protected LocalDateTime registrationStartAt;
 

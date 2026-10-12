@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.ArrayList;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
@@ -63,7 +64,11 @@ public class RegistrationModificationTransactionService {
         informationValidator.validateInput(request);
         RegistrationModificationAccessContext access = accessValidator.validate(eventId, registrationId, request, now);
         RegistrationModificationClassifier.Change change = classifier.classifyPersonal(access.registration(), request);
-        List<Policy> policies = actionPolicies.loadEnabledRegistrationActionPolicies(eventId);
+        // 개인정보 수정은 MODIFY만, 전체 수정은 후속 결제·환불 정책까지 함께 읽는다.
+        List<RegistrationActionPolicyInput> policies = change == RegistrationModificationClassifier.Change.FULL
+                ? actionPolicies.loadEnabledRegistrationActionPolicies(eventId,
+                        List.of(RegistrationActionType.MODIFY, RegistrationActionType.PAYMENT, RegistrationActionType.REFUND))
+                : actionPolicies.loadEnabledRegistrationActionPolicies(eventId, RegistrationActionType.MODIFY);
         actionPolicies.validateRegistrationActionPolicy(access.event(), access.registration(), Action.MODIFY, now, policies);
         if (change != RegistrationModificationClassifier.Change.FULL) {
             return informationService.modify(access, change);
@@ -102,7 +107,18 @@ public class RegistrationModificationTransactionService {
                 eventId, organizationId, request, now);
         RegistrationModificationClassifier.Change change = classifier.classifyOrganization(
                 access.currentRegistrations(), request);
-        List<Policy> policies = actionPolicies.loadEnabledRegistrationActionPolicies(eventId);
+        // 복합 작업의 정책을 한 번에 읽되 신규 인원이 있을 때만 REGIST를 포함한다.
+        List<RegistrationActionType> actionTypes = new ArrayList<>(List.of(RegistrationActionType.MODIFY));
+        if (change == RegistrationModificationClassifier.Change.FULL) {
+            actionTypes.add(RegistrationActionType.PAYMENT);
+            actionTypes.add(RegistrationActionType.REFUND);
+        }
+        if (request.registrations().stream().anyMatch(member -> member.registrationId() == null)) {
+            actionTypes.add(RegistrationActionType.REGIST);
+        }
+        List<RegistrationActionPolicyInput> policies = actionTypes.size() == 1
+                ? actionPolicies.loadEnabledRegistrationActionPolicies(eventId, actionTypes.getFirst())
+                : actionPolicies.loadEnabledRegistrationActionPolicies(eventId, actionTypes);
         validateOrganizationActions(access, policies);
         if (change != RegistrationModificationClassifier.Change.FULL) {
             return organizationInformationService.modify(access, change);
@@ -131,10 +147,10 @@ public class RegistrationModificationTransactionService {
     }
 
     /** 요청에 실제 포함된 공통정보·인원별 변경·삭제·추가를 서로 독립적으로 검증한다. */
-    private void validateOrganizationActions(OrgRegistrationModificationAccessContext access, List<Policy> policies) {
+    private void validateOrganizationActions(OrgRegistrationModificationAccessContext access, List<RegistrationActionPolicyInput> policies) {
         boolean commonChanged = classifier.organizationProfileChanged(access.organization(), access.request());
         if (access.request().registrations().stream().anyMatch(r -> r.registrationId() == null)) {
-            RegistrationActionPolicyService.validateGlobalRegistrationActionPolicy(access.event(), Action.ADD_MEMBER, access.now());
+            actionPolicies.validateOrganizationMemberAdditionPolicy(access.event(), access.now(), policies);
         }
         // 같은 작업의 대상을 모아 단체 정책 우선순위로 한 번 검증한다.
         List<Registration> modifiedMembers = new ArrayList<>();

@@ -11,6 +11,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Collection;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
 
 /** 요청별 정책 조회와 순수 판정·사용자 업무 예외의 연결을 담당한다. */
 @Service
@@ -20,21 +22,52 @@ public class RegistrationActionPolicyService {
     private final RegistrationActionPolicyEvaluator evaluator = new RegistrationActionPolicyEvaluator();
 
     /** 인증 후 한 번 조회하여 같은 요청의 모든 검증에 전달한다. */
-    public List<Policy> loadEnabledRegistrationActionPolicies(String eventId) {
+    public List<RegistrationActionPolicyInput> loadEnabledRegistrationActionPolicies(String eventId, Collection<RegistrationActionType> actionTypes) {
         // 엔티티 조회 결과를 순수 판정 모델로 변환하여 요청 내에서 재사용한다.
-        return repository.findAllByEventIdAndEnabledTrueOrderByActionTypeAscRegistrationStartAtAscIdAsc(eventId)
+        return repository.findAllByEventIdAndActionTypeInAndEnabledTrueOrderByActionTypeAscRegistrationStartAtAscIdAsc(eventId, actionTypes)
                 .stream().map(this::toRegistrationActionPolicyModel).toList();
     }
 
+    /** 단일 작업 API의 정책을 해당 enum 조건으로만 조회한다. */
+    public List<RegistrationActionPolicyInput> loadEnabledRegistrationActionPolicies(String eventId, RegistrationActionType actionType) {
+        return repository.findAllByEventIdAndActionTypeAndEnabledTrueOrderByRegistrationStartAtAscIdAsc(eventId, actionType)
+                .stream().map(this::toRegistrationActionPolicyModel).toList();
+    }
+
+    /** 전역 조건을 통과한 경우에만 신규 접수 정책을 조회하고 요청시각으로 평가한다. */
+    public Decision evaluateNewRegistrationPolicy(Event event, LocalDateTime now) {
+        // 전역 마감의 존재 여부가 아니라 현재 요청의 통과 여부로 분기한다.
+        EventInput input = event == null ? null : toEventActionPolicyInput(event);
+        Decision global = evaluator.evaluateRegistrationActionPolicy(input, null, Action.REGIST, now, List.of());
+        if (!global.allowed()) { return global; }
+
+        // 정책 행이 없으면 빈 목록으로 평가하고 조회 오류는 호출부로 전파한다.
+        List<RegistrationActionPolicyInput> policies = loadEnabledRegistrationActionPolicies(event.getId(), RegistrationActionType.REGIST);
+        return evaluator.evaluateRegistrationActionPolicy(input, null, Action.REGIST, now, policies);
+    }
+
+    /** 신규 생성 경로에서만 접수 정책을 실제 업무 오류에 연결한다. */
+    public void validateNewRegistrationPolicy(Event event, LocalDateTime now) {
+        requireRegistrationActionAllowed(evaluateNewRegistrationPolicy(event, now), Action.REGIST);
+    }
+
+    /** 복합 수정에서 이미 조회한 정책을 재사용하여 신규 인원 추가를 검증한다. */
+    public void validateOrganizationMemberAdditionPolicy(Event event, LocalDateTime now, List<RegistrationActionPolicyInput> policies) {
+        Decision decision = evaluator.evaluateRegistrationActionPolicy(
+                toEventActionPolicyInput(event), null, Action.ADD_MEMBER, now, policies);
+        requireRegistrationActionAllowed(decision, Action.ADD_MEMBER);
+    }
+
     /** 영속성 구조와 서버 의존성이 없는 판정 입력을 분리한다. */
-    private Policy toRegistrationActionPolicyModel(RegistrationActionPolicy policy) {
+    private RegistrationActionPolicyInput toRegistrationActionPolicyModel(RegistrationActionPolicy policy) {
         // 영속 enum을 각 서버의 판정 작업으로 변환한다. 새 저장 작업 추가 시 switch 누락을 컴파일로 확인한다.
         Action action = switch (policy.getActionType()) {
+            case REGIST -> Action.REGIST;
             case MODIFY -> Action.MODIFY;
             case REFUND -> Action.REFUND;
             case PAYMENT -> Action.PAYMENT;
         };
-        return new Policy(policy.getId(), policy.getEventId(), action,
+        return new RegistrationActionPolicyInput(policy.getId(), policy.getEventId(), action,
                 policy.getRegistrationStartAt(), policy.getRegistrationEndAt(),
                 policy.getEffectiveFrom(), policy.isEnabled());
     }
@@ -63,14 +96,14 @@ public class RegistrationActionPolicyService {
 
     /** 호출부가 조회한 목록을 재사용하여 실제 작업만 검증한다. */
     public void validateRegistrationActionPolicy(Event event, Registration registration, Action action,
-            LocalDateTime now, List<Policy> policies) {
+            LocalDateTime now, List<RegistrationActionPolicyInput> policies) {
         Decision decision = evaluator.evaluateRegistrationActionPolicy(toEventActionPolicyInput(event), toParticipantActionPolicyInput(registration), action, now, policies);
         requireRegistrationActionAllowed(decision, action);
     }
 
     /** 같은 작업의 대상들을 함께 판정하여 구성원 순서와 무관한 대표 사유로 차단한다. */
     public void validateRegistrationActionsPolicy(Event event, List<Registration> registrations, Action action,
-            LocalDateTime now, List<Policy> policies, boolean organizationScope) {
+            LocalDateTime now, List<RegistrationActionPolicyInput> policies, boolean organizationScope) {
         Decision decision = evaluator.evaluateRegistrationActionsPolicy(toEventActionPolicyInput(event),
                 registrations.stream().map(RegistrationActionPolicyService::toParticipantActionPolicyInput).toList(),
                 action, now, policies, organizationScope);
@@ -78,11 +111,11 @@ public class RegistrationActionPolicyService {
     }
 
     /** 정책 결과를 명시적인 상세 응답 값으로 반환한다. */
-    public UserPolicy evaluateRegistrationUserPolicy(Event event, Registration registration, LocalDateTime now, List<Policy> policies) {
+    public UserPolicy evaluateRegistrationUserPolicy(Event event, Registration registration, LocalDateTime now, List<RegistrationActionPolicyInput> policies) {
         return evaluator.evaluateRegistrationUserPolicy(toEventActionPolicyInput(event), toParticipantActionPolicyInput(registration), now, policies);
     }
 
-    /** 작업별 대표 사유를 기존 예외 체계로 변환한다. */
+    /** 대표 사유를 업무 예외로 변환하고 신청 제한의 KST 기간을 공개 메시지에 포함한다. */
     public static void requireRegistrationActionAllowed(Decision decision, Action action) {
         if (decision.allowed()) { return; }
         Reason reason = decision.reason();
@@ -97,7 +130,10 @@ public class RegistrationActionPolicyService {
             case REGISTRATION_PERIOD_MODIFY -> ErrorCode.REGISTRATION_MODIFICATION_POLICY_BLOCKED;
             case REGISTRATION_PERIOD_REFUND -> ErrorCode.REGISTRATION_REFUND_POLICY_BLOCKED;
             case REGISTRATION_PERIOD_PAYMENT -> ErrorCode.REGISTRATION_PAYMENT_POLICY_BLOCKED;
+            case REGISTRATION_PERIOD_BLOCKED -> ErrorCode.REGISTRATION_PERIOD_BLOCKED;
         };
-        throw new CustomException(code);
+        // 신청 제한에만 기간 문구가 있으며 다른 사유는 기존 기본 문구를 유지한다.
+        String responseMessage = code.getMessage() + decision.restrictionPeriodMessage();
+        throw CustomException.withResponseMessage(code, responseMessage);
     }
 }

@@ -1,8 +1,11 @@
 package kr.co.teambrain.marvelrun.user.event.query.service;
 
-
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
+import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import kr.co.teambrain.marvelrun.user.event.query.assembler.RegistrationOptionResponseAssembler;
 import kr.co.teambrain.marvelrun.user.event.query.dto.response.RegistrationOptionResponse;
 import kr.co.teambrain.marvelrun.user.event.query.repository.EventCategorySouvenirQueryRepository;
@@ -12,66 +15,31 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
+/** 종목·기념품 옵션과 현재 요청시각의 신규 접수 정책을 함께 조회한다. */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class EventQueryService {
+    private final EventQueryRepository eventQueryRepository;
+    private final EventCategorySouvenirQueryRepository eventCategorySouvenirQueryRepository;
+    private final RegistrationOptionResponseAssembler registrationOptionResponseAssembler;
+    private final RegistrationActionPolicyService actionPolicies;
+    private final ServerTimeProvider serverTimeProvider;
 
-    private final EventQueryRepository
-            eventQueryRepository;
+    /** 정책 차단을 조회 예외로 처리하지 않고 모든 옵션과 allowed-reason을 반환한다. */
+    public RegistrationOptionResponse getRegistrationOptions(String eventId) {
+        // 존재 확인과 전역 정책 입력 확보를 한 번의 대회 조회로 처리한다.
+        LocalDateTime now = serverTimeProvider.currentDateTime();
+        Event event = eventQueryRepository.findById(eventId)
+                .orElseThrow(() -> new CustomException(ErrorCode.EVENT_NOT_FOUND));
+        RegistrationActionPolicyModels.Decision decision = actionPolicies.evaluateNewRegistrationPolicy(event, now);
 
-    private final EventCategorySouvenirQueryRepository
-            eventCategorySouvenirQueryRepository;
-
-    private final RegistrationOptionResponseAssembler
-            registrationOptionResponseAssembler;
-
-
-    public RegistrationOptionResponse getRegistrationOptions(
-            String eventId
-    ) {
-
-        /*
-         * Event Entity는 필요하지 않다.
-         *
-         * 존재 여부만 필요하므로 existsById 사용.
-         *
-         * 향후 EventVisibilityInterceptor가
-         * 존재 여부까지 확실히 보장한다면
-         * 이 조회는 제거 가능.
-         */
-        if (
-                !eventQueryRepository.existsById(
-                        eventId
-                )
-        ) {
-
-            throw new CustomException(
-                    ErrorCode.EVENT_NOT_FOUND
-            );
-        }
-
-
-        /*
-         * DB 조회 결과는 flat projection.
-         */
+        // 신청 제한 상태라도 기존 종목·기념품 조회와 조립을 정상 수행한다.
         List<RegistrationOptionProjection> projections =
-                eventCategorySouvenirQueryRepository
-                        .findRegistrationOptionsProjectionByEventId(
-                                eventId
-                        );
-
-
-        /*
-         * Projection → API Response 조립은
-         * Assembler 책임.
-         */
-        return registrationOptionResponseAssembler
-                .assemble(
-                        projections
-                );
+                eventCategorySouvenirQueryRepository.findRegistrationOptionsProjectionByEventId(eventId);
+        return registrationOptionResponseAssembler.assemble(projections, decision);
     }
 }
-
