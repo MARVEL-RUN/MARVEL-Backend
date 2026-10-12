@@ -34,7 +34,7 @@ public class ErrorResponse {
         this.errors = null;
     }
 
-    /** 핵심: 민감 코드면 PublicCode로 마스킹, 아니면 기존 ErrorCode 그대로 노출 */
+    /** 민감 오류는 마스킹하고 그 외에는 업무 코드와 명시적인 공개 응답 메시지를 반환한다. */
     public static ResponseEntity<ErrorResponse> error(CustomException e) {
         ErrorCode ec = e.getErrorCode();
 
@@ -54,13 +54,13 @@ public class ErrorResponse {
                             .build());
         }
 
-        // 비민감: 기존 ErrorCode 그대로 노출
+        // 비민감 오류의 코드·상태를 유지하고 공개 응답 메시지를 전달한다.
         return ResponseEntity
                 .status(ec.getHttpStatus())
                 .body(ErrorResponse.builder()
                         .httpStatus(ec.getHttpStatus())
                         .code(ec.name())
-                        .message(ec.getMessage())
+                        .message(e.getResponseMessage())
                         .build());
     }
 }

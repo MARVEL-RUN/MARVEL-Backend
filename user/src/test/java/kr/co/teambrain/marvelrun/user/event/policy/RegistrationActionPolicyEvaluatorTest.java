@@ -7,6 +7,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyReasons.*;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
+import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorResponse;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -381,6 +384,56 @@ class RegistrationActionPolicyEvaluatorTest {
         service.loadEnabledRegistrationActionPolicies("e", types);
         Mockito.verify(repository).findAllByEventIdAndActionTypeInAndEnabledTrueOrderByActionTypeAscRegistrationStartAtAscIdAsc("e", types);
         Mockito.verifyNoMoreInteractions(repository);
+    }
+
+    /** 신청·구성원 추가의 실제 예외 응답에도 병합된 KST 기간을 전달한다. */
+    @ParameterizedTest
+    @EnumSource(value = Action.class, names = {"REGIST", "ADD_MEMBER"})
+    void registrationCommandResponseIncludesMergedKstPeriod(Action action) {
+        // 적용 시작 보정과 연속 구간 병합, 공백 구간 분리를 함께 검증한다.
+        List<RegistrationActionPolicyInput> policies = List.of(
+                new RegistrationActionPolicyInput("first", "e", Action.REGIST, start, end, effective, true),
+                new RegistrationActionPolicyInput("next", "e", Action.REGIST, end, end.plusHours(2), end, true),
+                new RegistrationActionPolicyInput("gap", "e", Action.REGIST, end.plusHours(3), end.plusHours(4), end, true));
+        Decision decision = evaluator.evaluateRegistrationActionPolicy(event, null, action, effective, policies);
+
+        // 정책 판정부터 업무 예외·HTTP 응답 변환까지 실제 연결을 확인한다.
+        CustomException exception = catchThrowableOfType(
+                () -> RegistrationActionPolicyService.requireRegistrationActionAllowed(decision, action), CustomException.class);
+        assertThat(exception).isNotNull();
+        ResponseEntity<ErrorResponse> response = ErrorResponse.error(exception);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo("REGISTRATION_PERIOD_BLOCKED");
+        assertThat(response.getBody().getMessage()).isEqualTo(
+                "현재는 신청이 일시 중단된 기간입니다. 신청 제한 기간(KST): 2026/10/12 17:00:00 ~ 2026/10/13 02:00:00 (종료시각 제외)");
+        assertThat(response.getBody().getErrors()).isNull();
+
+        // 시작 직전과 종료 정각에는 기간 차단 예외를 발생시키지 않는다.
+        for (LocalDateTime requestTime : List.of(effective.minusNanos(1), end.plusHours(2))) {
+            Decision allowed = evaluator.evaluateRegistrationActionPolicy(event, null, action, requestTime, policies);
+            assertThatCode(() -> RegistrationActionPolicyService.requireRegistrationActionAllowed(allowed, action))
+                    .doesNotThrowAnyException();
+        }
+    }
+
+    /** 수정·환불·결제 구간 오류는 기존 코드와 기본 문구를 유지한다. */
+    @ParameterizedTest
+    @CsvSource({
+            "MODIFY,REGISTRATION_PERIOD_MODIFY,REGISTRATION_MODIFICATION_POLICY_BLOCKED",
+            "REFUND,REGISTRATION_PERIOD_REFUND,REGISTRATION_REFUND_POLICY_BLOCKED",
+            "PAYMENT,REGISTRATION_PERIOD_PAYMENT,REGISTRATION_PAYMENT_POLICY_BLOCKED"
+    })
+    void existingPolicyErrorsKeepDefaultMessages(Action action, Reason reason, ErrorCode code) {
+        // 기존 구간 정책의 업무 예외 변환과 최종 응답을 확인한다.
+        CustomException exception = catchThrowableOfType(
+                () -> RegistrationActionPolicyService.requireRegistrationActionAllowed(new Decision(reason), action), CustomException.class);
+        assertThat(exception).isNotNull();
+        ResponseEntity<ErrorResponse> response = ErrorResponse.error(exception);
+        assertThat(response.getStatusCode()).isEqualTo(code.getHttpStatus());
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo(code.name());
+        assertThat(response.getBody().getMessage()).isEqualTo(code.getMessage());
     }
 
     /** 테스트 정책의 적용 시작을 고정한다. */

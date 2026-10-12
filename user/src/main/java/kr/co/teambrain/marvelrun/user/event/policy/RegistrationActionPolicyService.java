@@ -115,7 +115,7 @@ public class RegistrationActionPolicyService {
         return evaluator.evaluateRegistrationUserPolicy(toEventActionPolicyInput(event), toParticipantActionPolicyInput(registration), now, policies);
     }
 
-    /** 작업별 대표 사유를 기존 예외 체계로 변환한다. */
+    /** 대표 사유를 업무 예외로 변환하고 신청 제한의 KST 기간을 공개 메시지에 포함한다. */
     public static void requireRegistrationActionAllowed(Decision decision, Action action) {
         if (decision.allowed()) { return; }
         Reason reason = decision.reason();
@@ -132,6 +132,8 @@ public class RegistrationActionPolicyService {
             case REGISTRATION_PERIOD_PAYMENT -> ErrorCode.REGISTRATION_PAYMENT_POLICY_BLOCKED;
             case REGISTRATION_PERIOD_BLOCKED -> ErrorCode.REGISTRATION_PERIOD_BLOCKED;
         };
-        throw new CustomException(code);
+        // 신청 제한에만 기간 문구가 있으며 다른 사유는 기존 기본 문구를 유지한다.
+        String responseMessage = code.getMessage() + decision.restrictionPeriodMessage();
+        throw CustomException.withResponseMessage(code, responseMessage);
     }
 }
