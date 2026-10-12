@@ -26,6 +26,6 @@ public class RegistrationQueryController {
     public ResponseEntity<List<RegistrationQueryResponse>> lookup(
             @PathVariable("eventId") String eventId, @Valid @RequestBody RegistrationAccessRequest access) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
-                .header("Pragma", "no-cache").body(service.personal(eventId, access));
+                .header("Pragma", "no-cache").body(service.findPersonalRegistrationDetails(eventId, access));
     }
 }

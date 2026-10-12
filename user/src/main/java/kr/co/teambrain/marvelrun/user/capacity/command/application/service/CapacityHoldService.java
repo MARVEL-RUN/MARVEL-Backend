@@ -38,6 +38,7 @@ import java.util.*;
 @RequiredArgsConstructor
 @Transactional(propagation = Propagation.MANDATORY)
 public class CapacityHoldService {
+    private final ReservationHistoryRecorder historyRecorder;
 
     private final CapacityCommandRepository capacityRepository;
     private final ReservationCommandRepository reservationRepository;
@@ -204,7 +205,7 @@ public class CapacityHoldService {
                     now
             );
         } else {
-            saveReservations(plans, now);
+            saveHeldReservations(plans, now);
         }
 
 
@@ -223,7 +224,7 @@ public class CapacityHoldService {
      * Capacity는 연관관계 연결용 참조만 사용하며 카운터를 읽지 않는다.
      * 저장에 실패하면 동일 트랜잭션에서 증가시킨 수량도 함께 롤백된다.
      */
-    private void saveReservations(
+    private void saveHeldReservations(
             List<HoldPlan> plans,
             LocalDateTime now
     ) {
@@ -246,7 +247,7 @@ public class CapacityHoldService {
                             )
                             .toList();
 
-            reservation.appendHistory(
+            historyRecorder.appendReservationHistorySnapshot(reservation, 
                     ReservationHistoryEntry.Action.HOLD,
                     now,
                     null,
@@ -410,7 +411,7 @@ public class CapacityHoldService {
              * prepareReacquisition에서 증가시킨 회차로 기록한다.
              * 실제 확보 UPDATE에 사용한 계획과 동일한 내용을 저장한다.
              */
-            reservation.appendHistory(
+            historyRecorder.appendReservationHistorySnapshot(reservation, 
                     ReservationHistoryEntry.Action.REHOLD,
                     now,
                     null,

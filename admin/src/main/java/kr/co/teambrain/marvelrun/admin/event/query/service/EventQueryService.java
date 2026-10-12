@@ -13,6 +13,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/** 대회 목록과 종목을 조회하며 마감 없는 대회도 표시한다. */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -29,15 +30,16 @@ public class EventQueryService {
         List<Event> events = eventQueryRepository.findAllByOrderByRegistStartDateDesc();
 
         return events.stream()
-                .map(this::convertToDto)
+                .map(this::toEventListResponse)
                 .collect(Collectors.toList());
     }
 
-    private EventListResponse convertToDto(Event event) {
-        // UI 포맷에 맞춰 접수 시작일과 마감일을 'yyyy.MM.dd ~ yyyy.MM.dd' 형태로 문자열 조합[cite: 12, 13]
+    /** 저장된 기간을 표시하고 NULL 마감은 날짜로 변환하지 않는다. */
+    private EventListResponse toEventListResponse(Event event) {
+        // 마감이 없으면 사용자에게 날짜 대신 제한 없음의 의미를 전달한다.
         String registrationPeriod = String.format("%s ~ %s",
                 event.getRegistStartDate().format(DATE_FORMATTER),
-                event.getRegistDeadline().format(DATE_FORMATTER)
+                event.getRegistDeadline() == null ? "마감 없음" : event.getRegistDeadline().format(DATE_FORMATTER)
         );
 
         return EventListResponse.builder()

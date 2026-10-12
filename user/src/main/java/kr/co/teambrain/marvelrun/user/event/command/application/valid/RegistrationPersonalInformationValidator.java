@@ -37,7 +37,7 @@ public class RegistrationPersonalInformationValidator {
      * 종목·기념품·Capacity·결제 정보는 조회하지 않는다.
      */
     public void validate(RegistrationModificationAccessContext access) {
-        policyValidator.validatePeriod(access.event(), access.now());
+        policyValidator.validateRegistrationModificationPeriod(access.event(), access.now());
         policyValidator.validateStatus(access.registration());
         RegistrationModificationRequest request = access.request();
         uniqueInfoValidator.validateOtherActive(access.event().getId(), access.registration().getId(),

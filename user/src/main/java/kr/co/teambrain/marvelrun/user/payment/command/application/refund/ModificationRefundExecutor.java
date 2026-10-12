@@ -44,7 +44,7 @@ public class ModificationRefundExecutor {
                 outcome = TossCancelOutcome.unknown(null, "UNEXPECTED_CANCEL_CALL_FAILURE");
             }
             try {
-                transactions.apply(ticket, outcome);
+                transactions.applyRefundExecutionOutcome(ticket, outcome);
             } catch (RuntimeException failure) {
                 log.error("환불 결과 저장 실패. paymentCancelId={}, errorType={}",
                         refund.paymentCancelId(), failure.getClass().getSimpleName());
@@ -53,7 +53,7 @@ public class ModificationRefundExecutor {
                         outcome.cancellation(), outcome.httpStatus(), "CANCEL_RESULT_SAVE_FAILED",
                         "외부 취소 결과를 DB에 반영하지 못했습니다. 확인 전 재요청할 수 없습니다.");
                 try {
-                    transactions.apply(ticket, unknown);
+                    transactions.applyRefundExecutionOutcome(ticket, unknown);
                 } catch (RuntimeException unknownFailure) {
                     // DB 자체 장애면 PROCESSING이 남아도 후속 금융 변경을 막는다. 성공으로 응답하지 않는다.
                     log.error("환불 결과불명 저장 실패. paymentCancelId={}, errorType={}",

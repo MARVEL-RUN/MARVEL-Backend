@@ -38,6 +38,7 @@ import java.util.TreeMap;
 @RequiredArgsConstructor
 @Transactional(propagation = Propagation.MANDATORY)
 public class CapacityModificationService {
+    private final ReservationHistoryRecorder historyRecorder;
 
     private final CapacityCommandRepository capacityRepository;
     private final ReservationCommandRepository reservationRepository;
@@ -53,7 +54,7 @@ public class CapacityModificationService {
      * 예약별 변경 이력을 먼저 flush하여 @Version 충돌을 확인한다.
      * 이후 실패하면 먼저 저장한 이력과 버전 증가도 함께 롤백된다.
      */
-    public void moveAll(
+    public void moveReservationCapacities(
             String eventId,
             List<CapacityRequirementDiff> diffs,
             LocalDateTime now
@@ -120,7 +121,7 @@ public class CapacityModificationService {
                             ))
                             .toList();
 
-            reservation.appendHistory(
+            historyRecorder.appendReservationHistorySnapshot(reservation, 
                     ReservationHistoryEntry.Action.MODIFY,
                     now,
                     null,

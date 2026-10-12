@@ -15,6 +15,63 @@ class RegistrationReservationHistoryResolverTest {
     private final RegistrationReservationHistoryResolver resolver=new RegistrationReservationHistoryResolver(JsonMapper.builder().findAndAddModules().build());
     private final LocalDateTime time=LocalDateTime.of(2026,10,1,12,0);
 
+    /** 과거 확정 로그가 구형이어도 첫 신규 수정의 확정 상태 before를 실제 근거로 사용한다. */
+    @Test
+    void firstEnrichedModificationPreservesPreviouslyConfirmedSelection() {
+        ReservationHistoryEntry.Snapshot before = new ReservationHistoryEntry.Snapshot("a", "A",
+                List.of(new ReservationHistoryEntry.Selection("s", "티셔츠", "FREE")),
+                BigDecimal.TEN, BigDecimal.TEN, "CONFIRMED");
+        ReservationHistoryEntry.Snapshot after = new ReservationHistoryEntry.Snapshot("b", "B",
+                List.of(new ReservationHistoryEntry.Selection("s", "티셔츠", "L")),
+                new BigDecimal("20"), BigDecimal.TEN, "ADDITIONAL_PAYMENT_REQUIRED");
+        List<ReservationHistoryEntry> entries = new ArrayList<>(initial());
+        entries.add(new ReservationHistoryEntry(ReservationHistoryEntry.Action.MODIFY, 1, time.plusMinutes(2),
+                ReservationStatus.CONSUMED, null, "수정", List.of(),
+                new ReservationHistoryEntry.Detail(1, "change", "USER", "MODIFY", before, after,
+                        false, List.of(), null, List.of())));
+        assertThat(resolve(entries, Map.of()).previous()).isEqualTo(new Selection("A", "티셔츠", "FREE"));
+    }
+
+    /** 신규 스냅샷은 현재 재고 참조 없이 FREE를 보존하고 반복 미정산 수정 전 마지막 확정을 선택한다. */
+    @Test
+    void detailedSnapshotKeepsLatestConfirmedSelectionAcrossRepeatedChanges() throws Exception {
+        ReservationHistoryEntry.Snapshot confirmed = new ReservationHistoryEntry.Snapshot("a", "확정 종목",
+                List.of(new ReservationHistoryEntry.Selection("s", "당시 기념품", "FREE")),
+                BigDecimal.TEN, BigDecimal.TEN, "CONFIRMED");
+        ReservationHistoryEntry.Snapshot pending = new ReservationHistoryEntry.Snapshot("b", "변경 종목",
+                List.of(new ReservationHistoryEntry.Selection("s", "당시 기념품", "L")),
+                new BigDecimal("20"), BigDecimal.TEN, "ADDITIONAL_PAYMENT_REQUIRED");
+        List<ReservationHistoryEntry> entries = List.of(
+                new ReservationHistoryEntry(ReservationHistoryEntry.Action.MODIFY, 1, time, ReservationStatus.CONSUMED,
+                        null, "동액 확정", List.of(), new ReservationHistoryEntry.Detail(1, "change1", "USER",
+                                "NO_BALANCE_CONFIRMED", null, confirmed, true, List.of(), null, List.of())),
+                new ReservationHistoryEntry(ReservationHistoryEntry.Action.MODIFY, 1, time.plusSeconds(1), ReservationStatus.CONSUMED,
+                        null, "변경", List.of(), new ReservationHistoryEntry.Detail(1, "change2", "USER",
+                                "MODIFY", confirmed, pending, false, List.of(), null, List.of())));
+        String json = JsonMapper.builder().findAndAddModules().build().writeValueAsString(entries);
+        RegistrationReservationHistoryResolver.HistoryInput input = resolver.readHistory(json);
+        assertThat(input.error()).isEmpty();
+        HistoryResult result = resolver.resolveRegistrationHistory(input, Map.of(), List.of());
+        assertThat(result.previous()).isEqualTo(new Selection("확정 종목", "당시 기념품", "FREE"));
+        assertThat(result.text()).contains("변경 종목", "정산 확정").doesNotContain("change1", "change2");
+        assertThat(resolver.describeUnclearReservationHistory(input, Map.of(), List.of()).getLast().description())
+                .contains("FREE", "L");
+    }
+
+    /** 선택 사이즈가 실제로 기록되지 않은 상세도 현재값으로 추정하지 않는다. */
+    @Test
+    void detailedSnapshotDoesNotInventMissingSize() {
+        ReservationHistoryEntry.Snapshot missing = new ReservationHistoryEntry.Snapshot("a", "A",
+                List.of(new ReservationHistoryEntry.Selection("s", "기념품", null)), BigDecimal.ZERO, BigDecimal.ZERO, "CONFIRMED");
+        ReservationHistoryEntry entry = new ReservationHistoryEntry(ReservationHistoryEntry.Action.ZERO_AMOUNT_CONFIRMED,
+                1, time, ReservationStatus.CONSUMED, null, "0원", List.of(),
+                new ReservationHistoryEntry.Detail(1, "x", "USER", "ZERO_AMOUNT_CONFIRMED", null, missing, true, List.of(), null, List.of()));
+        HistoryResult result = resolver.resolveRegistrationHistory(
+                new RegistrationReservationHistoryResolver.HistoryInput(List.of(entry), ""), Map.of(), List.of());
+        assertThat(result.previous().sizes()).isEqualTo("판별 불가");
+        assertThat(result.result()).isEqualTo("일부 판별 불가");
+    }
+
     /** 단일 미정산 수정은 명시적으로 확정된 이전 자원 구성과 현재 이력을 구분한다. */
     @Test
     void restoresPreviousCompositionAndDoesNotDoubleCountSouvenirTotals() {

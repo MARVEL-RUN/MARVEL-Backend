@@ -4,6 +4,7 @@ import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationSta
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.math.BigDecimal;
 
 /**
  * 예약에서 발생한 동작 한 건을 기록하는 JSON 저장 객체이다.
@@ -20,7 +21,8 @@ public record ReservationHistoryEntry(
         ReservationStatus status,
         String paymentId,
         String reason,
-        List<Item> items
+        List<Item> items,
+        Detail detail
 ) {
 
     /**
@@ -29,6 +31,31 @@ public record ReservationHistoryEntry(
      */
     public ReservationHistoryEntry {
         items = List.copyOf(items);
+    }
+
+    /** 기존 호출과 과거 JSON은 상세 기록이 없는 형식으로 유지한다. */
+    public ReservationHistoryEntry(Action action, int holdSequence, LocalDateTime occurredAt,
+            ReservationStatus status, String paymentId, String reason, List<Item> items) {
+        this(action, holdSequence, occurredAt, status, paymentId, reason, items, null);
+    }
+
+    /** 당시 선택을 현재 상품 설정과 독립적으로 보존한다. */
+    public record Selection(String souvenirId, String souvenirName, String selectedSize) { }
+
+    /** 개인정보 없이 선택·금액·상태만 보존하는 불변 스냅샷이다. */
+    public record Snapshot(String categoryId, String categoryName, List<Selection> souvenirs,
+            BigDecimal contractAmount, BigDecimal paidAmount, String registrationStatus) {
+        public Snapshot { souvenirs = souvenirs == null ? List.of() : List.copyOf(souvenirs); }
+    }
+
+    /** 상세 버전과 변경·금융 근거를 기록하며 원장을 대체하지 않는다. */
+    public record Detail(int version, String changeId, String source, String eventType,
+            Snapshot before, Snapshot after, boolean financiallyConfirmed,
+            List<String> paymentAllocationIds, String paymentCancelId, List<String> paymentCancelAllocationIds) {
+        public Detail {
+            paymentAllocationIds = paymentAllocationIds == null ? List.of() : List.copyOf(paymentAllocationIds);
+            paymentCancelAllocationIds = paymentCancelAllocationIds == null ? List.of() : List.copyOf(paymentCancelAllocationIds);
+        }
     }
 
     /**

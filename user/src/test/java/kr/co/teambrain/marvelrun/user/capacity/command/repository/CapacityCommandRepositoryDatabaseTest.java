@@ -10,6 +10,7 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -27,6 +28,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Tag("capacity-db")
 @DataJpaTest
 @ActiveProfiles("capacity-test")
+// 다른 DB 테스트와 동일한 환경변수로 접속 대상을 지정하며 스키마를 자동 변경하지 않는다.
+@TestPropertySource(properties = {
+        "spring.datasource.url=${MARVELRUN_TEST_DB_URL}",
+        "spring.datasource.username=${MARVELRUN_TEST_DB_USERNAME}",
+        "spring.datasource.password=${MARVELRUN_TEST_DB_PASSWORD}",
+        "spring.jpa.hibernate.ddl-auto=none",
+        "spring.sql.init.mode=never"
+})
 @AutoConfigureTestDatabase(
         replace = AutoConfigureTestDatabase.Replace.NONE
 )

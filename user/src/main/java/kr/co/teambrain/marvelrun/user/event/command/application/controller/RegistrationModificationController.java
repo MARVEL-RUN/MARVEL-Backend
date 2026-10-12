@@ -26,7 +26,7 @@ public class RegistrationModificationController {
     public ResponseEntity<RegistrationModificationSettlementResult> personal(
             @PathVariable("eventId") String eventId, @PathVariable("registrationId") String registrationId,
             @Valid @RequestBody RegistrationModificationRequest request) {
-        return ResponseEntity.ok(modifications.modifyPersonal(eventId, registrationId, request));
+        return ResponseEntity.ok(modifications.modifyPersonalRegistration(eventId, registrationId, request));
     }
 
     /** 요청의 최종 명단과 DB 기존 명단을 서버에서 비교하여 추가·수정·제거를 일괄 처리한다. */
@@ -34,7 +34,7 @@ public class RegistrationModificationController {
     public ResponseEntity<RegistrationModificationSettlementResult> organization(
             @PathVariable("eventId") String eventId, @PathVariable("organizationId") String organizationId,
             @Valid @RequestBody OrgRegistrationModificationRequest request) {
-        return ResponseEntity.ok(modifications.modifyOrganization(eventId, organizationId, request));
+        return ResponseEntity.ok(modifications.modifyOrganizationRegistration(eventId, organizationId, request));
     }
 
     /** 개인의 실패 주문을 재준비한다. 실제 승인은 기존 공통 승인 API를 사용한다. */

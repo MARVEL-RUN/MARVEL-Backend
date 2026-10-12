@@ -222,4 +222,12 @@ public class Reservation extends ReservationBase<Registration> {
         }
     }
 
+    /** 같은 쓰기 트랜잭션의 마지막 이력에 상세 근거를 연결한다. */
+    public void attachLatestHistoryDetail(ReservationHistoryEntry.Detail detail) {
+        List<ReservationHistoryEntry> entries = new ArrayList<>(history);
+        ReservationHistoryEntry last = entries.getLast();
+        entries.set(entries.size() - 1, new ReservationHistoryEntry(last.action(), last.holdSequence(),
+                last.occurredAt(), last.status(), last.paymentId(), last.reason(), last.items(), detail));
+        history = entries;
+    }
 }

@@ -1,33 +1,74 @@
 package kr.co.teambrain.marvelrun.admin.event.command.application.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import jakarta.validation.Validation;
 import jakarta.validation.ValidatorFactory;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.sql.Timestamp;
+import java.time.*;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import kr.co.teambrain.marvelrun.admin.capacity.command.application.dto.CapacityShortage;
 import kr.co.teambrain.marvelrun.admin.capacity.command.application.service.*;
+import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
+import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
+import kr.co.teambrain.marvelrun.admin.common.exception.GlobalExceptionHandler;
 import kr.co.teambrain.marvelrun.admin.event.command.application.context.OfflineRegistrationContext;
+import kr.co.teambrain.marvelrun.admin.event.command.application.context.RegistrationPolicyContext;
+import kr.co.teambrain.marvelrun.admin.event.command.application.controller.RegistrationCommandController;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.*;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.policy.EventRegistrationPolicy;
 import kr.co.teambrain.marvelrun.admin.event.command.application.dto.*;
 import kr.co.teambrain.marvelrun.admin.event.command.application.excel.OfflineRegistrationExcelReader;
 import kr.co.teambrain.marvelrun.admin.event.command.application.exception.OfflineRegistrationImportException;
 import kr.co.teambrain.marvelrun.admin.event.command.application.valid.*;
 import kr.co.teambrain.marvelrun.admin.event.command.application.valid.loader.RegistrationPolicyLoader;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.*;
-import kr.co.teambrain.marvelrun.admin.event.command.application.domain.*;
-import kr.co.teambrain.marvelrun.admin.common.exception.GlobalExceptionHandler;
-import kr.co.teambrain.marvelrun.admin.event.command.application.controller.RegistrationCommandController;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.PaymentDailyCountRow;
+import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationDailyReportQueryRepository;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
+import kr.co.teambrain.marvelrun.common.json_object.ReservationHistoryEntry;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.AfterEach;
+import org.springframework.test.util.AopTestUtils;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
+import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.jdbc.core.namedparam.SqlParameterSource;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import java.io.ByteArrayOutputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.math.BigDecimal;
-import java.time.*;
-import java.util.*;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
+
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -68,8 +109,8 @@ class OfflineRegistrationImportTest {
     }
 
     /** 결제 CHECK와 decimal(12,2) 범위 안의 양의 원화 정수만 허용한다. */
-    @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.CsvSource({"0,false", "-1,false", "10000000000,false", "1.5,false", "9999999999,true"})
+    @ParameterizedTest
+    @CsvSource({"0,false", "-1,false", "10000000000,false", "1.5,false", "9999999999,true"})
     void validatesMappingAmountAgainstPaymentConstraints(String amount, boolean allowed) throws Exception {
         // 기존 V3의 매핑에서 일반 금액 한 칸만 변경한다.
         Path template = Path.of("../docs/reports/엑셀개인신청양식/v3/마블런2026_현장개인신청양식_V3.xlsx");
@@ -102,7 +143,7 @@ class OfflineRegistrationImportTest {
         List<OfflineRegistrationExcelRow> rows = new ArrayList<>();
         try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {
             workbook.createSheet("매핑").createRow(0).createCell(0).setCellValue("mapping");
-            org.apache.poi.ss.usermodel.Sheet input = workbook.createSheet("입력");
+            Sheet input = workbook.createSheet("입력");
             for (int index = 0; index < 205; index++) {
                 input.createRow(index).createCell(1).setCellValue("20000101");
             }
@@ -135,8 +176,8 @@ class OfflineRegistrationImportTest {
         when(souvenir.getIsActive()).thenReturn(true);
         when(mappings.findAllMappingsByCategoryId("category")).thenReturn(List.of(selected));
         when(loader.load("event", Set.of("category"), Set.of("mapping"))).thenReturn(
-                new kr.co.teambrain.marvelrun.admin.event.command.application.context.RegistrationPolicyContext(
-                        mock(kr.co.teambrain.marvelrun.admin.event.command.application.domain.policy.EventRegistrationPolicy.class),
+                new RegistrationPolicyContext(
+                        mock(EventRegistrationPolicy.class),
                         Map.of(), Map.of("mapping", List.of())));
         Map<String, String> adult = validCells();
         adult.put("B", "20131031");
@@ -271,7 +312,7 @@ class OfflineRegistrationImportTest {
         for (OfflineRegistrationContext context : List.of(context(7, "19900101"), context(8, "20131101"))) {
             BCryptPasswordEncoder encoder = new BCryptPasswordEncoder(4);
             Registration registration = Registration.createOfflinePaidRegistration(mock(Event.class), mock(EventCategory.class),
-                    context, encoder.encode(context.birth().format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)));
+                    context, encoder.encode(context.birth().format(DateTimeFormatter.BASIC_ISO_DATE)));
             Payment payment = Payment.createOfflineCompletedPayment(registration, context.approvedAtUtc());
             assertThat(registration.isExternalPayment()).isTrue();
             assertThat(registration.getTermsMarketingAgreed()).isEqualTo(registration.getTermsMarketingChannelAgreed());
@@ -281,7 +322,7 @@ class OfflineRegistrationImportTest {
             assertThat(payment.getPaymentKey()).isNull();
             assertThat(payment.getReceiptUrl()).isNull();
             assertThat(payment.getTossStatus()).isNull();
-            assertThat(encoder.matches(context.birth().format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE), registration.getPassword())).isTrue();
+            assertThat(encoder.matches(context.birth().format(DateTimeFormatter.BASIC_ISO_DATE), registration.getPassword())).isTrue();
         }
     }
 
@@ -289,9 +330,9 @@ class OfflineRegistrationImportTest {
     @Test
     void rejectsMissingTimestampCorrectionTarget() {
         // 갱신 대상 누락을 모사하고 후속 원장 갱신이 실행되지 않는지 확인한다.
-        org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate jdbc =
-                mock(org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate.class);
-        when(jdbc.batchUpdate(anyString(), any(org.springframework.jdbc.core.namedparam.SqlParameterSource[].class)))
+        NamedParameterJdbcTemplate jdbc =
+                mock(NamedParameterJdbcTemplate.class);
+        when(jdbc.batchUpdate(anyString(), any(SqlParameterSource[].class)))
                 .thenReturn(new int[]{0});
         OfflineRegistrationTimestampRepository repository = new OfflineRegistrationTimestampRepository(jdbc);
 
@@ -299,8 +340,8 @@ class OfflineRegistrationImportTest {
         assertThatThrownBy(() -> repository.correctOfflineRegistrationTimestamps("event", List.of(
                 new OfflineRegistrationTimestampRepository.TimestampTarget("registration", "payment", "reservation",
                         LocalDateTime.of(2026, 10, 3, 0, 0)))))
-                .isInstanceOf(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class);
-        verify(jdbc, times(1)).batchUpdate(anyString(), any(org.springframework.jdbc.core.namedparam.SqlParameterSource[].class));
+                .isInstanceOf(CustomException.class);
+        verify(jdbc, times(1)).batchUpdate(anyString(), any(SqlParameterSource[].class));
     }
 
     /** 실제 V3에서 오류를 발견하면 저장 서비스와 비밀번호 해시 작업을 호출하지 않는다. */
@@ -308,12 +349,12 @@ class OfflineRegistrationImportTest {
     void neverPersistsWorkbookWithRowErrors() throws Exception {
         Path template = Path.of("../docs/reports/엑셀개인신청양식/v3/마블런2026_현장개인신청양식_V3.xlsx");
         MockMultipartFile file;
-        try (java.io.InputStream source = Files.newInputStream(template);
+        try (InputStream source = Files.newInputStream(template);
              XSSFWorkbook workbook = new XSSFWorkbook(source); ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {
-            org.apache.poi.ss.usermodel.Row row = workbook.getSheet("입력").getRow(6);
+            Row row = workbook.getSheet("입력").getRow(6);
             validCells().forEach((column, value) -> {
                 int index = column.charAt(0) - 'A';
-                row.getCell(index, org.apache.poi.ss.usermodel.Row.MissingCellPolicy.CREATE_NULL_AS_BLANK).setCellValue(value);
+                row.getCell(index, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK).setCellValue(value);
             });
             row.getCell(18).setCellValue("246000");
             workbook.write(bytes);
@@ -321,7 +362,7 @@ class OfflineRegistrationImportTest {
         }
         OfflineRegistrationCapacityService capacity = mock(OfflineRegistrationCapacityService.class);
         OfflineRegistrationPersistenceService persistence = mock(OfflineRegistrationPersistenceService.class);
-        org.springframework.security.crypto.password.PasswordEncoder encoder = mock(org.springframework.security.crypto.password.PasswordEncoder.class);
+        PasswordEncoder encoder = mock(PasswordEncoder.class);
         OfflineRegistrationImportService service = new OfflineRegistrationImportService(reader, validator, capacity, persistence, encoder);
         assertThatThrownBy(() -> service.importOfflinePaidRegistrations("marvelrun2026", LocalDate.of(2026, 10, 1), file))
                 .isInstanceOf(OfflineRegistrationImportException.class);
@@ -344,37 +385,38 @@ class OfflineRegistrationImportTest {
     }
 
     /** 별도 승인된 MySQL 테스트 DB에서만 실제 트랜잭션·정원 동시성을 검증한다. */
-    @org.junit.jupiter.api.Nested
-    @org.junit.jupiter.api.Tag("offline-import-db")
-    @org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(named = "MARVELRUN_OFFLINE_DB_TEST", matches = "true")
-    @org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest(showSql = false, properties = {
+    @Nested
+    @Tag("offline-import-db")
+    @EnabledIfEnvironmentVariable(named = "MARVELRUN_OFFLINE_DB_TEST", matches = "true")
+    @DataJpaTest(showSql = false, properties = {
             "spring.datasource.url=${MARVELRUN_TEST_DB_URL}",
             "spring.datasource.username=${MARVELRUN_TEST_DB_USERNAME}",
             "spring.datasource.password=${MARVELRUN_TEST_DB_PASSWORD}",
             "spring.jpa.hibernate.ddl-auto=none", "spring.sql.init.mode=never",
             "spring.flyway.enabled=false", "spring.liquibase.enabled=false"})
-    @org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase(replace = org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace.NONE)
-    @org.springframework.transaction.annotation.Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
-    @org.springframework.context.annotation.Import({OfflineRegistrationPersistenceService.class,
+    @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    // JPA 슬라이스에서도 확보·결제 확정에 필요한 실제 이력 기록 빈을 함께 구성한다.
+    @Import({OfflineRegistrationPersistenceService.class, ReservationHistoryRecorder.class,
             RegistrationCapacityService.class, OfflineRegistrationCapacityService.class, CapacityRequirementResolver.class,
             CapacityHoldService.class, ReservationPaymentService.class, OfflineRegistrationImportValidator.class,
             RegistrationPolicyLoader.class, RegistrationPolicyValidator.class,
             OfflineRegistrationTimestampRepository.class, DatabaseConfiguration.class})
     class DatabaseTransactions {
-        @org.springframework.beans.factory.annotation.Autowired
+        @Autowired
         private OfflineRegistrationPersistenceService persistence;
-        @org.springframework.beans.factory.annotation.Autowired
-        private org.springframework.jdbc.core.JdbcTemplate jdbc;
-        @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+        @Autowired
+        private JdbcTemplate jdbc;
+        @MockitoSpyBean
         private ReservationPaymentService reservationPayments;
-        @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+        @MockitoSpyBean
         private OfflineRegistrationTimestampRepository timestamps;
         private String eventId;
         private String categoryId;
         private String souvenirId;
 
         /** 기존 운영 데이터와 분리된 UUID fixture만 생성한다. */
-        @org.junit.jupiter.api.BeforeEach
+        @BeforeEach
         void createDatabaseFixture() {
             eventId = UUID.randomUUID().toString();
             categoryId = UUID.randomUUID().toString();
@@ -396,7 +438,7 @@ class OfflineRegistrationImportTest {
         }
 
         /** 현재 fixture의 참조 순서대로 제거하며 다른 대회의 데이터는 건드리지 않는다. */
-        @org.junit.jupiter.api.AfterEach
+        @AfterEach
         void removeDatabaseFixture() {
             if (eventId == null) { return; }
             jdbc.update("delete ri from reservation_item ri join reservation rv on rv.id=ri.reservation_id join registration r on r.id=rv.registration_id where r.event_id=?", eventId);
@@ -422,11 +464,11 @@ class OfflineRegistrationImportTest {
             assertThat(jdbc.queryForObject("select count(*) from capacity where event_id=? and held_count=0 and confirmed_count=1", Integer.class, eventId)).isEqualTo(3);
             // 정오 fixture는 UTC와 KST 날짜가 같아 기존 일별 집계 회귀를 함께 확인한다.
             LocalDate approvedDate = result.contexts().getFirst().paidAtKst().toLocalDate();
-            kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationDailyReportQueryRepository report =
-                    new kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationDailyReportQueryRepository(
-                            new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(jdbc));
+            RegistrationDailyReportQueryRepository report =
+                    new RegistrationDailyReportQueryRepository(
+                            new NamedParameterJdbcTemplate(jdbc));
             assertThat(report.findPaymentDailyCounts(eventId, approvedDate.atStartOfDay(), approvedDate.plusDays(1).atStartOfDay()))
-                    .containsExactly(new kr.co.teambrain.marvelrun.admin.event.query.dto.PaymentDailyCountRow(approvedDate, 1));
+                    .containsExactly(new PaymentDailyCountRow(approvedDate, 1));
             assertThatThrownBy(() -> persistence.persistOfflinePaidRegistrations(eventId, databaseInput("participant"), Map.of(7, "encoded"), LocalDateTime.now()))
                     .isInstanceOf(OfflineRegistrationImportException.class);
         }
@@ -449,8 +491,8 @@ class OfflineRegistrationImportTest {
             OfflineRegistrationImportResponse response = persistence.persistOfflinePaidRegistrations(
                     eventId, result, Map.of(7, "encoded", 8, "encoded"), importedAt);
             assertThat(response.savedCount()).isEqualTo(2);
-            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper()
-                    .registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+            ObjectMapper mapper = new ObjectMapper()
+                    .registerModule(new JavaTimeModule());
             for (OfflineRegistrationContext context : result.contexts()) {
                 Map<String, LocalDateTime> row = jdbc.queryForObject("""
                         select r.registration_date,r.terms_agreed_at,r.modified_at,
@@ -477,36 +519,40 @@ class OfflineRegistrationImportTest {
                         select cast(rv.history as char) from reservation rv
                         join registration r on r.id=rv.registration_id where r.event_id=? and r.name=?
                         """, String.class, eventId, context.name());
-                kr.co.teambrain.marvelrun.common.json_object.ReservationHistoryEntry[] history = mapper.readValue(json,
-                        kr.co.teambrain.marvelrun.common.json_object.ReservationHistoryEntry[].class);
-                assertThat(history).extracting(kr.co.teambrain.marvelrun.common.json_object.ReservationHistoryEntry::action)
-                        .containsExactly(kr.co.teambrain.marvelrun.common.json_object.ReservationHistoryEntry.Action.HOLD,
-                                kr.co.teambrain.marvelrun.common.json_object.ReservationHistoryEntry.Action.PAYMENT_CONFIRMED);
-                assertThat(history).extracting(kr.co.teambrain.marvelrun.common.json_object.ReservationHistoryEntry::occurredAt)
+                ReservationHistoryEntry[] history = mapper.readValue(json,
+                        ReservationHistoryEntry[].class);
+                assertThat(history).extracting(ReservationHistoryEntry::action)
+                        .containsExactly(ReservationHistoryEntry.Action.HOLD,
+                                ReservationHistoryEntry.Action.PAYMENT_CONFIRMED);
+                assertThat(history).extracting(ReservationHistoryEntry::occurredAt)
                         .containsOnly(context.paidAtKst());
             }
 
             // 공유 정원의 생성일은 보존하고 갱신일은 실제 업로드 처리시각을 유지한다.
             assertThat(jdbc.queryForList("select id,created_at from capacity where event_id=? order by id", eventId))
                     .isEqualTo(capacityBefore);
-            assertThat(jdbc.queryForList("select updated_at from capacity where event_id=?", java.sql.Timestamp.class, eventId))
+            assertThat(jdbc.queryForList("select updated_at from capacity where event_id=?", Timestamp.class, eventId))
                     .allSatisfy(value -> assertThat(value.toLocalDateTime()).isEqualTo(importedAt));
         }
 
         /** 최종 SQL 보정 이후 실패해도 원장과 정원 변경이 함께 취소된다. */
         @Test
         void rollsBackAllWritesWhenTimestampCorrectionFails() {
+            // 스텁 설정 시 트랜잭션 프록시를 호출하지 않고 내부 Spy에 실패를 주입한다.
+            OfflineRegistrationTimestampRepository timestampSpy = AopTestUtils.getUltimateTargetObject(timestamps);
+
             // 보정 SQL을 실제 실행한 뒤 실패시켜 JDBC와 JPA가 같은 트랜잭션인지 검증한다.
             doAnswer(invocation -> {
                 invocation.callRealMethod();
-                throw new kr.co.teambrain.marvelrun.admin.common.exception.CustomException(
-                        kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode.CONCURRENT_MODIFICATION);
-            }).when(timestamps).correctOfflineRegistrationTimestamps(eq(eventId), anyList());
+                throw new CustomException(
+                        ErrorCode.CONCURRENT_MODIFICATION);
+            }).when(timestampSpy).correctOfflineRegistrationTimestamps(eq(eventId), anyList());
 
             // 이미 flush한 원장과 확정 점유도 커밋되지 않아야 한다.
             assertThatThrownBy(() -> persistence.persistOfflinePaidRegistrations(eventId,
                     databaseInput("timestamp rollback"), Map.of(7, "encoded"), LocalDateTime.now()))
-                    .isInstanceOf(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class);
+                    .isInstanceOf(CustomException.class);
+            verify(timestampSpy).correctOfflineRegistrationTimestamps(eq(eventId), anyList());
             assertThat(jdbc.queryForObject("select count(*) from registration where event_id=?", Integer.class, eventId)).isZero();
             assertThat(jdbc.queryForObject("select sum(held_count+confirmed_count) from capacity where event_id=?", Integer.class, eventId)).isZero();
         }
@@ -514,11 +560,14 @@ class OfflineRegistrationImportTest {
         /** 정원 확보 뒤 발생한 실패도 먼저 flush한 신청과 결제까지 모두 롤백한다. */
         @Test
         void rollsBackAllWritesWhenReservationConfirmationFails() {
-            doThrow(new kr.co.teambrain.marvelrun.admin.common.exception.CustomException(
-                    kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode.RESERVATION_STATE_CONFLICT))
-                    .when(reservationPayments).confirmRegistrationPayments(eq(eventId), anyList(), anyList(), anyList(), any());
+            // 실제 요청은 서비스 프록시를 통과하며 실패 주입만 내부 Spy에 설정한다.
+            ReservationPaymentService reservationPaymentSpy = AopTestUtils.getUltimateTargetObject(reservationPayments);
+            doThrow(new CustomException(
+                    ErrorCode.RESERVATION_STATE_CONFLICT))
+                    .when(reservationPaymentSpy).confirmRegistrationPayments(eq(eventId), anyList(), anyList(), anyList(), any());
             assertThatThrownBy(() -> persistence.persistOfflinePaidRegistrations(eventId, databaseInput("rollback"), Map.of(7, "encoded"), LocalDateTime.now()))
-                    .isInstanceOf(kr.co.teambrain.marvelrun.admin.common.exception.CustomException.class);
+                    .isInstanceOf(CustomException.class);
+            verify(reservationPaymentSpy).confirmRegistrationPayments(eq(eventId), anyList(), anyList(), anyList(), any());
             assertThat(jdbc.queryForObject("select count(*) from registration where event_id=?", Integer.class, eventId)).isZero();
             assertThat(jdbc.queryForObject("select sum(held_count+confirmed_count) from capacity where event_id=?", Integer.class, eventId)).isZero();
         }
@@ -526,10 +575,10 @@ class OfflineRegistrationImportTest {
         /** 마지막 한 자리를 두 트랜잭션이 동시에 신청해도 한 파일만 커밋한다. */
         @Test
         void concurrentImportsCannotExceedCapacity() throws Exception {
-            java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newFixedThreadPool(2);
-            java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+            ExecutorService executor = Executors.newFixedThreadPool(2);
+            CountDownLatch start = new CountDownLatch(1);
             try {
-                List<java.util.concurrent.Future<Boolean>> futures = new ArrayList<>();
+                List<Future<Boolean>> futures = new ArrayList<>();
                 for (String name : List.of("first", "second")) {
                     futures.add(executor.submit(() -> {
                         start.await();
@@ -543,14 +592,14 @@ class OfflineRegistrationImportTest {
                 }
                 start.countDown();
                 int success = 0;
-                for (java.util.concurrent.Future<Boolean> future : futures) {
-                    if (future.get(30, java.util.concurrent.TimeUnit.SECONDS)) { success++; }
+                for (Future<Boolean> future : futures) {
+                    if (future.get(30, TimeUnit.SECONDS)) { success++; }
                 }
                 assertThat(success).isEqualTo(1);
                 assertThat(jdbc.queryForObject("select count(*) from registration where event_id=?", Integer.class, eventId)).isEqualTo(1);
             } finally {
                 executor.shutdownNow();
-                executor.awaitTermination(30, java.util.concurrent.TimeUnit.SECONDS);
+                executor.awaitTermination(30, TimeUnit.SECONDS);
             }
         }
 
@@ -581,12 +630,12 @@ class OfflineRegistrationImportTest {
     }
 
     /** JPA 테스트에서도 입력 형식 검증에 사용할 표준 Validator를 제공한다. */
-    @org.springframework.boot.test.context.TestConfiguration
+    @TestConfiguration
     static class DatabaseConfiguration {
         /** 운영과 같은 Bean Validation 규칙을 제공한다. */
-        @org.springframework.context.annotation.Bean
-        org.springframework.validation.beanvalidation.LocalValidatorFactoryBean offlineValidator() {
-            return new org.springframework.validation.beanvalidation.LocalValidatorFactoryBean();
+        @Bean
+        LocalValidatorFactoryBean offlineValidator() {
+            return new LocalValidatorFactoryBean();
         }
     }
 
@@ -609,7 +658,7 @@ class OfflineRegistrationImportTest {
 
     /** 테스트용 검증 완료 입력을 생성한다. */
     private OfflineRegistrationContext context(int row, String birth) {
-        LocalDate date = LocalDate.parse(birth, java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
+        LocalDate date = LocalDate.parse(birth, DateTimeFormatter.BASIC_ISO_DATE);
         boolean child = !date.isBefore(LocalDate.of(2013, 11, 1));
         return new OfflineRegistrationContext(row, "테스트", date, "01012345678", GenderClass.M,
                 "주소", "없음", "category", List.of(new SouvenirJson("shirt", child ? "130" : "M")),

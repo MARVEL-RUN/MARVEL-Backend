@@ -1,5 +1,12 @@
 package kr.co.teambrain.marvelrun.user.capacity.command.application.service;
 
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.concurrent.*;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
@@ -7,9 +14,9 @@ import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.RegistrationUniqueConstraint;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.OrgRegistrationModificationAccessContext;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult;
-import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrgRegistrationModificationRequest;
-import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrganizationAccessRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.OrgRegistrationModificationParticipantRequest;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrganizationAccessRequest;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrgRegistrationModificationRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.OrgRegistrationCreateResponse;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.*;
@@ -19,18 +26,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.validation.ValidationAutoConfiguration;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.util.AopTestUtils;
-
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.concurrent.*;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -48,7 +49,7 @@ import static org.mockito.Mockito.*;
         RegistrationModificationSettlementService.class, RegistrationModificationTransactionService.class,
         ReservationCapacityDiffService.class, CapacityModificationService.class, ReservationRemovalService.class,
         AdditionalPaymentTargetResolver.class,
-        org.springframework.boot.autoconfigure.validation.ValidationAutoConfiguration.class})
+        ValidationAutoConfiguration.class})
 @TestPropertySource(properties = "spring.jpa.properties.hibernate.session_factory.statement_inspector="
         + "kr.co.teambrain.marvelrun.user.capacity.command.application.service.RegistrationPersonalInformationDatabaseTest$SqlCapture")
 class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupport {
@@ -66,7 +67,7 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
     /** 테스트는 DDL을 실행하지 않으며 목차 2 고유 인덱스가 없으면 명시적으로 실패한다. */
     @BeforeEach
     void requireActiveUniqueConstraint() {
-        assertThat(n("""
+        assertThat(queryIntegerValue("""
                 select count(*) from information_schema.statistics
                 where table_schema = database() and table_name = 'registration'
                   and index_name = 'uk_registration_active_unique_info' and non_unique = 0
@@ -79,7 +80,7 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
     @ParameterizedTest
     @ValueSource(strings = {"READY", "CONFIRMING", "UNKNOWN", "COMPLETED"})
     void preservesGroupResourcesAndSkipsPolicyQueries(String paymentStatus) {
-        OrgRegistrationCreateResponse created = group(categoryA, categoryA);
+        OrgRegistrationCreateResponse created = createOrganizationRegistration(categoryA, categoryA);
         if (paymentStatus.equals("COMPLETED")) {
             mockApprovalSuccess();
             payments.confirm(confirmRequest(created.paymentId()));
@@ -113,7 +114,7 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
         RegistrationModificationSettlementResult result;
         List<String> sql;
         try {
-            result = commands.modifyOrganization(eventId, created.organizationId(), modified);
+            result = commands.modifyOrganizationRegistration(eventId, created.organizationId(), modified);
         } finally {
             sql = RegistrationPersonalInformationDatabaseTest.SqlCapture.end();
         }
@@ -138,7 +139,7 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
     /** 순서만 달라진 NONE 요청은 version·수정시각·주문을 포함하여 아무 행도 변경하지 않는다. */
     @Test
     void unchangedListHasNoWrites() {
-        OrgRegistrationCreateResponse created = group(categoryA, categoryA);
+        OrgRegistrationCreateResponse created = createOrganizationRegistration(categoryA, categoryA);
         OrgRegistrationModificationRequest original = request(created.organizationId());
         OrgRegistrationModificationRequest reordered = new OrgRegistrationModificationRequest(original.guardianConsent(),
                 original.email(),
@@ -154,7 +155,7 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
         RegistrationPersonalInformationDatabaseTest.SqlCapture.begin();
         List<String> sql;
         try {
-            assertThat(commands.modifyOrganization(eventId, created.organizationId(), reordered).orders()).isEmpty();
+            assertThat(commands.modifyOrganizationRegistration(eventId, created.organizationId(), reordered).orders()).isEmpty();
         } finally {
             sql = RegistrationPersonalInformationDatabaseTest.SqlCapture.end();
         }
@@ -167,7 +168,7 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
     /** 모든 구성원 flush 뒤 실패해도 앞 구성원의 개인정보까지 외부 명령 트랜잭션과 함께 롤백한다. */
     @Test
     void failureAfterFlushRollsBackAllMembers() {
-        OrgRegistrationCreateResponse created = group(categoryA, categoryA);
+        OrgRegistrationCreateResponse created = createOrganizationRegistration(categoryA, categoryA);
         OrgRegistrationModificationRequest original = request(created.organizationId());
         OrgRegistrationModificationRequest modified = new OrgRegistrationModificationRequest(original.guardianConsent(),
                 original.email(),
@@ -187,7 +188,7 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
             throw new CustomException(ErrorCode.INVALID_REGISTRATION_MODIFICATION_ARGUMENT);
         }).when(target).modify(any(OrgRegistrationModificationAccessContext.class), any(RegistrationModificationClassifier.Change.class));
         expectError(ErrorCode.INVALID_REGISTRATION_MODIFICATION_ARGUMENT,
-                () -> commands.modifyOrganization(eventId, created.organizationId(), modified));
+                () -> commands.modifyOrganizationRegistration(eventId, created.organizationId(), modified));
         assertThat(members(created.organizationId())).isEqualTo(before);
         assertThat(resources()).isEqualTo(resources);
     }
@@ -196,16 +197,16 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
     @ParameterizedTest
     @ValueSource(strings = {"swap", "final", "external"})
     void duplicateIdentitiesAreRejected(String duplicate) {
-        OrgRegistrationCreateResponse created = group(categoryA, categoryA);
+        OrgRegistrationCreateResponse created = createOrganizationRegistration(categoryA, categoryA);
         OrgRegistrationModificationRequest original = request(created.organizationId());
         OrgRegistrationModificationParticipantRequest a = original.registrations().getFirst();
         OrgRegistrationModificationParticipantRequest b = original.registrations().get(1);
         String firstName = duplicate.equals("swap") ? b.name() : "최종 중복";
         String secondName = duplicate.equals("swap") ? a.name() : "최종 중복";
         if (duplicate.equals("external")) {
-            String externalId = personal(categoryA, "S", "1990-01-01").registrationId();
+            String externalId = createPersonalRegistration(categoryA, "S", "1990-01-01").registrationId();
             firstName = "충돌 없는 정정";
-            secondName = s("select name from registration where id=?", externalId);
+            secondName = queryStringValue("select name from registration where id=?", externalId);
         }
         OrgRegistrationModificationRequest modified = new OrgRegistrationModificationRequest(original.guardianConsent(),
                 original.email(),
@@ -220,7 +221,7 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
         Map<String, Map<String, Object>> before = members(created.organizationId());
         Map<String, List<Map<String, Object>>> resources = resources();
         expectError(ErrorCode.REGISTRATION_ALREADY_EXISTS,
-                () -> commands.modifyOrganization(eventId, created.organizationId(), modified));
+                () -> commands.modifyOrganizationRegistration(eventId, created.organizationId(), modified));
         assertThat(members(created.organizationId())).isEqualTo(before);
         assertThat(resources()).isEqualTo(resources);
     }
@@ -228,7 +229,7 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
     /** Java 문자열 비교를 통과한 DB collation 중복도 고유 제약에서 실패하고 전체 단체를 롤백한다. */
     @Test
     void databaseCollationDuplicateRollsBackWholeGroup() {
-        OrgRegistrationCreateResponse created = group(categoryA, categoryA);
+        OrgRegistrationCreateResponse created = createOrganizationRegistration(categoryA, categoryA);
         OrgRegistrationModificationRequest original = request(created.organizationId());
         OrgRegistrationModificationRequest modified = new OrgRegistrationModificationRequest(original.guardianConsent(),
                 original.email(),
@@ -252,8 +253,8 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
     /** 서로 다른 단체가 사전 중복 조회를 함께 통과해도 같은 정보를 동시에 저장할 수 없다. */
     @Test
     void differentGroupsCannotClaimSameIdentityConcurrently() throws Exception {
-        OrgRegistrationCreateResponse first = group(categoryA);
-        OrgRegistrationCreateResponse second = group(categoryA);
+        OrgRegistrationCreateResponse first = createOrganizationRegistration(categoryA);
+        OrgRegistrationCreateResponse second = createOrganizationRegistration(categoryA);
         OrgRegistrationModificationRequest a = request(first.organizationId());
         OrgRegistrationModificationRequest b = request(second.organizationId());
         OrgRegistrationModificationRequest aRequest = replaceFirst(a, renamed(a.registrations().getFirst(), "경합 이름"));
@@ -282,7 +283,7 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
             executor.shutdownNow();
             assertThat(executor.awaitTermination(15, TimeUnit.SECONDS)).isTrue();
         }
-        assertThat(n("select count(*) from registration where event_id=? and name=? and is_del=0", eventId, "경합 이름")).isEqualTo(1);
+        assertThat(queryIntegerValue("select count(*) from registration where event_id=? and name=? and is_del=0", eventId, "경합 이름")).isEqualTo(1);
         assertThat(resources()).isEqualTo(resources);
     }
 
@@ -290,7 +291,7 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
     @ParameterizedTest
     @ValueSource(strings = {"add", "remove", "category", "birth", "information", "none"})
     void staleRequestPreservesWinningModification(String change) throws Exception {
-        OrgRegistrationCreateResponse created = group(categoryA, categoryA);
+        OrgRegistrationCreateResponse created = createOrganizationRegistration(categoryA, categoryA);
         String orgId = created.organizationId();
         OrgRegistrationModificationRequest original = request(orgId);
         OrgRegistrationModificationParticipantRequest first = original.registrations().getFirst();
@@ -337,7 +338,7 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
         try {
             Future<Throwable> staleResult = executor.submit(() -> attempt(orgId, stale));
             assertThat(classified.await(10, TimeUnit.SECONDS)).isTrue();
-            commands.modifyOrganization(eventId, orgId, winner);
+            commands.modifyOrganizationRegistration(eventId, orgId, winner);
             Map<String, Map<String, Object>> winnerMembers = members(orgId);
             Map<String, List<Map<String, Object>>> winnerResources = resources();
             release.countDown();
@@ -354,7 +355,7 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
     /** 개인정보 보호가 풀리기 전에 전체 요청이 동시 수정 오류로 종료되어 Event와 단체 사이 대기 순환을 만들지 않는다. */
     @Test
     void fullRequestOverlappingProtectedInformationCannotOverwriteIt() throws Exception {
-        OrgRegistrationCreateResponse created = group(categoryA, categoryA);
+        OrgRegistrationCreateResponse created = createOrganizationRegistration(categoryA, categoryA);
         String orgId = created.organizationId();
         OrgRegistrationModificationRequest original = request(orgId);
         OrgRegistrationModificationRequest info = replaceFirst(original, renamed(original.registrations().getFirst(), "보호 중 정정"));
@@ -387,8 +388,8 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
             executor.shutdownNow();
             assertThat(executor.awaitTermination(15, TimeUnit.SECONDS)).isTrue();
         }
-        assertThat(s("select name from registration where id=?", original.registrations().getFirst().registrationId())).isEqualTo("보호 중 정정");
-        assertThat(s("select event_category_id from registration where id=?", original.registrations().getFirst().registrationId())).isEqualTo(categoryA);
+        assertThat(queryStringValue("select name from registration where id=?", original.registrations().getFirst().registrationId())).isEqualTo("보호 중 정정");
+        assertThat(queryStringValue("select event_category_id from registration where id=?", original.registrations().getFirst().registrationId())).isEqualTo(categoryA);
         assertThat(resources()).isEqualTo(beforeResources);
     }
 
@@ -402,13 +403,13 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
                 rs.getString("ph_num"), rs.getString("birth"), GenderClass.valueOf(rs.getString("gender"))), orgId);
 
         return new OrgRegistrationModificationRequest(true,
-                s("select email from organization where id=?", orgId),
-                s("select address from organization where id=?", orgId),
-                s("select address_detail from organization where id=?", orgId),
-                s("select leader_name from organization where id=?", orgId),
-                java.time.LocalDate.parse(s("select leader_birth from organization where id=?", orgId)),
-                s("select leader_ph_num from organization where id=?", orgId),
-                new OrganizationAccessRequest(s("select login_id from organization where id=?", orgId), "Test1234!"),
+                queryStringValue("select email from organization where id=?", orgId),
+                queryStringValue("select address from organization where id=?", orgId),
+                queryStringValue("select address_detail from organization where id=?", orgId),
+                queryStringValue("select leader_name from organization where id=?", orgId),
+                LocalDate.parse(queryStringValue("select leader_birth from organization where id=?", orgId)),
+                queryStringValue("select leader_ph_num from organization where id=?", orgId),
+                new OrganizationAccessRequest(queryStringValue("select login_id from organization where id=?", orgId), "Test1234!"),
                 participants);
     }
 
@@ -444,7 +445,7 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
     /** 실패를 수집하되 예상하지 못한 오류를 성공으로 처리하지 않는다. */
     private Throwable attempt(String orgId, OrgRegistrationModificationRequest request) {
         try {
-            commands.modifyOrganization(eventId, orgId, request);
+            commands.modifyOrganizationRegistration(eventId, orgId, request);
             return null;
         } catch (RuntimeException error) {
             return error;
@@ -462,7 +463,7 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
         Map<String, Map<String, Object>> result = new LinkedHashMap<>();
         for (Map<String, Object> row : jdbc.queryForList("select * from registration where organization_id=? order by id", orgId)) {
             String id = (String) row.get("id");
-            row.put("souvenir_json", s("select cast(souvenir_json as char) from registration where id=?", id));
+            row.put("souvenir_json", queryStringValue("select cast(souvenir_json as char) from registration where id=?", id));
             result.put(id, row);
         }
         return result;

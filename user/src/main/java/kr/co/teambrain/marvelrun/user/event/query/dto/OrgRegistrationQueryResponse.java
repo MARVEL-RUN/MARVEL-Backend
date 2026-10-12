@@ -2,9 +2,10 @@ package kr.co.teambrain.marvelrun.user.event.query.dto;
 
 import java.math.BigDecimal;
 import java.util.List;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_cancel.PaymentCancelStatus;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels;
 
 /** 단체 정보와 현재 구성원 목록, 단체 단위 결제 안내를 한 단계로 제공한다. */
 public record OrgRegistrationQueryResponse(
@@ -16,5 +17,6 @@ public record OrgRegistrationQueryResponse(
         RegistrationStatus registrationStatus,
         PaymentProcessStatus paymentStatus, PaymentCancelStatus refundStatus,
         RegistrationPaymentAction paymentAction, String warningMessage,
-        String paymentId, String orderId
+        String paymentId, String orderId,
+        RegistrationActionPolicyModels.OrganizationPolicy organizationPolicy
 ) { }

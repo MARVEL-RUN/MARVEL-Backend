@@ -21,23 +21,23 @@ class ReservationLifecycleMvpDatabaseTest extends CapacityMvpTestSupport {
      */
     @Test
     void duplicateReleaseDoesNotSubtractTwice() {
-        var result = personal(categoryA, "S", "1990-01-01");
+        var result = createPersonalRegistration(categoryA, "S", "1990-01-01");
         var oldRequest = confirmRequest(result.paymentId());
 
         registrations.releaseReservation(eventId, result.registrationId());
         registrations.releaseReservation(eventId, result.registrationId());
 
-        reservation(result.registrationId(), "RELEASED", 1, 2);
-        counters(total, 0, 0);
-        counters(categoryACapacity, 0, 0);
-        counters(shirtS, 0, 0);
+        assertReservationStateAndHistory(result.registrationId(), "RELEASED", 1, 2);
+        assertCapacityCounts(total, 0, 0);
+        assertCapacityCounts(categoryACapacity, 0, 0);
+        assertCapacityCounts(shirtS, 0, 0);
 
-        assertThat(s(
+        assertThat(queryStringValue(
                 "select process_status from payment where id = ?",
                 result.paymentId()
         )).isEqualTo("INVALIDATED");
 
-        assertThat(n(
+        assertThat(queryIntegerValue(
                 "select count(*) from registration where id = ? and is_del = false",
                 result.registrationId()
         )).isEqualTo(1);
@@ -56,7 +56,7 @@ class ReservationLifecycleMvpDatabaseTest extends CapacityMvpTestSupport {
      */
     @Test
     void partialGroupReleaseAndRepaymentPreserveOtherHolds() {
-        var group = group(categoryA, categoryB);
+        var group = createOrganizationRegistration(categoryA, categoryB);
 
         /*
          * 최초 단체 Payment에는 구성원별 Allocation 2건이 존재한다.
@@ -84,12 +84,12 @@ class ReservationLifecycleMvpDatabaseTest extends CapacityMvpTestSupport {
                 List.of(releasedId)
         );
 
-        reservation(releasedId, "RELEASED", 1, 2);
-        reservation(retainedId, "HELD", 1, 1);
-        counters(total, 1, 0);
-        counters(shirtS, 1, 0);
+        assertReservationStateAndHistory(releasedId, "RELEASED", 1, 2);
+        assertReservationStateAndHistory(retainedId, "HELD", 1, 1);
+        assertCapacityCounts(total, 1, 0);
+        assertCapacityCounts(shirtS, 1, 0);
 
-        assertThat(s(
+        assertThat(queryStringValue(
                 "select process_status from payment where id = ?",
                 group.paymentId()
         )).isEqualTo("INVALIDATED");
@@ -124,16 +124,16 @@ class ReservationLifecycleMvpDatabaseTest extends CapacityMvpTestSupport {
                 )
         ).isEqualTo(2);
 
-        reservation(releasedId, "HELD", 2, 3);
-        reservation(retainedId, "HELD", 1, 1);
+        assertReservationStateAndHistory(releasedId, "HELD", 2, 3);
+        assertReservationStateAndHistory(retainedId, "HELD", 1, 1);
 
         assertThat(itemIds(retainedId))
                 .containsExactlyElementsOf(retainedItems);
 
-        counters(total, 2, 0);
-        counters(categoryACapacity, 1, 0);
-        counters(categoryBCapacity, 1, 0);
-        counters(shirtS, 2, 0);
+        assertCapacityCounts(total, 2, 0);
+        assertCapacityCounts(categoryACapacity, 1, 0);
+        assertCapacityCounts(categoryBCapacity, 1, 0);
+        assertCapacityCounts(shirtS, 2, 0);
 
         assertThat(repayment.paymentId()).isNotEqualTo(group.paymentId());
         assertThat(repayment.paymentAmount()).isEqualByComparingTo("80000");
@@ -147,7 +147,7 @@ class ReservationLifecycleMvpDatabaseTest extends CapacityMvpTestSupport {
     void personalRepaymentReusesReservationAndReplacesItems() {
 
         // ① 최초 신청
-        var original = personal(categoryA, "S", "1990-01-01");
+        var original = createPersonalRegistration(categoryA, "S", "1990-01-01");
 
         /*
          * 최초 신청 Payment에도 Allocation 1건이
@@ -165,7 +165,7 @@ class ReservationLifecycleMvpDatabaseTest extends CapacityMvpTestSupport {
                 )
         ).isEqualByComparingTo("40000");
 
-        String reservationId = s(
+        String reservationId = queryStringValue(
                 "select id from reservation where registration_id = ?",
                 original.registrationId()
         );
@@ -230,19 +230,19 @@ class ReservationLifecycleMvpDatabaseTest extends CapacityMvpTestSupport {
         assertThat(repayment.registrationId()).isEqualTo(original.registrationId());
         assertThat(repayment.paymentId()).isNotEqualTo(original.paymentId());
 
-        assertThat(s(
+        assertThat(queryStringValue(
                 "select id from reservation where registration_id = ?",
                 original.registrationId()
         )).isEqualTo(reservationId);
 
-        reservation(original.registrationId(), "HELD", 2, 3);
+        assertReservationStateAndHistory(original.registrationId(), "HELD", 2, 3);
 
         List<String> newItems = itemIds(original.registrationId());
 
         assertThat(newItems).hasSize(3);
         assertThat(newItems.stream().noneMatch(oldItems::contains)).isTrue();
 
-        assertThat(s(
+        assertThat(queryStringValue(
                 """
                 select json_unquote(json_extract(history, '$[2].action'))
                 from reservation where registration_id = ?
@@ -250,14 +250,14 @@ class ReservationLifecycleMvpDatabaseTest extends CapacityMvpTestSupport {
                 original.registrationId()
         )).isEqualTo("REHOLD");
 
-        assertThat(s(
+        assertThat(queryStringValue(
                 "select process_status from payment where id = ?",
                 repayment.paymentId()
         )).isEqualTo("READY");
 
-        counters(total, 1, 0);
-        counters(categoryACapacity, 1, 0);
-        counters(shirtS, 1, 0);
+        assertCapacityCounts(total, 1, 0);
+        assertCapacityCounts(categoryACapacity, 1, 0);
+        assertCapacityCounts(shirtS, 1, 0);
     }
 
     /**
@@ -266,7 +266,7 @@ class ReservationLifecycleMvpDatabaseTest extends CapacityMvpTestSupport {
      */
     @Test
     void failedReacquisitionDoesNotCreatePaymentOrChangeReservation() {
-        var original = personal(categoryA, "S", "1990-01-01");
+        var original = createPersonalRegistration(categoryA, "S", "1990-01-01");
 
         registrations.releaseReservation(eventId, original.registrationId());
 
@@ -285,24 +285,24 @@ class ReservationLifecycleMvpDatabaseTest extends CapacityMvpTestSupport {
                 )
         );
 
-        reservation(original.registrationId(), "RELEASED", 1, 2);
+        assertReservationStateAndHistory(original.registrationId(), "RELEASED", 1, 2);
 
         assertThat(itemIds(original.registrationId()))
                 .containsExactlyElementsOf(releasedItems);
 
-        assertThat(n(
+        assertThat(queryIntegerValue(
                 "select count(*) from payment where registration_id = ?",
                 original.registrationId()
         )).isEqualTo(1);
 
-        assertThat(s(
+        assertThat(queryStringValue(
                 "select process_status from payment where id = ?",
                 original.paymentId()
         )).isEqualTo("INVALIDATED");
 
-        counters(total, 0, 0);
-        counters(categoryACapacity, 0, 0);
-        counters(shirtS, 0, 0);
+        assertCapacityCounts(total, 0, 0);
+        assertCapacityCounts(categoryACapacity, 0, 0);
+        assertCapacityCounts(shirtS, 0, 0);
 
         verifyNoInteractions(toss);
     }
@@ -315,7 +315,7 @@ class ReservationLifecycleMvpDatabaseTest extends CapacityMvpTestSupport {
      */
     @Test
     void confirmStartAndReleaseCannotBothSucceed() throws Exception {
-        var result = personal(categoryA, "S", "1990-01-01");
+        var result = createPersonalRegistration(categoryA, "S", "1990-01-01");
         var request = confirmRequest(result.paymentId());
 
         CountDownLatch ready = new CountDownLatch(2);
@@ -354,25 +354,25 @@ class ReservationLifecycleMvpDatabaseTest extends CapacityMvpTestSupport {
                     .isTrue();
 
             if (confirmSucceeded) {
-                assertThat(s(
+                assertThat(queryStringValue(
                         "select process_status from payment where id = ?",
                         result.paymentId()
                 )).isEqualTo("CONFIRMING");
 
-                reservation(result.registrationId(), "PROCESSING", 1, 2);
-                counters(total, 1, 0);
-                counters(categoryACapacity, 1, 0);
-                counters(shirtS, 1, 0);
+                assertReservationStateAndHistory(result.registrationId(), "PROCESSING", 1, 2);
+                assertCapacityCounts(total, 1, 0);
+                assertCapacityCounts(categoryACapacity, 1, 0);
+                assertCapacityCounts(shirtS, 1, 0);
             } else {
-                assertThat(s(
+                assertThat(queryStringValue(
                         "select process_status from payment where id = ?",
                         result.paymentId()
                 )).isEqualTo("INVALIDATED");
 
-                reservation(result.registrationId(), "RELEASED", 1, 2);
-                counters(total, 0, 0);
-                counters(categoryACapacity, 0, 0);
-                counters(shirtS, 0, 0);
+                assertReservationStateAndHistory(result.registrationId(), "RELEASED", 1, 2);
+                assertCapacityCounts(total, 0, 0);
+                assertCapacityCounts(categoryACapacity, 0, 0);
+                assertCapacityCounts(shirtS, 0, 0);
             }
 
             verifyNoInteractions(toss);

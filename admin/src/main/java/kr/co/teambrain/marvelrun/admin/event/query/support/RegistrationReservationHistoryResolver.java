@@ -2,13 +2,14 @@ package kr.co.teambrain.marvelrun.admin.event.query.support;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.format.DateTimeFormatter;
+import java.time.LocalDateTime;
+import java.util.*;
+import java.util.stream.Collectors;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.report.RegistrationDeliveryReportModels.*;
 import kr.co.teambrain.marvelrun.common.json_object.ReservationHistoryEntry;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import org.springframework.stereotype.Component;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.*;
 
 /** 예약 이력의 자원 구성을 해석한다. 근거 없는 최근 확정 정보는 추정하지 않는다. */
 @Component
@@ -109,6 +110,10 @@ public class RegistrationReservationHistoryResolver {
             List<PaymentFact> payments, boolean currentConfirmed) {
         if (!input.error().isBlank()) { return unknown(input.error(),input.error()); }
 
+        // 확정 근거가 기록된 새 이력은 당시 선택값을 우선하며 과거 누락값을 보충하지 않는다.
+        HistoryResult detailed = resolveLatestConfirmedSelectionFromHistoryDetails(input.entries(), payments);
+        if (detailed != null) { return detailed; }
+
         // HOLD·REHOLD·MODIFY는 구성 전체이며 결제 동작의 빈 items를 기존 구성으로 덮어쓰지 않는다.
         List<ReservationHistoryEntry> entries = input.entries();
         List<CapacityItem> current = List.of();
@@ -173,6 +178,10 @@ public class RegistrationReservationHistoryResolver {
         // 당시 구성만 표시하고 현재 선택값으로 과거 기록을 채우지 않는다.
         List<ReviewEvent> events = new ArrayList<>();
         for (ReservationHistoryEntry entry : input.entries()) {
+            if (entry.detail() != null) {
+                events.add(new ReviewEvent(entry.occurredAt(), formatReservationHistoryDetail(entry)));
+                continue;
+            }
             boolean matchedApproval = entry.action() == ReservationHistoryEntry.Action.PAYMENT_CONFIRMED
                     && payments.stream().anyMatch(p -> Objects.equals(entry.paymentId(),p.paymentId())
                         && "REGISTRATION_TRY".equals(p.purpose())
@@ -195,7 +204,73 @@ public class RegistrationReservationHistoryResolver {
         return List.copyOf(events);
     }
 
-    /** 자원 목록을 종목·기념품·사이즈로 해석하며 부분 판별 결과를 보존한다. */
+    /** 새 기록의 변경 직전 확정 선택과 정산 완료 선택을 시간순으로 추적한다. */
+    private HistoryResult resolveLatestConfirmedSelectionFromHistoryDetails(List<ReservationHistoryEntry> entries, List<PaymentFact> payments) {
+        ReservationHistoryEntry.Snapshot confirmed = null;
+        boolean unsupported = false;
+        for (ReservationHistoryEntry entry : entries) {
+            ReservationHistoryEntry.Detail detail = entry.detail();
+            if (detail == null) {
+                if (confirmed != null && (entry.action() == ReservationHistoryEntry.Action.MODIFY
+                        || entry.action() == ReservationHistoryEntry.Action.PAYMENT_CONFIRMED
+                        || entry.action() == ReservationHistoryEntry.Action.REHOLD)) { unsupported = true; }
+                continue;
+            }
+            if (detail.version() != 1) { unsupported = true; continue; }
+            if (entry.action() == ReservationHistoryEntry.Action.REHOLD) { confirmed = null; }
+            // 배포 전 확정 신청도 첫 수정 직전 저장한 실제 선택을 확정 근거로 사용할 수 있다.
+            ReservationHistoryEntry.Snapshot before = detail.before();
+            if ("MODIFY".equals(detail.eventType()) && before != null
+                    && "CONFIRMED".equals(before.registrationStatus())
+                    && before.contractAmount() != null && before.paidAmount() != null
+                    && before.contractAmount().compareTo(before.paidAmount()) == 0) {
+                confirmed = before;
+                unsupported = false;
+            }
+            if (detail.financiallyConfirmed() && detail.after() != null) {
+                boolean paymentKnown = !"PAYMENT_APPLIED".equals(detail.eventType())
+                        || payments.stream().anyMatch(p -> Objects.equals(entry.paymentId(), p.paymentId())
+                            && "COMPLETED".equals(p.processStatus()));
+                if (paymentKnown) { confirmed = detail.after(); unsupported = false; }
+                else { unsupported = true; }
+            }
+        }
+        if (confirmed == null && !unsupported) { return null; }
+        String text = entries.stream().map(e -> e.occurredAt().format(TIME) + " "
+                + (e.detail() == null ? actionName(e.action()) : formatReservationHistoryDetail(e)))
+                .collect(Collectors.joining("\n"));
+        if (unsupported) { return unknown("확정 이후 이력 버전·금융 연결 확인 필요", text); }
+        HistoryResult result = interpretRegistrationSelectionSnapshot(confirmed);
+        return new HistoryResult(result.previous(), result.result(), result.reason(), text);
+    }
+
+    /** 선택값이 없으면 판별 불가로 남기고 현재 상품 이름·사이즈로 대체하지 않는다. */
+    private HistoryResult interpretRegistrationSelectionSnapshot(ReservationHistoryEntry.Snapshot snapshot) {
+        if (snapshot == null) { return unknown("선택 스냅샷 누락", ""); }
+        boolean incomplete = snapshot.categoryName() == null || snapshot.souvenirs().isEmpty()
+                || snapshot.souvenirs().stream().anyMatch(s -> s.souvenirName() == null || s.selectedSize() == null);
+        Selection selection = new Selection(Objects.toString(snapshot.categoryName(), "판별 불가"),
+                snapshot.souvenirs().stream().map(s -> Objects.toString(s.souvenirName(), "판별 불가")).collect(Collectors.joining("\n")),
+                snapshot.souvenirs().stream().map(s -> Objects.toString(s.selectedSize(), "판별 불가")).collect(Collectors.joining("\n")));
+        return new HistoryResult(selection, incomplete ? "일부 판별 불가" : "확인 가능",
+                incomplete ? "당시 선택 스냅샷 일부 누락" : "", "");
+    }
+
+    /** 내부 ID를 노출하지 않고 변경 전후 선택 및 금융 확정 여부를 표시한다. */
+    private String formatReservationHistoryDetail(ReservationHistoryEntry entry) {
+        ReservationHistoryEntry.Detail detail = entry.detail();
+        String name = switch (detail.eventType() == null ? "" : detail.eventType()) {
+            case "PAYMENT_APPLIED" -> "결제 금액 반영";
+            case "REFUND_APPLIED" -> "환불 금액 반영";
+            case "NO_BALANCE_CONFIRMED" -> "차액 없는 변경 확정";
+            default -> actionName(entry.action());
+        };
+        String before = detail.before() == null ? "" : describe(interpretRegistrationSelectionSnapshot(detail.before()).previous()) + " → ";
+        String after = detail.after() == null ? "변경 후 정보 확인 필요" : describe(interpretRegistrationSelectionSnapshot(detail.after()).previous());
+        return name + ": " + before + after + (detail.financiallyConfirmed() ? " [정산 확정]" : "");
+    }
+
+    /** 과거 자원 목록은 기존 해석 방식으로 보존한다. */
     private HistoryResult interpret(List<CapacityItem> items, Map<String,CapacityInfo> capacities) {
         List<String> reasons = new ArrayList<>();
         Set<String> categories = new LinkedHashSet<>();

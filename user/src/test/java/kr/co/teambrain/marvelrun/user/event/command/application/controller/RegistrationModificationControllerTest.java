@@ -37,7 +37,7 @@ class RegistrationModificationControllerTest {
     /** 개인 수정 요청은 DB 처리만 하는 서비스가 아닌 환불까지 연결하는 facade로 전달한다. */
     @Test
     void personalModificationReturnsSingleOrder() throws Exception {
-        when(modifications.modifyPersonal(eq("event"), eq("registration"), any())).thenReturn(result());
+        when(modifications.modifyPersonalRegistration(eq("event"), eq("registration"), any())).thenReturn(result());
         mvc.perform(patch("/v1/public/events/event/registrations/registration")
                 .contentType(MediaType.APPLICATION_JSON).content("""
                 {"access":{"name":"참가자","birth":"1990-01-01","phNum":"010-1234-5678","password":"test"},
@@ -46,14 +46,14 @@ class RegistrationModificationControllerTest {
                 """))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.orders.length()").value(1))
                 .andExpect(jsonPath("$.orders[0].amount").value(60000));
-        verify(modifications).modifyPersonal(eq("event"), eq("registration"), any(RegistrationModificationRequest.class));
+        verify(modifications).modifyPersonalRegistration(eq("event"), eq("registration"), any(RegistrationModificationRequest.class));
         verifyNoInteractions(retries);
     }
 
     /** 단체는 구 명단이나 계산 금액 없이 최종 명단 하나만 받아 기존 서버 검증으로 전달한다. */
     @Test
     void organizationAcceptsOnlyDesiredFinalList() throws Exception {
-        when(modifications.modifyOrganization(eq("event"), eq("org"), any())).thenReturn(result());
+        when(modifications.modifyOrganizationRegistration(eq("event"), eq("org"), any())).thenReturn(result());
         mvc.perform(patch("/v1/public/events/event/organizations/org/registrations")
                 .contentType(MediaType.APPLICATION_JSON).content("""
                 {"email":"test@example.com","address":"테스트 주소","addressDetail":"상세",
@@ -68,7 +68,7 @@ class RegistrationModificationControllerTest {
                 """))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.orders.length()").value(1));
         ArgumentCaptor<OrgRegistrationModificationRequest> captured = ArgumentCaptor.forClass(OrgRegistrationModificationRequest.class);
-        verify(modifications).modifyOrganization(eq("event"), eq("org"), captured.capture());
+        verify(modifications).modifyOrganizationRegistration(eq("event"), eq("org"), captured.capture());
         assertThat(captured.getValue().registrations()).hasSize(2);
         assertThat(captured.getValue().registrations().get(0).registrationId()).isEqualTo("existing");
         assertThat(captured.getValue().registrations().get(1).registrationId()).isNull();
