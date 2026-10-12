@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.admin.event.query.service;
 
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
+
 import java.math.BigDecimal;
 import java.time.format.DateTimeFormatter;
 import java.time.LocalDate;
@@ -220,7 +222,7 @@ public class RegistrationQueryService {
                 ? payment.getPaymentMethod().name() : "-";
 
         return RegistrationDetailResponse.builder()
-                .userPolicy(actionPolicies.evaluateRegistrationUserPolicy(registration, policyTime.currentDateTime(), actionPolicies.loadEnabledRegistrationActionPolicies(registration.getEvent().getId())))
+                .userPolicy(actionPolicies.evaluateRegistrationUserPolicy(registration, policyTime.currentDateTime(), actionPolicies.loadEnabledRegistrationActionPolicies(registration.getEvent().getId(), List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT))))
                 .externalPayment(registration.isExternalPayment())
                 .name(registration.getName())
                 .orgName(orgName)

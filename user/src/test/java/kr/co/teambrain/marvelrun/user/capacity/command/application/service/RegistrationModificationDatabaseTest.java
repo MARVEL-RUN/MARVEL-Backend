@@ -113,14 +113,82 @@ class RegistrationModificationDatabaseTest
 
         // 엔티티 컬럼 매핑과 파생 메서드 조건을 실제 조회 결과로 검증한다.
         List<RegistrationActionPolicy> policies =
-                actionPolicyRepository.findAllByEventIdAndEnabledTrueOrderByActionTypeAscRegistrationStartAtAscIdAsc(eventId);
+                actionPolicyRepository.findAllByEventIdAndActionTypeInAndEnabledTrueOrderByActionTypeAscRegistrationStartAtAscIdAsc(eventId, List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT));
         assertThat(policies).extracting(RegistrationActionPolicy::getId)
                 .containsExactly(saved.get(1).getId(), saved.getFirst().getId());
         assertThat(policies.getFirst().getRegistrationStartAt()).isEqualTo(start);
         assertThat(policies.getFirst().getRegistrationEndAt()).isEqualTo(NOW);
         assertThat(policies.getFirst().getEffectiveFrom()).isEqualTo(NOW);
-        assertThat(actionPolicyRepository.findAllByEventIdAndEnabledTrueOrderByActionTypeAscRegistrationStartAtAscIdAsc(UUID.randomUUID().toString()))
+        assertThat(actionPolicyRepository.findAllByEventIdAndActionTypeInAndEnabledTrueOrderByActionTypeAscRegistrationStartAtAscIdAsc(UUID.randomUUID().toString(), List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT)))
                 .isEmpty();
+    }
+
+    /** 실제 JPA가 REGIST만 지정한 조회와 복수 작업 조회를 서로 분리한다. */
+    @Test
+    void actionPolicyRepositorySeparatesRegistrationRestriction() {
+        insertActionPolicy("REGIST");
+        insertActionPolicy("MODIFY");
+        insertActionPolicy("PAYMENT");
+        assertThat(actionPolicyRepository.findAllByEventIdAndActionTypeAndEnabledTrueOrderByRegistrationStartAtAscIdAsc(
+                eventId, RegistrationActionType.REGIST))
+                .extracting(RegistrationActionPolicy::getActionType).containsExactly(RegistrationActionType.REGIST);
+        assertThat(actionPolicyRepository.findAllByEventIdAndActionTypeInAndEnabledTrueOrderByActionTypeAscRegistrationStartAtAscIdAsc(
+                eventId, List.of(RegistrationActionType.MODIFY, RegistrationActionType.PAYMENT)))
+                .extracting(RegistrationActionPolicy::getActionType)
+                .containsExactly(RegistrationActionType.MODIFY, RegistrationActionType.PAYMENT);
+    }
+
+    /** 신규 개인·단체 접수 차단 시 신청·예약·결제 데이터가 남지 않는다. */
+    @Test
+    void registrationRestrictionBlocksPersonalAndOrganizationCreationWithoutWrites() {
+        insertActionPolicy("REGIST");
+        Map<String, List<Map<String, Object>>> before = captureRegistrationModificationState();
+        clearInvocations(toss);
+        expectError(ErrorCode.REGISTRATION_PERIOD_BLOCKED,
+                () -> createPersonalRegistration(categoryA, "S", "1990-01-01"));
+        expectError(ErrorCode.REGISTRATION_PERIOD_BLOCKED,
+                () -> createOrganizationRegistration(categoryA));
+        assertThat(captureRegistrationModificationState()).isEqualTo(before);
+        verifyNoInteractions(toss);
+    }
+
+    /** REGIST만 활성화해도 신규 인원이 포함된 복합 수정은 전체 차단한다. */
+    @Test
+    void registrationRestrictionBlocksMemberAdditionWithoutPartialChanges() {
+        OrgRegistrationCreateResponse original = createOrganizationRegistration(categoryA);
+        insertActionPolicy("REGIST");
+        Map<String, List<Map<String, Object>>> before = captureRegistrationModificationState();
+        clearInvocations(toss);
+        expectError(ErrorCode.REGISTRATION_PERIOD_BLOCKED,
+                () -> modifications.modifyOrganizationRegistration(eventId, original.organizationId(),
+                        groupRequest(original.organizationId(), original.registrationIds().getFirst())));
+        assertThat(captureRegistrationModificationState()).isEqualTo(before);
+        verifyNoInteractions(toss);
+    }
+
+    /** 신규 접수 제한 중에도 기존 신청 수정과 그에 따른 결제 정산은 유지한다. */
+    @Test
+    void registrationRestrictionDoesNotBlockExistingPersonalModification() {
+        RegistrationCreateResponse original = createPersonalRegistration(categoryA, "S", "1990-01-01");
+        insertActionPolicy("REGIST");
+        modifications.modifyPersonalRegistration(eventId, original.registrationId(),
+                personalRequest(original.registrationId(), categoryB, "M"));
+        assertThat(queryStringValue("select event_category_id from registration where id=?", original.registrationId()))
+                .isEqualTo(categoryB);
+    }
+
+    /** 신규 인원이 없는 기존 단체 수정에는 REGIST를 적용하지 않는다. */
+    @Test
+    void registrationRestrictionAllowsOrganizationModificationWithoutNewMembers() {
+        OrgRegistrationCreateResponse original = createOrganizationRegistration(categoryA);
+        String memberId = original.registrationIds().getFirst();
+        insertActionPolicy("REGIST");
+        OrgRegistrationModificationRequest template = groupRequest(original.organizationId(), memberId);
+        modifications.modifyOrganizationRegistration(eventId, original.organizationId(),
+                new OrgRegistrationModificationRequest(template.guardianConsent(), template.email(),
+                        template.address(), template.addressDetail(), template.leaderName(), template.leaderBirth(),
+                        template.leaderPhNum(), template.access(), List.of(template.registrations().getFirst())));
+        assertThat(queryStringValue("select event_category_id from registration where id=?", memberId)).isEqualTo(categoryB);
     }
 
     /** 수정 제한 대상은 실제 신청·예약·원장 변경 및 PG 호출 없이 차단한다. */

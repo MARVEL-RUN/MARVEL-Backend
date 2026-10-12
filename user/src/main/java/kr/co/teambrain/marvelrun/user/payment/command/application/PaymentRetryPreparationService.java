@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.payment.command.application;
 
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
+
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels.*;
 
@@ -101,7 +103,7 @@ public class PaymentRetryPreparationService {
         LocalDateTime now = time.currentDateTime();
         policyValidator.validateForPurpose(event, now, original.getPurpose());
         List<String> initialIds = support.validateForPreparation(original, originalAllocations);
-        List<Policy> policies = actionPolicies.loadEnabledRegistrationActionPolicies(event.getId());
+        List<RegistrationActionPolicyInput> policies = actionPolicies.loadEnabledRegistrationActionPolicies(event.getId(), RegistrationActionType.PAYMENT);
         // 기존 주문의 귀속 전체에서 정책 대표 사유를 선택한다.
         actionPolicies.validateRegistrationActionsPolicy(event,
                 originalAllocations.stream().map(PaymentAllocation::getRegistration).toList(),

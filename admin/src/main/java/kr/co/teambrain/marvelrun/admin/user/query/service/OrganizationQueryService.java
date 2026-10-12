@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.admin.user.query.service;
 
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
+
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -90,7 +92,7 @@ public class OrganizationQueryService {
                 .orElseThrow(() -> new CustomException(ErrorCode.ORGANIZATION_NOT_FOUND));
 
         LocalDateTime now = policyTime.currentDateTime();
-        List<RegistrationActionPolicyModels.Policy> policies = actionPolicies.loadEnabledRegistrationActionPolicies(organization.getEvent().getId());
+        List<RegistrationActionPolicyModels.RegistrationActionPolicyInput> policies = actionPolicies.loadEnabledRegistrationActionPolicies(organization.getEvent().getId(), List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT, RegistrationActionType.REGIST));
         String email = organization.getEmail();
 
         // 2. 소속된 신청자 목록 조회 (삭제된 인원 제외)

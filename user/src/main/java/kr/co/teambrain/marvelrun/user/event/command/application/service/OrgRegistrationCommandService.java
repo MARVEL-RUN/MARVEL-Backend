@@ -1,6 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
+import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import java.nio.charset.StandardCharsets;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
@@ -52,6 +53,7 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class OrgRegistrationCommandService {
+    private final RegistrationActionPolicyService actionPolicies;
     private final PasswordEncoder passwordEncoder;
     private final OrgParticipantPasswordEncoder participantPasswordEncoder;
 
@@ -124,6 +126,10 @@ public class OrgRegistrationCommandService {
                 );
 
         Event event = context.event();
+
+        // 신규 생성에만 접수 차단 구간을 적용하고 기존 신청 재처리에는 전파하지 않는다.
+        actionPolicies.validateNewRegistrationPolicy(event, now);
+
 
         String rawPassword = request.account().organizationPassword();
         if (rawPassword.getBytes(StandardCharsets.UTF_8).length > 72) {

@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.payment.command.application;
 
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
+
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.math.BigDecimal;
@@ -114,7 +116,7 @@ public class AdditionalPaymentPreparationService {
         if (registrations.isEmpty()) { throw new CustomException(ErrorCode.PAYMENT_NOT_CONFIRMABLE, " 추가 납부할 금액이 없습니다."); }
         LocalDateTime now = time.currentDateTime();
         Event event = registrations.getFirst().getEvent();
-        List<Policy> policies = actionPolicies.loadEnabledRegistrationActionPolicies(event.getId());
+        List<RegistrationActionPolicyInput> policies = actionPolicies.loadEnabledRegistrationActionPolicies(event.getId(), RegistrationActionType.PAYMENT);
         // 실제 추가결제 귀속 전체에 같은 대표 사유 우선순위를 적용한다.
         actionPolicies.validateRegistrationActionsPolicy(event, registrations, Action.PAYMENT, now, policies,
                 organization != null);

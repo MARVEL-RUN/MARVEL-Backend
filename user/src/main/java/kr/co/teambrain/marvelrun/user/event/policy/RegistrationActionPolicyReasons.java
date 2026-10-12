@@ -181,7 +181,8 @@ public final class RegistrationActionPolicyReasons {
         CONFIGURATION_INVALID(10, "구성원 추가 가능 여부를 확인할 수 없습니다. 필요 시 관리자에게 문의해 주세요."),
         EVENT_NOT_OPEN(30, "현재 대회 상태에서는 구성원을 추가할 수 없습니다."),
         REGISTRATION_NOT_STARTED(40, "신청 시작 전에는 구성원을 추가할 수 없습니다."),
-        REGISTRATION_CLOSED(50, "신청 기한이 마감되어 구성원을 추가할 수 없습니다.");
+        REGISTRATION_CLOSED(50, "신청 기한이 마감되어 구성원을 추가할 수 없습니다."),
+        REGISTRATION_PERIOD_BLOCKED(60, "현재는 신청이 일시 중단된 기간이므로 구성원을 추가할 수 없습니다.");
 
         private final int priority;
         private final String message;
@@ -199,4 +200,3 @@ public final class RegistrationActionPolicyReasons {
         public String message() { return message; }
     }
 }
-

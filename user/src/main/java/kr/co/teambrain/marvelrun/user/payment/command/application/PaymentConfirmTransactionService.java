@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.payment.command.application;
 
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
@@ -162,7 +164,7 @@ public class PaymentConfirmTransactionService {
          */
 
         validateAllocationsBeforeConfirm(payment, allocations, event);
-        List<Policy> policies = actionPolicies.loadEnabledRegistrationActionPolicies(event.getId());
+        List<RegistrationActionPolicyInput> policies = actionPolicies.loadEnabledRegistrationActionPolicies(event.getId(), RegistrationActionType.PAYMENT);
         // 주문 귀속 인원 전체를 함께 평가하여 목록 순서에 따른 오류 차이를 없앤다.
         actionPolicies.validateRegistrationActionsPolicy(event,
                 allocations.stream().map(PaymentAllocation::getRegistration).toList(),
