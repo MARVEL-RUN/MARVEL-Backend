@@ -50,13 +50,13 @@ public class RegistrationDeliveryExcelWriter {
             // 필터 위의 최대 6행에 대회·기간·생성 시각과 집계 공간을 배치한다.
             for (int i=0;i<4;i++) {
                 Sheet sheet = template.createSheet(names[i]);
-                List<String> columns = new ArrayList<>(List.of("이름","생년월일","전화번호"));
+                List<String> columns = new ArrayList<>(List.of("이름","생년월일","전화번호","성별"));
                 if (i%2==1) { columns.add("단체명"); }
                 columns.addAll(List.of("종목명","기념품명","기념품사이즈","주소","상세주소","최초 결제일시(KST)","신청일시(KST)","신청상태"));
                 if (i>=2) {
-                    columns.set(i%2==1 ? 4 : 3,"현재 신청 종목명");
-                    columns.set(i%2==1 ? 5 : 4,"현재 신청 기념품명");
-                    columns.set(i%2==1 ? 6 : 5,"현재 신청 기념품사이즈");
+                    columns.set(i%2==1 ? 5 : 4,"현재 신청 종목명");
+                    columns.set(i%2==1 ? 6 : 5,"현재 신청 기념품명");
+                    columns.set(i%2==1 ? 7 : 6,"현재 신청 기념품사이즈");
                     columns.addAll(List.of("최근 확정 종목명","최근 확정 기념품명","최근 확정 기념품사이즈","불명확 사유",
                             "최근 확정 정보 판별결과","확인 불가 사유","관리자 확인사항","변경·결제·환불 이력(KST)"));
                 }
@@ -84,12 +84,15 @@ public class RegistrationDeliveryExcelWriter {
             for (int i=0;i<4;i++) { sheets[i]=workbook.getSheetAt(i); }
         }
 
-        /** 판정된 한 신청을 정확히 한 시트에 기록한다. */
+        /** 판정된 한 신청을 성별 한글 표시와 함께 정확히 한 시트에 기록한다. */
         public void appendDeliveryRow(ExportRow export) {
+            // 제외 여부를 확인하고 개인·단체 및 불명확 여부로 시트를 선택한다.
             if (export.classification().excluded()) { return; }
             Candidate row = export.candidate();
             int sheetIndex=(row.organizationId()==null ? 0 : 1)+(export.classification().unclear() ? 2 : 0);
-            List<Object> values=new ArrayList<>(Arrays.asList(row.name(),row.birth(),row.phone()));
+
+            // 공통 인적 정보 뒤에 각 시트의 신청 정보와 확인 이력을 배치한다.
+            List<Object> values=new ArrayList<>(Arrays.asList(row.name(),row.birth(),row.phone(),genderName(row.gender())));
             if (row.organizationId()!=null) { values.add(row.groupName()); }
             values.addAll(Arrays.asList(export.current().category(),export.current().souvenirs(),export.current().sizes(),
                     row.address(),row.addressDetail(),row.firstApprovedUtc()==null ? null : row.firstApprovedUtc().plusHours(9),
@@ -110,6 +113,8 @@ public class RegistrationDeliveryExcelWriter {
                     values.add(text.substring(start,end)); start=end;
                 }
             }
+
+            // 집계를 갱신하고 준비한 값을 엑셀 셀에 기록한다.
             if (row.firstApprovedUtc()==null) { unknownDates[sheetIndex]++; }
             Row output=sheets[sheetIndex].createRow(next[sheetIndex]++);
             int lineCount=1;
@@ -151,6 +156,21 @@ public class RegistrationDeliveryExcelWriter {
         @Override public void close() throws IOException {
             try { workbook.close(); } finally { workbook.dispose(); }
         }
+    }
+
+    /** 전체 인원 엑셀과 같은 성별 표시 규칙을 적용하고 미입력은 빈 셀로 유지한다. */
+    private static String genderName(String gender) {
+        // 미입력 값은 변환 없이 빈 문자열로 출력한다.
+        if (gender == null) {
+            return "";
+        }
+
+        // 알려진 성별은 한글로 바꾸고 그 외 저장값은 그대로 보존한다.
+        return switch (gender) {
+            case "M" -> "남성";
+            case "F" -> "여성";
+            default -> gender;
+        };
     }
 
     /** 복원된 명칭을 훼손하지 않고 판별 실패 항목만 관리자용 표기로 바꾼다. */

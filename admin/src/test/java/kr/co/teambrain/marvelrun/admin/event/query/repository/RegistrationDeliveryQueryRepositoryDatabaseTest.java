@@ -56,6 +56,21 @@ class RegistrationDeliveryQueryRepositoryDatabaseTest {
         jdbc.update("insert into event_category(id,event_id,amount,name,is_active,sort_order) values(?,?,40000,'A',true,0)",categoryId,eventId);
     }
 
+    /** 개인·단체 신청의 저장 성별을 배송 조회 결과에 그대로 전달한다. */
+    @Test
+    void deliveryCandidatesRetainRegistrationGender() {
+        // 개인 남성과 단체 여성을 준비하고 테스트 트랜잭션 안에서만 저장한다.
+        Registration male = registration(null, RegistrationStatus.CONFIRMED, false);
+        Registration female = registration(organization(), RegistrationStatus.CONFIRMED, false);
+        em.flush();
+        jdbc.update("update registration set gender='F' where id=?", female.getId());
+
+        // 조회 결과의 신청 ID와 성별을 함께 비교해 매핑 누락이나 혼선을 확인한다.
+        List<Candidate> candidates = repository.findDeliveryCandidates(eventId, START, START.plusDays(1), null, 100);
+        assertThat(candidates).extracting(Candidate::id, Candidate::gender)
+                .containsExactlyInAnyOrder(tuple(male.getId(), "M"), tuple(female.getId(), "F"));
+    }
+
     /** 재시도·추가결제·미승인·기간 경계·누락 승인일의 실제 SQL 결과를 검증한다. */
     @Test
     void selectsFirstCompletedInitialApprovalBeforeApplyingRange() {

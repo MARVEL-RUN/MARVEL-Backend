@@ -48,7 +48,7 @@ public class RegistrationDeliveryQueryRepository {
                 .stream().findFirst();
     }
 
-    /** 최초 승인일·ID 커서로 조회하며 승인일 미확인 신청은 마지막에 포함한다. */
+    /** 성별을 포함한 배송 정보를 최초 승인일·ID 커서로 조회하며 승인일 미확인 신청은 마지막에 포함한다. */
     public List<Candidate> findDeliveryCandidates(String eventId, LocalDateTime startUtc, LocalDateTime endUtc,
             Candidate cursor, int size) {
         // NULL 승인일도 별도 확인 대상으로 포함하되 제외 상태는 eligible에서 제거한다.
@@ -56,7 +56,7 @@ public class RegistrationDeliveryQueryRepository {
                 ? " and f.approved_at is null and r.id>:cursorId "
                 : " and (f.approved_at>:cursorAt or (f.approved_at=:cursorAt and r.id>:cursorId) or f.approved_at is null) ";
         String sql = FIRST_APPROVAL + """
-            select r.id,r.status,r.is_del,r.name,r.birth,r.ph_num,r.organization_id,o.group_name,
+            select r.id,r.status,r.is_del,r.name,r.birth,r.ph_num,r.gender,r.organization_id,o.group_name,
                 r.event_category_id,c.name category_name,r.souvenir_json,
                 case when r.organization_id is null then r.address else o.address end address,
                 case when r.organization_id is null then r.address_detail else o.address_detail end address_detail,
@@ -73,7 +73,7 @@ public class RegistrationDeliveryQueryRepository {
                 .addValue("cursorAt", cursor == null ? null : cursor.firstApprovedUtc());
         return jdbc.query(sql, params, (rs, index) -> new Candidate(rs.getString("id"), rs.getString("status"),
                 rs.getBoolean("is_del"), rs.getString("name"), rs.getString("birth"), rs.getString("ph_num"),
-                rs.getString("organization_id"), rs.getString("group_name"), rs.getString("event_category_id"),
+                rs.getString("gender"), rs.getString("organization_id"), rs.getString("group_name"), rs.getString("event_category_id"),
                 rs.getString("category_name"), rs.getString("souvenir_json"), rs.getString("address"),
                 rs.getString("address_detail"), time(rs,"registration_date"),time(rs,"approved_at"),
                 rs.getBigDecimal("contract_amount"),rs.getBigDecimal("paid_amount")));
