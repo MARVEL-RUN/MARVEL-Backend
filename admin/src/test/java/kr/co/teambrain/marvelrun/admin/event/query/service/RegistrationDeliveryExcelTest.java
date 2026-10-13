@@ -21,6 +21,7 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -86,7 +87,7 @@ class RegistrationDeliveryExcelTest {
         try (RegistrationDeliveryExcelWriter.WorkbookSession book=writer.openDeliveryWorkbook(new EventInfo("event","대회",UTC),PERIOD,UTC.plusHours(9))) {
             Candidate normal=candidate("CONFIRMED",false,UTC);
             for (int i=0;i<105;i++) { book.appendDeliveryRow(new ExportRow(normal,new Selection("A","티셔츠","S"),new Classification(false,List.of()),null)); }
-            Candidate group=new Candidate("secret-uuid","ADDITIONAL_PAYMENT_REQUIRED",false,"단체원","1990-01-01","01012345678",
+            Candidate group=new Candidate("secret-uuid","ADDITIONAL_PAYMENT_REQUIRED",false,"단체원","1990-01-01","01012345678","F",
                     "org","달리기팀","category","C","[]","단체 주소","단체 상세",UTC.plusHours(9),UTC,new BigDecimal("60000"),new BigDecimal("40000"));
             book.appendDeliveryRow(new ExportRow(group,new Selection("C","티셔츠","L"),new Classification(false,List.of("추가결제 필요")),
                     new HistoryResult(Selection.unknown(),"판별 불가","최근 확정 시점 구분 불가","변경".repeat(18000))));
@@ -99,25 +100,67 @@ class RegistrationDeliveryExcelTest {
         try (XSSFWorkbook actual=new XSSFWorkbook(new ByteArrayInputStream(bytes.toByteArray()))) {
             assertThat(actual.getNumberOfSheets()).isEqualTo(4);
             assertThat(actual.getSheetAt(0).getRow(3).getCell(0).getStringCellValue()).contains("시트 인원: 105");
-            assertThat(actual.getSheetAt(0).getRow(7).getCell(8).getLocalDateTimeCellValue()).isEqualTo(UTC.plusHours(9));
             assertThat(actual.getSheetAt(0).getRow(7).getCell(9).getLocalDateTimeCellValue()).isEqualTo(UTC.plusHours(9));
+            assertThat(actual.getSheetAt(0).getRow(7).getCell(10).getLocalDateTimeCellValue()).isEqualTo(UTC.plusHours(9));
             Sheet unclear=actual.getSheet("단체신청불명확명단");
             Row data=unclear.getRow(7);
-            assertThat(data.getCell(3).getStringCellValue()).isEqualTo("달리기팀");
-            assertThat(data.getCell(7).getStringCellValue()).isEqualTo("단체 주소");
+            assertThat(data.getCell(4).getStringCellValue()).isEqualTo("달리기팀");
+            assertThat(data.getCell(8).getStringCellValue()).isEqualTo("단체 주소");
             StringBuilder history=new StringBuilder();
-            for (int i=19;i<data.getLastCellNum();i++) { history.append(data.getCell(i).getStringCellValue()); }
+            for (int i=20;i<data.getLastCellNum();i++) { history.append(data.getCell(i).getStringCellValue()); }
             assertThat(history.toString()).isEqualTo("변경".repeat(18000));
-            assertThat(unclear.getRow(6).getCell(4).getStringCellValue()).isEqualTo("현재 신청 종목명");
-            assertThat(unclear.getRow(6).getCell(12).getStringCellValue()).isEqualTo("최근 확정 종목명");
-            assertThat(data.getCell(12).getStringCellValue()).isEqualTo("확인 불가");
-            assertThat(unclear.getRow(6).getCell(18).getStringCellValue()).isEqualTo("관리자 확인사항");
+            assertThat(unclear.getRow(6).getCell(5).getStringCellValue()).isEqualTo("현재 신청 종목명");
+            assertThat(unclear.getRow(6).getCell(13).getStringCellValue()).isEqualTo("최근 확정 종목명");
+            assertThat(data.getCell(13).getStringCellValue()).isEqualTo("확인 불가");
+            assertThat(unclear.getRow(6).getCell(19).getStringCellValue()).isEqualTo("관리자 확인사항");
             Row partial=actual.getSheetAt(2).getRow(7);
-            assertThat(partial.getCell(11).getStringCellValue()).isEqualTo("A");
-            assertThat(partial.getCell(12).getStringCellValue()).isEqualTo("티셔츠");
-            assertThat(partial.getCell(13).getStringCellValue()).isEqualTo("확인 불가");
-            assertThat(partial.getCell(5).getStringCellValue()).isEqualTo("FREE");
+            assertThat(partial.getCell(12).getStringCellValue()).isEqualTo("A");
+            assertThat(partial.getCell(13).getStringCellValue()).isEqualTo("티셔츠");
+            assertThat(partial.getCell(14).getStringCellValue()).isEqualTo("확인 불가");
+            assertThat(partial.getCell(6).getStringCellValue()).isEqualTo("FREE");
             for (Sheet sheet:actual) { for (Row row:sheet) { row.forEach(cell -> assertThat(cell.toString()).doesNotContain("secret-uuid")); } }
+        }
+    }
+
+    /** 네 시트 모두 인적 정보 다음 열에 성별을 한글로 출력하고 미입력은 빈 셀로 유지한다. */
+    @ParameterizedTest
+    @CsvSource(value = {"M,남성", "F,여성", "NULL,''"}, nullValues = "NULL")
+    void workbookDisplaysRegistrationGenderOnAllSheets(String gender, String expected) throws Exception {
+        // 같은 성별 자료를 개인·단체 정상·불명확 시트에 각각 한 행씩 준비한다.
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        RegistrationDeliveryExcelWriter writer = new RegistrationDeliveryExcelWriter();
+        try (RegistrationDeliveryExcelWriter.WorkbookSession book = writer.openDeliveryWorkbook(
+                new EventInfo("event", "대회", UTC), PERIOD, UTC.plusHours(9))) {
+            for (int sheetIndex = 0; sheetIndex < 4; sheetIndex++) {
+                boolean group = sheetIndex % 2 == 1;
+                boolean unclear = sheetIndex >= 2;
+                Candidate participant = new Candidate("registration", "CONFIRMED", false,
+                        "테스트", "1990-01-01", "01012345678", gender, group ? "org" : null,
+                        group ? "단체명" : null, "category", "A", "[]", "주소", "상세",
+                        UTC.plusHours(9), UTC, new BigDecimal("40000"), new BigDecimal("40000"));
+                book.appendDeliveryRow(new ExportRow(participant, new Selection("A", "티셔츠", "S"),
+                        new Classification(false, unclear ? List.of("확인 필요") : List.of()),
+                        unclear ? new HistoryResult(Selection.unknown(), "판별 불가", "이력 없음", "") : null));
+            }
+            book.writeDeliveryWorkbook(bytes);
+        }
+
+        // 실제 XLSX의 성별 열과 양옆 열을 확인해 헤더·본문의 밀림을 함께 검증한다.
+        try (XSSFWorkbook actual = new XSSFWorkbook(new ByteArrayInputStream(bytes.toByteArray()))) {
+            for (int sheetIndex = 0; sheetIndex < 4; sheetIndex++) {
+                Sheet sheet = actual.getSheetAt(sheetIndex);
+                Row header = sheet.getRow(6);
+                Row row = sheet.getRow(7);
+                assertThat(header.getCell(0).getStringCellValue()).isEqualTo("이름");
+                assertThat(header.getCell(1).getStringCellValue()).isEqualTo("생년월일");
+                assertThat(header.getCell(2).getStringCellValue()).isEqualTo("전화번호");
+                assertThat(header.getCell(3).getStringCellValue()).isEqualTo("성별");
+                assertThat(row.getCell(2).getStringCellValue()).isEqualTo("01012345678");
+                assertThat(row.getCell(3).getStringCellValue()).isEqualTo(expected);
+                assertThat(header.getCell(4).getStringCellValue()).isEqualTo(
+                        sheetIndex % 2 == 1 ? "단체명" : sheetIndex >= 2 ? "현재 신청 종목명" : "종목명");
+                assertThat(row.getCell(4).getStringCellValue()).isEqualTo(sheetIndex % 2 == 1 ? "단체명" : "A");
+            }
         }
     }
 
@@ -214,11 +257,11 @@ class RegistrationDeliveryExcelTest {
             assertThat(book.getSheetAt(0).getLastRowNum()).isEqualTo(6);
             Row row=book.getSheetAt(2).getRow(7);
             assertThat(row.getCell(0).getStringCellValue()).isEqualTo("테스트");
-            assertThat(row.getCell(14).getStringCellValue()).contains("추가결제 필요");
-            assertThat(row.getCell(16).getStringCellValue()).contains("JSON 해석 불가");
+            assertThat(row.getCell(15).getStringCellValue()).contains("추가결제 필요");
+            assertThat(row.getCell(17).getStringCellValue()).contains("JSON 해석 불가");
             assertThat(row.getCell(2).getStringCellValue()).isEqualTo("01012345678");
-            assertThat(row.getCell(17).getStringCellValue()).contains("[내부 확인]","[참가자 확인]");
-            assertThat(row.getCell(18).getStringCellValue()).contains("최초 참가비","결제 완료","JSON 해석 불가",
+            assertThat(row.getCell(18).getStringCellValue()).contains("[내부 확인]","[참가자 확인]");
+            assertThat(row.getCell(19).getStringCellValue()).contains("최초 참가비","결제 완료","JSON 해석 불가",
                     "차액환불 / 신청 귀속 1000원 / 환불 요청 (현재 상태: 결과 미확정)").doesNotContain("환불 완료");
         }
         verify(repository).findReservations(List.of("registration"),true);
@@ -245,7 +288,7 @@ class RegistrationDeliveryExcelTest {
 
     /** 운영 개인정보를 사용하지 않는 신청 자료다. */
     private Candidate candidate(String state,boolean deleted,LocalDateTime approved) {
-        return new Candidate("registration",state,deleted,"테스트","1990-01-01","01012345678",null,null,"category","A","[]",
+        return new Candidate("registration",state,deleted,"테스트","1990-01-01","01012345678","M",null,null,"category","A","[]",
                 "주소","상세",UTC.plusHours(9),approved,new BigDecimal("40000"),new BigDecimal("40000"));
     }
 

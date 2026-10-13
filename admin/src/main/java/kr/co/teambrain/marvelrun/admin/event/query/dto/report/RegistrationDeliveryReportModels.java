@@ -12,9 +12,9 @@ public final class RegistrationDeliveryReportModels {
     /** 파일 상단의 대회 정보다. */
     public record EventInfo(String id, String name, LocalDateTime startDate) { }
 
-    /** 현재 신청과 최초 승인일의 조회 결과다. 승인일만 UTC이고 나머지 업무 일시는 KST다. */
+    /** 성별을 포함한 현재 신청과 최초 승인일의 조회 결과다. 승인일만 UTC이고 나머지 업무 일시는 KST다. */
     public record Candidate(String id, String status, boolean deleted, String name, String birth, String phone,
-            String organizationId, String groupName, String categoryId, String categoryName, String souvenirsJson,
+            String gender, String organizationId, String groupName, String categoryId, String categoryName, String souvenirsJson,
             String address, String addressDetail, LocalDateTime registrationAt, LocalDateTime firstApprovedUtc,
             BigDecimal contractAmount, BigDecimal paidAmount) { }
 
