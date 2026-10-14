@@ -14,6 +14,15 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCategory;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCategoryStartGroup;
+import kr.co.teambrain.marvelrun.admin.event.command.application.dto.AdminRegistrationModifyRequest;
+import kr.co.teambrain.marvelrun.admin.event.command.repository.EventCategoryStartGroupRepository;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
+import java.time.LocalDateTime;
+import java.util.List;
+
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.*;
@@ -25,20 +34,23 @@ class RegistrationPasswordResetTest {
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
     void preservesPriceTierRulesForExternalAndNormalRegistrations(boolean external) {
-        kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event event =
-                mock(kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event.class);
-        kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCategory category =
-                mock(kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCategory.class);
+        Event event =
+                mock(Event.class);
+        EventCategory category =
+                mock(EventCategory.class);
         when(event.getId()).thenReturn("event");
-        when(event.getStartDate()).thenReturn(java.time.LocalDateTime.of(2026, 11, 1, 9, 0));
+        when(event.getStartDate()).thenReturn(LocalDateTime.of(2026, 11, 1, 9, 0));
         when(category.getName()).thenReturn("5km");
+        when(category.getId()).thenReturn("category");
+        when(groupRepository.findByEventCategoryIdInAndActiveTrueOrderByEventCategoryIdAscSortOrderAsc(List.of("category")))
+                .thenReturn(List.of(EventCategoryStartGroup.builder().id("rear").eventCategoryId("category").active(true).sortOrder(20).build()));
         Registration registration = Registration.builder().id("r").event(event).eventCategory(category)
                 .externalPayment(external).birth("2013-11-01").build();
         when(registrations.findById("r")).thenReturn(Optional.of(registration));
-        kr.co.teambrain.marvelrun.admin.event.command.application.dto.AdminRegistrationModifyRequest request =
-                new kr.co.teambrain.marvelrun.admin.event.command.application.dto.AdminRegistrationModifyRequest(
-                        "테스트", "01012345678", "2013-10-31", kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass.M,
-                        "", "주소", "없음", "", "", "");
+        AdminRegistrationModifyRequest request =
+                new AdminRegistrationModifyRequest(
+                        "테스트", "01012345678", "2013-10-31", GenderClass.M,
+                        "", "주소", "없음", "", "", "", "rear", false);
         if (external) {
             assertThatThrownBy(() -> personalService.modifyRegistrationBasicInfo("r", request))
                     .isInstanceOfSatisfying(CustomException.class,
@@ -51,10 +63,35 @@ class RegistrationPasswordResetTest {
     private final PasswordEncoder encoder = new BCryptPasswordEncoder(4);
     private final RegistrationCommandRepository registrations = mock(RegistrationCommandRepository.class);
     private final OrganizationCommandRepository organizations = mock(OrganizationCommandRepository.class);
+    private final EventCategoryStartGroupRepository groupRepository = mock(EventCategoryStartGroupRepository.class);
     private final RegistrationCommandService personalService = new RegistrationCommandService(
-            encoder, registrations, mock(AdminUnpaidRegistrationCancellationService.class));
+            encoder, registrations, mock(AdminUnpaidRegistrationCancellationService.class), new RegistrationStartGroupResolver(groupRepository));
     private final OrganizationCommandService organizationService = new OrganizationCommandService(
             encoder, organizations, registrations);
+
+    /** 관리자 기본정보 수정은 직접 후미 선택과 미선택을 구별하며 외부결제 신청에도 반영된다. */
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void updatesAdminStartGroupForExternalRegistration(boolean unselected) {
+        Event event = mock(Event.class);
+        EventCategory category = mock(EventCategory.class);
+        when(event.getId()).thenReturn("event");
+        when(event.getStartDate()).thenReturn(LocalDateTime.of(2026, 11, 1, 9, 0));
+        when(category.getId()).thenReturn("category");
+        Registration registration = Registration.builder().id("r").event(event).eventCategory(category)
+                .externalPayment(true).birth("1990-01-01").startGroupId("front").startGroupUnselected(false).build();
+        when(registrations.findById("r")).thenReturn(Optional.of(registration));
+        when(groupRepository.findByEventCategoryIdInAndActiveTrueOrderByEventCategoryIdAscSortOrderAsc(List.of("category")))
+                .thenReturn(List.of(EventCategoryStartGroup.builder().id("rear").eventCategoryId("category")
+                        .code("C").sortOrder(30).active(true).build()));
+
+        // true이면 없는 ID도 무시하고 실제 마지막 그룹을 사용한다.
+        personalService.modifyRegistrationBasicInfo("r", new AdminRegistrationModifyRequest("테스트", "01012345678",
+                "1990-01-01", GenderClass.M, null, null, null, null, null, null,
+                unselected ? "ignored" : "rear", unselected));
+        assertThat(registration.getStartGroupId()).isEqualTo("rear");
+        assertThat(registration.isStartGroupUnselected()).isEqualTo(unselected);
+    }
 
     /** 개인·단체 초기화 후 새 원문만 인증되며 요청 record의 원문은 유지된다. */
     @Test

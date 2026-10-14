@@ -6,6 +6,7 @@ import lombok.experimental.SuperBuilder;
 
 import java.math.BigDecimal;
 
+/** 종목의 대회 소속·거리·금액 및 표시 정보를 공통 매핑한다. */
 @Getter
 @SuperBuilder
 @MappedSuperclass
@@ -29,6 +30,10 @@ public abstract class EventCategoryBase<E extends EventBase> {
 
     @Column(name = "name", nullable = false, length = 50)
     protected String name;
+
+    /** 종목명 해석 없이 그룹 안내 기준을 준비하는 실제 거리이며 단위는 미터다. */
+    @Column(name = "distance_meters", nullable = false)
+    protected Integer distanceMeters;
 
     @Column(name = "is_active", nullable = false)
     protected Boolean isActive;

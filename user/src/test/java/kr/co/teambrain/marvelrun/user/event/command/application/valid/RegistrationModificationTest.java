@@ -604,14 +604,12 @@ class RegistrationModificationTest {
                                         CATEGORY_ID,
                                         souvenirs("130"),
                                         "앞어린이", PHONE,
-                                        "2020-01-01", GenderClass.M
-                                ),
+                                        "2020-01-01", GenderClass.M, "group", false),
                                 new OrgRegistrationParticipantRequest(
                                         CATEGORY_ID,
                                         souvenirs("M"),
                                         "뒤참가자", PHONE,
-                                        "1990-01-01", GenderClass.M
-                                )
+                                        "1990-01-01", GenderClass.M, "group", false)
                         ),
                         true, false, false
                 );
@@ -657,7 +655,7 @@ class RegistrationModificationTest {
                 guardian,
                 null,
                 null,
-                null);
+                null, "group", false);
     }
 
     /**
@@ -682,7 +680,7 @@ class RegistrationModificationTest {
                 true,
                 false,
                 false,
-                null);
+                null, "group", false);
     }
 
     /**
@@ -708,8 +706,7 @@ class RegistrationModificationTest {
     ) {
         return new OrgRegistrationModificationParticipantRequest(
                 id, CATEGORY_ID, souvenirs(size),
-                name, PHONE, birth, GenderClass.M
-        );
+                name, PHONE, birth, GenderClass.M, "group", false);
     }
 
     /**

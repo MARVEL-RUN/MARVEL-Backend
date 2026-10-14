@@ -36,6 +36,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inne
 @Service
 @RequiredArgsConstructor
 public class RegistrationModificationTransactionService {
+    private final RegistrationStartGroupResolver startGroups;
 
     private final RegistrationPersonalModificationService personalService;
     private final OrgRegistrationModificationService organizationService;
@@ -62,7 +63,14 @@ public class RegistrationModificationTransactionService {
         LocalDateTime now = serverTimeProvider.currentDateTime();
 
         informationValidator.validateInput(request);
-        RegistrationModificationAccessContext access = accessValidator.validate(eventId, registrationId, request, now);
+        RegistrationModificationAccessContext verified = accessValidator.validate(eventId, registrationId, request, now);
+        // 미선택을 실제 후미 ID로 확정한 뒤 무변경·개인정보·전체 수정으로 분류한다.
+        RegistrationStartGroupResolver.Selection selection = startGroups.resolveRegistrationStartGroups(List.of(
+                new RegistrationStartGroupResolver.Input(request.eventCategoryId(), request.startGroupId(),
+                        request.startGroupUnselected()))).getFirst();
+        request = request.withResolvedStartGroupId(selection.startGroupId());
+        RegistrationModificationAccessContext access = new RegistrationModificationAccessContext(
+                verified.event(), verified.registration(), request, now);
         RegistrationModificationClassifier.Change change = classifier.classifyPersonal(access.registration(), request);
         // 개인정보 수정은 MODIFY만, 전체 수정은 후속 결제·환불 정책까지 함께 읽는다.
         List<RegistrationActionPolicyInput> policies = change == RegistrationModificationClassifier.Change.FULL
@@ -103,8 +111,20 @@ public class RegistrationModificationTransactionService {
         LocalDateTime now = serverTimeProvider.currentDateTime();
 
         organizationInformationValidator.validateInput(request);
-        OrgRegistrationModificationAccessContext access = organizationAccessValidator.validate(
+        OrgRegistrationModificationAccessContext verified = organizationAccessValidator.validate(
                 eventId, organizationId, request, now);
+        // 전체 참가자 그룹을 일괄 검증하여 일반 수정과 참가자 추가 모두 같은 값을 사용한다.
+        List<RegistrationStartGroupResolver.Selection> selections = startGroups.resolveRegistrationStartGroups(
+                request.registrations().stream().map(member -> new RegistrationStartGroupResolver.Input(
+                        member.eventCategoryId(), member.startGroupId(), member.startGroupUnselected())).toList());
+        List<OrgRegistrationModificationParticipantRequest> resolvedMembers = new ArrayList<>();
+        for (int index = 0; index < selections.size(); index++) {
+            resolvedMembers.add(request.registrations().get(index)
+                    .withResolvedStartGroupId(selections.get(index).startGroupId()));
+        }
+        request = request.withResolvedRegistrations(resolvedMembers);
+        OrgRegistrationModificationAccessContext access = new OrgRegistrationModificationAccessContext(
+                verified.event(), verified.organization(), verified.currentRegistrations(), request, now);
         RegistrationModificationClassifier.Change change = classifier.classifyOrganization(
                 access.currentRegistrations(), request);
         // 복합 작업의 정책을 한 번에 읽되 신규 인원이 있을 때만 REGIST를 포함한다.

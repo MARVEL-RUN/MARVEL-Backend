@@ -22,6 +22,18 @@ public class RegistrationActionPolicyReader {
     private final RegistrationActionPolicyRepository repository;
     private final RegistrationActionPolicyEvaluator evaluator = new RegistrationActionPolicyEvaluator();
 
+    /** 전역 접수 조건을 통과한 대회만 REGIST 구간 정책을 읽어 사용자 접수 가능 여부를 반환한다. */
+    public Decision evaluateNewRegistrationPolicy(Event event, LocalDateTime now) {
+        // 사용자 서버와 같은 전역 조건을 먼저 평가한다.
+        EventInput input = event == null ? null : toEventActionPolicyInput(event);
+        Decision global = evaluator.evaluateRegistrationActionPolicy(input, null, Action.REGIST, now, List.of());
+        if (!global.allowed()) { return global; }
+
+        // 정책 부재와 저장소 장애를 구분하며 관리자 수정에는 이 결과를 강제하지 않는다.
+        List<RegistrationActionPolicyInput> policies = loadEnabledRegistrationActionPolicies(event.getId(), RegistrationActionType.REGIST);
+        return evaluator.evaluateRegistrationActionPolicy(input, null, Action.REGIST, now, policies);
+    }
+
     /** 한 상세 요청에서 공유할 활성 정책 목록을 읽는다. */
     public List<RegistrationActionPolicyInput> loadEnabledRegistrationActionPolicies(String eventId, Collection<RegistrationActionType> actionTypes) {
         // 엔티티 조회 결과를 순수 판정 모델로 변환하여 요청 내에서 재사용한다.

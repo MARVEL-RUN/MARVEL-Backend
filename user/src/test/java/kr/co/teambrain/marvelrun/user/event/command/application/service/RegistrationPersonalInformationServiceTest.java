@@ -35,6 +35,7 @@ import kr.co.teambrain.marvelrun.user.event.command.repository.EventRegistration
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -61,11 +62,23 @@ class RegistrationPersonalInformationServiceTest {
     private final RegistrationPersonalInformationValidator validator = new RegistrationPersonalInformationValidator(
             INPUTS.getValidator(), new RegistrationInformationPolicyValidator(), new RegistrationUniqueInfoValidator(repository),
             guardianPolicies, new RegistrationPolicyValidator());
+    private final RegistrationStartGroupResolver startGroups = mock(RegistrationStartGroupResolver.class);
     private final RegistrationModificationTransactionService commands = new RegistrationModificationTransactionService(
+            startGroups,
             full, organization, settlement, time, new RegistrationModificationAccessValidator(passwordEncoder, repository), validator,
             new RegistrationModificationClassifier(), new RegistrationPersonalInformationService(validator, repository, entityManager),
             mock(OrgRegistrationModificationAccessValidator.class), mock(OrgRegistrationPersonalInformationValidator.class),
             mock(OrgRegistrationPersonalInformationService.class), mock(RegistrationActionPolicyService.class));
+
+    /** 기존 분기 검증에는 그룹 확정 결과를 전달한다. */
+    @BeforeEach
+    void prepareStartGroups() {
+        when(startGroups.resolveRegistrationStartGroups(anyList())).thenAnswer(invocation -> {
+            List<RegistrationStartGroupResolver.Input> inputs = invocation.getArgument(0);
+            return inputs.stream().map(input -> new RegistrationStartGroupResolver.Selection(
+                    input.startGroupId(), input.unselected())).toList();
+        });
+    }
 
     /** 테스트에서 생성한 Bean Validation 자원만 닫는다. */
     @AfterAll
@@ -161,7 +174,7 @@ class RegistrationPersonalInformationServiceTest {
                 original.guardianName(),
                 original.guardianPhNum(),
                 original.guardianRelationship(),
-                original.email());
+                original.email(), "group", false);
         expect(ErrorCode.REGISTRATION_ACCESS_DENIED, denied);
         when(repository.existsOtherActiveByEventIdAndUniqueInfo("e", "r", "새 이름", "010-1111-2222", "1990-01-01"))
                 .thenReturn(true);
@@ -192,7 +205,7 @@ class RegistrationPersonalInformationServiceTest {
                 "보호자",
                 "010-3333-4444",
                 "부",
-                original.email());
+                original.email(), "group", false);
         if (consent) {
             assertThat(commands.modifyPersonalRegistration("e", "r", changed).orders()).isEmpty();
             assertThat(current.getGuardianName()).isEqualTo("보호자");
@@ -218,7 +231,7 @@ class RegistrationPersonalInformationServiceTest {
     /** DB 없이 접근·분류에 필요한 저장 snapshot만 구성한다. */
     private Registration fixture(RegistrationStatus status, LocalDateTime start, LocalDateTime deadline, EventStatus eventStatus) {
         Event event = Event.builder().id("e").eventStatus(eventStatus).registStartDate(start).registDeadline(deadline).build();
-        Registration current = Registration.builder().id("r").event(event).eventCategory(EventCategory.builder().id("c").build())
+        Registration current = Registration.builder().startGroupId("group").startGroupUnselected(false).id("r").event(event).eventCategory(EventCategory.builder().id("c").build())
                 .souvenirJson(List.of(new SouvenirJson("s", "M"))).name("기존 이름").phNum("010-1111-2222")
                 .password(passwordEncoder.encode("test-only")).birth("1990-01-01").gender(GenderClass.M).address("정정 주소").addressDetail("상세")
                 .guardianName(null).guardianConsent(false).status(status).contractAmount(new BigDecimal("10000"))
@@ -243,7 +256,7 @@ class RegistrationPersonalInformationServiceTest {
                 null,
                 null,
                 null,
-                null);
+                null, "group", false);
     }
 
     /** 업무 오류와 저장·전체 경로 미호출을 함께 확인한다. */

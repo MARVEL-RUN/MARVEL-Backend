@@ -273,6 +273,6 @@ class RegistrationPricingServiceDatabaseTest {
                 true,
                 false,
                 false,
-                null);
+                null, null, true);
     }
 }

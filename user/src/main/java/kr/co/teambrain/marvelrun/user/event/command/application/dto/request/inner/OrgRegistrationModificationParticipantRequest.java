@@ -1,5 +1,8 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import java.util.Objects;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
@@ -13,6 +16,7 @@ import java.util.List;
  * registrationId가 존재하면 기존 구성원,
  * null이면 신규 참가자 후보로 해석한다.
  */
+/** 신청자의 그룹 선택과 미선택 여부를 포함하는 단체 참가자 요청이다. */
 public record OrgRegistrationModificationParticipantRequest(
 
         String registrationId,
@@ -36,6 +40,22 @@ public record OrgRegistrationModificationParticipantRequest(
         String birth,
 
         @NotNull
-        GenderClass gender
+        GenderClass gender,
+        String startGroupId,
+        @NotNull Boolean startGroupUnselected
 ) {
+    /** 미선택이 아니면 선택 그룹의 식별자를 반드시 전달한다. */
+    @JsonIgnore
+    @AssertTrue(message = "그룹을 선택하거나 미선택을 체크해주세요.")
+    public boolean isStartGroupSelectionValid() {
+        return startGroupUnselected == null || startGroupUnselected
+                || (startGroupId != null && !startGroupId.isBlank());
+    }
+
+    /** 서버가 종목별로 검증한 실제 그룹 ID를 반영한 요청을 반환한다. */
+    public OrgRegistrationModificationParticipantRequest withResolvedStartGroupId(String resolvedId) {
+        if (Objects.equals(startGroupId, resolvedId)) { return this; }
+        return new OrgRegistrationModificationParticipantRequest(registrationId, eventCategoryId, selectedSouvenirList, name, phNum, birth, gender,
+                resolvedId, startGroupUnselected);
+    }
 }

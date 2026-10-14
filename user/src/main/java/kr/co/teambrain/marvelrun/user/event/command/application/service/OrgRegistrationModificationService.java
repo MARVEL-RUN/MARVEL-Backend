@@ -283,7 +283,9 @@ public class OrgRegistrationModificationService {
                             request.name(),
                             request.phNum(),
                             request.birth(),
-                            request.gender()
+                            request.gender(),
+                            request.startGroupId(),
+                            request.startGroupUnselected()
                     );
 
             Registration registration =

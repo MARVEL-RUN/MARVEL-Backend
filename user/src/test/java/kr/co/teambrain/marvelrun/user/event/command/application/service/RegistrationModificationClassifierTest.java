@@ -43,6 +43,15 @@ class RegistrationModificationClassifierTest {
                 replace(member("r1"), "name", "정정 이름"))).isEqualTo(PERSONAL_INFORMATION);
     }
 
+    /** 단체의 그룹 및 미선택 여부만 바뀌면 비금융 수정으로 판정한다. */
+    @Test
+    void classifiesOrganizationStartGroupAsPersonalInformation() throws Exception {
+        OrgRegistrationModificationParticipantRequest changed = replace(member("r1"), "startGroupUnselected", true);
+        assertThat(classifier.classifyOrganizationParticipant(current("r1"), changed)).isEqualTo(PERSONAL_INFORMATION);
+        assertThat(classifier.classifyOrganization(List.of(current("r1")), organization(changed)))
+                .isEqualTo(PERSONAL_INFORMATION);
+    }
+
     /** 정책에 사용되지 않는 개인정보 각각을 전체 수정으로 보내지 않는다. */
     @ParameterizedTest
     @MethodSource("personalChanges")
@@ -54,6 +63,8 @@ class RegistrationModificationClassifierTest {
     /** 개인정보 필드의 변경 및 null 삭제 후보를 제공한다. */
     static Stream<Arguments> personalChanges() {
         return Stream.of(
+                Arguments.of("startGroupId", "other-group"),
+                Arguments.of("startGroupUnselected", true),
                 Arguments.of("name", "정정 이름"),
                 Arguments.of("email", "changed@example.com"),
                 Arguments.of("phNum", "010-2222-3333"),
@@ -124,7 +135,7 @@ class RegistrationModificationClassifierTest {
     /** 보호자 이름 미지정은 null, primitive 동의값은 false로 표현한다. */
     @Test
     void omittedGuardianValuesFollowExistingApplication() throws Exception {
-        Registration current = Registration.builder().id("r1").eventCategory(EventCategory.builder().id("c1").build())
+        Registration current = Registration.builder().startGroupId("group").startGroupUnselected(false).id("r1").eventCategory(EventCategory.builder().id("c1").build())
                 .souvenirJson(souvenirs()).name("이름").phNum("010-1111-2222").birth("1990-01-01")
                 .gender(GenderClass.M).address("주소").addressDetail("상세주소").guardianConsent(false).build();
         RegistrationModificationRequest changed = replace(replace(request(), "guardianName", "  "), "guardianConsent", false);
@@ -219,16 +230,16 @@ class RegistrationModificationClassifierTest {
     void requestFieldInventoryRequiresExplicitReview() {
         assertThat(fieldNames(RegistrationModificationRequest.class)).containsExactlyInAnyOrder(
                 "access", "eventCategoryId", "selectedSouvenirList", "name", "phNum", "birth", "gender",
-                "address", "addressDetail", "guardianName", "guardianConsent", "guardianPhNum", "guardianRelationship", "email");
+                "address", "addressDetail", "guardianName", "guardianConsent", "guardianPhNum", "guardianRelationship", "email", "startGroupId", "startGroupUnselected");
         assertThat(fieldNames(OrgRegistrationModificationParticipantRequest.class)).containsExactlyInAnyOrder(
-                "registrationId", "eventCategoryId", "selectedSouvenirList", "name", "phNum", "birth", "gender");
+                "registrationId", "eventCategoryId", "selectedSouvenirList", "name", "phNum", "birth", "gender", "startGroupId", "startGroupUnselected");
         assertThat(fieldNames(OrgRegistrationModificationRequest.class)).containsExactlyInAnyOrder("guardianConsent", "email", "address", "addressDetail", "leaderName", "leaderBirth", "leaderPhNum", "access", "registrations");
         assertThat(fieldNames(SouvenirJson.class)).containsExactlyInAnyOrder("souvenirId", "selectedSize");
     }
 
     /** 비교용 엔티티만 구성한다. 정책·이벤트·예약·결제 객체나 Spring 컨텍스트가 필요하지 않다. */
     private Registration current(String id) {
-        return Registration.builder().id(id).eventCategory(EventCategory.builder().id("c1").build())
+        return Registration.builder().startGroupId("group").startGroupUnselected(false).id(id).eventCategory(EventCategory.builder().id("c1").build())
                 .souvenirJson(souvenirs()).name("이름").phNum("010-1111-2222").birth("1990-01-01")
                 .gender(GenderClass.M).address("주소").addressDetail("상세주소")
                 .guardianName("보호자").guardianConsent(true).version(3L)
@@ -251,7 +262,7 @@ class RegistrationModificationClassifierTest {
                 "보호자",
                 null,
                 null,
-                null);
+                null, "group", false);
     }
 
     /** 순서와 사이즈 비교에 사용할 저장 기념품을 구성한다. */
@@ -262,7 +273,7 @@ class RegistrationModificationClassifierTest {
     /** 단체의 기존 또는 신규 구성원 요청을 구성한다. uniqueInfo 검증은 별도 책임이다. */
     private OrgRegistrationModificationParticipantRequest member(String id) {
         return new OrgRegistrationModificationParticipantRequest(id, "c1", souvenirs(), "이름", "010-1111-2222",
-                "1990-01-01", GenderClass.M);
+                "1990-01-01", GenderClass.M, "group", false);
     }
 
     /** 최종 구성원 목록을 단체 요청으로 감싼다. */
@@ -286,7 +297,7 @@ class RegistrationModificationClassifierTest {
                 .id("o").guardianConsent(false).email("test@example.com")
                 .address("테스트 주소").addressDetail("상세").leaderName("테스트 단체장")
                 .leaderBirth("1990-01-01").leaderPhNum("010-0000-0000").build();
-        Registration row = Registration.builder().id("r1").organization(org)
+        Registration row = Registration.builder().startGroupId("group").startGroupUnselected(false).id("r1").organization(org)
                 .eventCategory(EventCategory.builder().id("c1").build()).souvenirJson(souvenirs())
                 .name("이름").phNum("010-1111-2222").birth("1990-01-01").gender(GenderClass.M).build();
         var original = organization(member("r1"));

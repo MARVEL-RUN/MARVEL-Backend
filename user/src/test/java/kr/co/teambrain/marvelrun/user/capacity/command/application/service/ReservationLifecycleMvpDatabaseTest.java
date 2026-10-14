@@ -15,6 +15,34 @@ import static org.mockito.Mockito.*;
  */
 class ReservationLifecycleMvpDatabaseTest extends CapacityMvpTestSupport {
 
+    /** 종료 정리가 새 그룹 참조까지 삭제하면서 다른 실행의 동일 이름 대회는 보존한다. */
+    @Test
+    void cleansOnlyCreatedEventIncludingStartGroupReferences() {
+        // 현재 fixture에 그룹 참조를 추가하고 같은 이름의 두 번째 독립 fixture를 만든다.
+        String firstEventId = eventId;
+        String firstCategoryId = categoryA;
+        try {
+            jdbc.update("""
+                    INSERT INTO event_category_start_group
+                        (id, event_category_id, code, description, sort_order,
+                         min_pace_seconds_per_km, max_pace_seconds_per_km,
+                         min_expected_finish_seconds, max_expected_finish_seconds, is_active)
+                    VALUES (UUID(), ?, 'C', '정리 검증용 그룹', 30, 480, NULL, 2400, NULL, 1)
+                    """, firstCategoryId);
+            prepareMvpFixtures();
+
+            // 첫 대회의 참조를 실제 트랜잭션으로 지우며 두 번째 대회 UUID는 대상에 넣지 않는다.
+            CapacityMvpFixtureCleaner.deleteCreatedEventFixtures(jdbc, transactionManager, firstEventId);
+            assertThat(queryIntegerValue("SELECT COUNT(*) FROM event WHERE id = ?", firstEventId)).isZero();
+            assertThat(queryIntegerValue("SELECT COUNT(*) FROM event_category_start_group WHERE event_category_id = ?",
+                    firstCategoryId)).isZero();
+            assertThat(queryIntegerValue("SELECT COUNT(*) FROM event WHERE id = ?", eventId)).isEqualTo(1);
+        } finally {
+            // 실패해도 첫 fixture를 남기지 않는다. 두 번째는 기존 @AfterEach가 정리한다.
+            CapacityMvpFixtureCleaner.deleteCreatedEventFixtures(jdbc, transactionManager, firstEventId);
+        }
+    }
+
     /**
      * 동일 예약을 두 번 반환해도 수량과 RELEASE 이력은 한 번만 변경한다.
      * 기존 READY 주문은 무효화되어 승인할 수 없어야 한다.

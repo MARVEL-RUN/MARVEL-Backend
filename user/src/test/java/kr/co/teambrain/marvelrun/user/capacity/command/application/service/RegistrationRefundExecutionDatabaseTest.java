@@ -282,7 +282,7 @@ class RegistrationRefundExecutionDatabaseTest extends CapacityMvpTestSupport {
                         List.of(new SouvenirJson(souvenirId, "M")),
                         queryStringValue("select name from registration where id = ?", retained),
                         queryStringValue("select ph_num from registration where id = ?", retained),
-                        queryStringValue("select birth from registration where id = ?", retained), GenderClass.M)));
+                        queryStringValue("select birth from registration where id = ?", retained), GenderClass.M, null, true)));
         RegistrationModificationSettlementResult result = commands.modifyOrganizationRegistration(eventId, original.organizationId(), request);
         assertThat(result.refunds()).hasSize(1);
         assertThat(result.refunds().get(0).amount()).isEqualByComparingTo("50000");
@@ -489,7 +489,7 @@ class RegistrationRefundExecutionDatabaseTest extends CapacityMvpTestSupport {
                 "테스트 보호자",
                 null,
                 null,
-                null);
+                null, null, true);
     }
 
     /** HTTP를 대신하면서 시작 기록이 먼저 커밋됐고 활성 트랜잭션이 없는지 확인한다. */
@@ -551,7 +551,7 @@ class RegistrationRefundExecutionDatabaseTest extends CapacityMvpTestSupport {
                 mixedStoredParticipant(retained, categoryB, "M"),
                 new OrgRegistrationModificationParticipantRequest(null, categoryA,
                         List.of(new SouvenirJson(souvenirId, "S")), "신규" + UUID.randomUUID().toString().substring(0, 8),
-                        "010-1111-2222", "1990-01-01", GenderClass.M)));
+                        "010-1111-2222", "1990-01-01", GenderClass.M, null, true)));
         RegistrationModificationSettlementResult result = commands.modifyOrganizationRegistration(eventId, original.organizationId(), request);
         String added = result.members().stream().map(RegistrationModificationSettlementResult.Member::registrationId)
                 .filter(id -> !original.registrationIds().contains(id)).findFirst().orElseThrow();
@@ -567,7 +567,7 @@ class RegistrationRefundExecutionDatabaseTest extends CapacityMvpTestSupport {
     private OrgRegistrationModificationParticipantRequest mixedStoredParticipant(String id, String category, String size) {
         return new OrgRegistrationModificationParticipantRequest(id, category, List.of(new SouvenirJson(souvenirId, size)),
                 queryStringValue("select name from registration where id = ?", id), queryStringValue("select ph_num from registration where id = ?", id),
-                queryStringValue("select birth from registration where id = ?", id), GenderClass.M);
+                queryStringValue("select birth from registration where id = ?", id), GenderClass.M, null, true);
     }
 
     /** 혼합 수정 시나리오의 식별자와 최초 수정 결과를 보관한다. */

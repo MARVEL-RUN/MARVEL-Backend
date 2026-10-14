@@ -47,6 +47,7 @@ import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
 @Service
 @RequiredArgsConstructor
 public class RegistrationCommandService {
+    private final RegistrationStartGroupResolver startGroups;
     private final RegistrationActionPolicyService actionPolicies;
     private final PasswordEncoder passwordEncoder;
 
@@ -141,6 +142,12 @@ public class RegistrationCommandService {
                         contractAmount,
                         now
                 );
+
+        // 종목별 선택을 검증하고 미선택은 실제 후미 UUID로 저장한다.
+        RegistrationStartGroupResolver.Selection selection = startGroups.resolveRegistrationStartGroups(List.of(
+                new RegistrationStartGroupResolver.Input(eventCategory.getId(), request.startGroupId(),
+                        request.startGroupUnselected()))).getFirst();
+        registration.applyStartGroupSelection(selection.startGroupId(), selection.unselected());
 
         Registration savedRegistration =
                 registrationCommandRepository.save(registration);

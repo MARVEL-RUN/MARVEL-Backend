@@ -3,6 +3,7 @@ package kr.co.teambrain.marvelrun.user.capacity.command.application.service;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -91,7 +92,7 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
         OrgRegistrationModificationParticipantRequest first = original.registrations().getFirst();
         OrgRegistrationModificationParticipantRequest edited = new OrgRegistrationModificationParticipantRequest(
                 first.registrationId(), first.eventCategoryId(), first.selectedSouvenirList(), "단체 정정 이름",
-                "010-2222-3333", first.birth(), GenderClass.F);
+                "010-2222-3333", first.birth(), GenderClass.F, null, true);
         OrgRegistrationModificationRequest modified = replaceFirst(original, edited);
         if (paymentStatus.equals("COMPLETED")) {
             modified = new OrgRegistrationModificationRequest(original.guardianConsent(),
@@ -309,7 +310,7 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
                 original.access(),
                 List.of(first,
                     original.registrations().get(1), new OrgRegistrationModificationParticipantRequest(null, categoryA,
-                            List.of(new SouvenirJson(souvenirId, "S")), "추가 구성원", "010-0000-0000", "1990-01-01", GenderClass.M)));
+                            List.of(new SouvenirJson(souvenirId, "S")), "추가 구성원", "010-0000-0000", "1990-01-01", GenderClass.M, null, true)));
             case "remove" -> new OrgRegistrationModificationRequest(original.guardianConsent(),
                 original.email(),
                 original.address(),
@@ -326,9 +327,11 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
         };
         CountDownLatch classified = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
+        // 그룹 정규화로 요청 record가 교체되어도 오래된 요청을 실행하는 작업만 정지한다.
+        AtomicReference<Thread> staleThread = new AtomicReference<>();
         doAnswer(invocation -> {
             Object result = invocation.callRealMethod();
-            if (invocation.getArgument(1) == stale) {
+            if (Thread.currentThread() == staleThread.get()) {
                 classified.countDown();
                 assertThat(release.await(10, TimeUnit.SECONDS)).isTrue();
             }
@@ -336,8 +339,12 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
         }).when(classifier).classifyOrganization(anyList(), any());
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            Future<Throwable> staleResult = executor.submit(() -> attempt(orgId, stale));
-            assertThat(classified.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<Throwable> staleResult = executor.submit(() -> {
+                staleThread.set(Thread.currentThread());
+                return attempt(orgId, stale);
+            });
+            assertThat(classified.await(10, TimeUnit.SECONDS))
+                    .as("오래된 요청이 분류를 마친 뒤 대기 신호를 보내야 한다").isTrue();
             commands.modifyOrganizationRegistration(eventId, orgId, winner);
             Map<String, Map<String, Object>> winnerMembers = members(orgId);
             Map<String, List<Map<String, Object>>> winnerResources = resources();
@@ -362,12 +369,13 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
         OrgRegistrationModificationRequest full = replaceFirst(original, selected(original.registrations().getFirst(), categoryB, "1990-01-01"));
         CountDownLatch protectedInformation = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
+        // 요청 객체의 동일성 대신 개인정보 수정 작업의 실행 스레드를 구별한다.
+        AtomicReference<Thread> informationThread = new AtomicReference<>();
         OrgRegistrationModificationGuard target = AopTestUtils.getUltimateTargetObject(guard);
         assertThat(mockingDetails(target).isSpy()).isTrue();
         doAnswer(invocation -> {
-            OrgRegistrationModificationAccessContext access = invocation.getArgument(0);
             invocation.callRealMethod();
-            if (access.request() == info) {
+            if (Thread.currentThread() == informationThread.get()) {
                 protectedInformation.countDown();
                 assertThat(release.await(20, TimeUnit.SECONDS)).isTrue();
             }
@@ -376,8 +384,12 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
         Map<String, List<Map<String, Object>>> beforeResources = resources();
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
-            Future<Throwable> infoResult = executor.submit(() -> attempt(orgId, info));
-            assertThat(protectedInformation.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<Throwable> infoResult = executor.submit(() -> {
+                informationThread.set(Thread.currentThread());
+                return attempt(orgId, info);
+            });
+            assertThat(protectedInformation.await(10, TimeUnit.SECONDS))
+                    .as("개인정보 수정 요청이 보호 잠금을 획득한 뒤 대기 신호를 보내야 한다").isTrue();
             Future<Throwable> fullResult = executor.submit(() -> attempt(orgId, full));
             // 개인정보 트랜잭션을 계속 보유한 상태에서 즉시 거절되어야 한다. 데드락도 통과로 인정하지 않는다.
             assertConcurrent(fullResult.get(5, TimeUnit.SECONDS));
@@ -400,7 +412,7 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
                 where organization_id=? and is_del=0 order by id
                 """, (rs, row) -> new OrgRegistrationModificationParticipantRequest(rs.getString("id"),
                 rs.getString("event_category_id"), List.of(new SouvenirJson(souvenirId, "S")), rs.getString("name"),
-                rs.getString("ph_num"), rs.getString("birth"), GenderClass.valueOf(rs.getString("gender"))), orgId);
+                rs.getString("ph_num"), rs.getString("birth"), GenderClass.valueOf(rs.getString("gender")), null, true), orgId);
 
         return new OrgRegistrationModificationRequest(true,
                 queryStringValue("select email from organization where id=?", orgId),
@@ -432,14 +444,14 @@ class OrgRegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupp
     /** 개인정보 변경용으로 이름만 교체한다. */
     private OrgRegistrationModificationParticipantRequest renamed(OrgRegistrationModificationParticipantRequest request, String name) {
         return new OrgRegistrationModificationParticipantRequest(request.registrationId(), request.eventCategoryId(),
-                request.selectedSouvenirList(), name, request.phNum(), request.birth(), request.gender());
+                request.selectedSouvenirList(), name, request.phNum(), request.birth(), request.gender(), null, true);
     }
 
     /** 전체 수정용 종목 또는 생년월일 변경을 구성한다. */
     private OrgRegistrationModificationParticipantRequest selected(OrgRegistrationModificationParticipantRequest request, String category, String birth) {
         return new OrgRegistrationModificationParticipantRequest(request.registrationId(), category,
                 List.of(new SouvenirJson(souvenirId, category.equals(categoryB) ? "M" : "S")),
-                request.name(), request.phNum(), birth, request.gender());
+                request.name(), request.phNum(), birth, request.gender(), null, true);
     }
 
     /** 실패를 수집하되 예상하지 못한 오류를 성공으로 처리하지 않는다. */

@@ -54,4 +54,11 @@ public record OrgRegistrationModificationRequest(
         @NotEmpty
         List<@NotNull @Valid OrgRegistrationModificationParticipantRequest> registrations
 ) {
+    /** 그룹 검증을 마친 참가자 목록을 원래 단체 공통정보와 함께 전달한다. */
+    public OrgRegistrationModificationRequest withResolvedRegistrations(
+            List<OrgRegistrationModificationParticipantRequest> resolvedRegistrations) {
+        if (registrations.equals(resolvedRegistrations)) { return this; }
+        return new OrgRegistrationModificationRequest(guardianConsent, email, address, addressDetail,
+                leaderName, leaderBirth, leaderPhNum, access, resolvedRegistrations);
+    }
 }

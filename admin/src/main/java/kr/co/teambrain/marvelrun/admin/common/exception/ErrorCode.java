@@ -6,6 +6,8 @@ import org.springframework.http.HttpStatus;
 /** 관리자 업무의 HTTP 상태와 공개 가능한 오류 메시지를 정의한다. */
 @Getter
 public enum ErrorCode {
+    INVALID_START_GROUP_SELECTION(HttpStatus.BAD_REQUEST, "해당 종목에서 선택할 수 있는 그룹을 지정해주세요."),
+    START_GROUP_CONFIGURATION_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "종목의 출발 그룹 설정을 확인해주세요."),
 
     EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED(HttpStatus.CONFLICT,
             "외부 결제로 등록된 신청은 결제 관련 정보 변경 및 환불을 처리할 수 없습니다."),
