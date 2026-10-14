@@ -24,6 +24,8 @@ import kr.co.teambrain.marvelrun.user.event.query.repository.RegistrationQueryDa
 import kr.co.teambrain.marvelrun.user.event.query.repository.RegistrationQueryRepository;
 import kr.co.teambrain.marvelrun.user.event.query.support.RegistrationPaymentQueryResolver;
 import lombok.RequiredArgsConstructor;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategoryStartGroup;
+import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategoryStartGroupRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -41,6 +43,7 @@ public class RegistrationQueryService {
     private final RegistrationPaymentQueryResolver paymentResolver;
     private final ServerTimeProvider time;
     private final RegistrationActionPolicyService actionPolicies;
+    private final EventCategoryStartGroupRepository startGroupRepository;
     private final RegistrationActionPolicyEvaluator policyEvaluator = new RegistrationActionPolicyEvaluator();
 
     /** 개인 취소·재신청 이력도 일괄 조회하고 현재 본인확인을 통과한 행만 반환한다. */
@@ -89,6 +92,7 @@ public class RegistrationQueryService {
         }
         List<RegistrationActionPolicyInput> policies = actionPolicies.loadEnabledRegistrationActionPolicies(eventId, List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT));
         Map<String, String> names = souvenirNames(eventId, members);
+        Map<String, String> groupCodes = findStartGroupCodes(members);
         List<RegistrationQueryData.Payment> payments = repository.personalPayments(eventId,
                 members.stream().map(RegistrationQueryData.Member::id).toList());
         List<String> ids = payments.stream().map(RegistrationQueryData.Payment::id).toList();
@@ -109,7 +113,8 @@ public class RegistrationQueryService {
             result.add(new RegistrationQueryResponse(row.id(), row.name(), row.email(), row.birth(), row.phNum(), row.gender(),
                     row.categoryId(), row.categoryName(), selections(row, names), row.address(), row.addressDetail(),
                     row.guardianConsent(), row.guardianName(), row.guardianPhNum(), row.guardianRelationShip(), row.status(), row.contractAmount(), row.paidAmount(),
-                    payment.status(), payment.refundStatus(), payment.action(), payment.warning(), payment.paymentId(), payment.orderId(), row.externalPayment(), policyEvaluator.evaluateRegistrationUserPolicy(row.policyEvent(), toParticipantActionPolicyInput(row), now, policies)));
+                    payment.status(), payment.refundStatus(), payment.action(), payment.warning(), payment.paymentId(), payment.orderId(), row.externalPayment(), policyEvaluator.evaluateRegistrationUserPolicy(row.policyEvent(), toParticipantActionPolicyInput(row), now, policies),
+                    row.startGroupId(), groupCodes.get(row.startGroupId()), row.startGroupUnselected()));
         }
         return List.copyOf(result);
     }
@@ -130,6 +135,7 @@ public class RegistrationQueryService {
             if (loadedPolicies == null) { loadedPolicies = actionPolicies.loadEnabledRegistrationActionPolicies(eventId, List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT, RegistrationActionType.REGIST)); }
             List<RegistrationActionPolicyInput> policies = loadedPolicies;
             Map<String, String> names = souvenirNames(eventId, members);
+            Map<String, String> groupCodes = findStartGroupCodes(members);
             List<RegistrationQueryData.Payment> payments = repository.payments(eventId, org.id(), true);
             List<String> ids = payments.stream().map(RegistrationQueryData.Payment::id).toList();
             RegistrationPaymentQueryResolver.Result payment = paymentResolver.resolveRegistrationPaymentGuidance(members, payments,
@@ -140,7 +146,8 @@ public class RegistrationQueryService {
                             row.address() == null ? org.address() : row.address(),
                             row.address() == null ? org.addressDetail() : row.addressDetail(),
                             row.guardianBase() == GuardianBase.ORG_LEADER ? org.leaderName() : row.guardianName(),
-                            row.guardianBase() == GuardianBase.ORG_LEADER ? org.phNum() : row.guardianPhNum(), row.status(), policyEvaluator.evaluateOrganizationMemberPolicy(row.policyEvent(), toParticipantActionPolicyInput(row), now, policies))).toList();
+                            row.guardianBase() == GuardianBase.ORG_LEADER ? org.phNum() : row.guardianPhNum(), row.status(), policyEvaluator.evaluateOrganizationMemberPolicy(row.policyEvent(), toParticipantActionPolicyInput(row), now, policies),
+                            row.startGroupId(), groupCodes.get(row.startGroupId()), row.startGroupUnselected())).toList();
             BigDecimal total = members.stream().map(RegistrationQueryData.Member::contractAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
             BigDecimal paid = members.stream().map(RegistrationQueryData.Member::paidAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
             result.add(new OrgRegistrationQueryResponse(org.id(), org.name(), org.loginId(), org.leaderName(),
@@ -150,6 +157,16 @@ public class RegistrationQueryService {
         }
         if (result.isEmpty()) { throw new CustomException(ErrorCode.ORGANIZATION_ACCESS_DENIED); }
         return List.copyOf(result);
+    }
+
+    /** 기존 선택은 비활성 그룹도 포함하여 ID 목록 한 번으로 표시 코드를 읽는다. */
+    private Map<String, String> findStartGroupCodes(List<RegistrationQueryData.Member> members) {
+        // 중복 ID를 제거하며 조회 대상이 없으면 IN 쿼리를 생략한다.
+        List<String> ids = members.stream().map(RegistrationQueryData.Member::startGroupId)
+                .filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) { return Map.of(); }
+        return startGroupRepository.findByIdIn(ids).stream()
+                .collect(Collectors.toMap(EventCategoryStartGroup::getId, EventCategoryStartGroup::getCode));
     }
 
     /** 구성원 수와 관계없이 필요한 기념품 이름을 한 번에 읽는다. */

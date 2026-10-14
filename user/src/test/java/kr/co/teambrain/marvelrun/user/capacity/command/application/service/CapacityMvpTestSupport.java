@@ -93,6 +93,7 @@ import static org.mockito.Mockito.*;
         ReservationReleaseService.class,
         ReservationPaymentService.class,
 
+        RegistrationStartGroupResolver.class,
         RegistrationCommandService.class,
         OrgRegistrationCommandService.class,
         OrgParticipantPasswordEncoder.class,
@@ -279,12 +280,20 @@ abstract class CapacityMvpTestSupport {
         jdbc.update(
                 """
                 insert into event_category (
-                    id, event_id, amount, name, is_active, sort_order
-                ) values (?, ?, 40000, ?, true, 0)
+                    id, event_id, amount, name, is_active, sort_order, distance_meters
+                ) values (?, ?, 40000, ?, true, 0, ?)
                 """,
-                id, eventId, name
+                id, eventId, name, id.equals(categoryA) ? 5000 : 10000
         );
 
+        // 각 종목의 선택지와 후미 기본값을 실제 스키마에 맞춰 준비한다.
+        jdbc.update("""
+                INSERT INTO event_category_start_group
+                    (id, event_category_id, code, description, sort_order, min_pace_seconds_per_km,
+                     max_pace_seconds_per_km, min_expected_finish_seconds, max_expected_finish_seconds, is_active)
+                VALUES (UUID(), ?, 'A', '테스트 선두 그룹', 10, 0, 360, 0, ?, 1),
+                       (UUID(), ?, 'B', '테스트 후미 그룹', 20, 360, NULL, ?, NULL, 1)
+                """, id, id.equals(categoryA) ? 1800 : 3600, id, id.equals(categoryA) ? 1800 : 3600);
         jdbc.update(
                 """
                 insert into event_category_registration_policy (
@@ -375,7 +384,7 @@ abstract class CapacityMvpTestSupport {
                 true,
                 false,
                 false,
-                null)
+                null, null, true)
         );
     }
 
@@ -392,8 +401,7 @@ abstract class CapacityMvpTestSupport {
                                         .toString().substring(0, 8),
                                 "010-0000-0000",
                                 "1990-01-01",
-                                GenderClass.M
-                        ))
+                                GenderClass.M, null, true))
                         .toList();
 
         return organizations.register(
@@ -719,133 +727,8 @@ abstract class CapacityMvpTestSupport {
      */
     @AfterEach
     void cleanupMvpFixtures() {
-        // 접속 사전 확인에서 중단된 경우 생성한 fixture가 없다.
-        if (eventId == null) { return; }
-        tx.executeWithoutResult(status -> {
-            String paymentTargets = """
-                    registration_id in (
-                        select id from registration where event_id = ?
-                    )
-                    or organization_id in (
-                        select id from organization where event_id = ?
-                    )
-                    """;
-
-            jdbc.update(
-                    "delete from payment_process_log where payment_id in "
-                            + "(select id from payment where "
-                            + paymentTargets + ")",
-                    eventId, eventId
-            );
-
-            jdbc.update(
-                    """
-                    delete ca from payment_cancel_allocation ca
-                    join payment_cancel c on c.id = ca.payment_cancel_id
-                    join payment p on p.id = c.payment_id
-                    where p.registration_id in (select id from registration where event_id = ?)
-                       or p.organization_id in (select id from organization where event_id = ?)
-                    """,
-                    eventId, eventId
-            );
-            jdbc.update(
-                    """
-                    delete c from payment_cancel c
-                    join payment p on p.id = c.payment_id
-                    where p.registration_id in (select id from registration where event_id = ?)
-                       or p.organization_id in (select id from organization where event_id = ?)
-                    """,
-                    eventId, eventId
-            );
-
-            jdbc.update(
-                    """
-                    delete from payment_allocation
-                    where payment_id in (
-                        select id
-                        from payment
-                        where registration_id in (
-                            select id
-                            from registration
-                            where event_id = ?
-                        )
-                        or organization_id in (
-                            select id
-                            from organization
-                            where event_id = ?
-                        )
-                    )
-                    """,
-                    eventId,
-                    eventId
-            );
-
-            jdbc.update(
-                    "delete from payment where " + paymentTargets,
-                    eventId, eventId
-            );
-
-            jdbc.update(
-                    """
-                    delete from reservation_item
-                    where capacity_id in (
-                        select id from capacity where event_id = ?
-                    )
-                    """,
-                    eventId
-            );
-
-            jdbc.update(
-                    """
-                    delete from reservation
-                    where registration_id in (
-                        select id from registration where event_id = ?
-                    )
-                    """,
-                    eventId
-            );
-
-            jdbc.update("delete from registration where event_id = ?", eventId);
-            jdbc.update("delete from organization where event_id = ?", eventId);
-
-            jdbc.update(
-                    """
-                    delete from capacity_category
-                    where capacity_id in (
-                        select id from capacity where event_id = ?
-                    )
-                    """,
-                    eventId
-            );
-
-            jdbc.update("delete from capacity where event_id = ?", eventId);
-
-            jdbc.update(
-                    """
-                    delete from event_category_souvenir
-                    where event_category_id in (
-                        select id from event_category where event_id = ?
-                    )
-                    """,
-                    eventId
-            );
-
-            jdbc.update(
-                    """
-                    delete from event_category_registration_policy
-                    where event_category_id in (
-                        select id from event_category where event_id = ?
-                    )
-                    """,
-                    eventId
-            );
-
-            jdbc.update("delete from souvenir where event_id = ?", eventId);
-            jdbc.update("delete from event_category where event_id = ?", eventId);
-            jdbc.update("delete from event_registration_policy where event_id = ?", eventId);
-            jdbc.update("delete from registration_action_policy where event_id = ?", eventId);
-        jdbc.update("delete from event where id = ?", eventId);
-        });
+        // 현재 테스트가 만든 대회만 독립 트랜잭션에서 참조 역순으로 정리한다.
+        CapacityMvpFixtureCleaner.deleteCreatedEventFixtures(jdbc, transactionManager, eventId);
     }
 
     /** 자격 증명 없이 실제 DB 식별 정보를 실패 메시지에 남겨 접속 대상을 대조한다. */

@@ -491,8 +491,7 @@ class OrgRegistrationModificationAccessValidatorTest {
                 "참가자",
                 "010-1111-2222",
                 "1990-01-01",
-                GenderClass.M
-        );
+                GenderClass.M, "group", false);
     }
 
 

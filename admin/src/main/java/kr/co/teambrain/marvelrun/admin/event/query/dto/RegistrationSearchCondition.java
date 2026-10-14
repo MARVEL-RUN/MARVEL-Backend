@@ -11,6 +11,13 @@ public record RegistrationSearchCondition(
         String type,              // 전체 유형 필터 (예: "PERSONAL" 또는 "ORGANIZATION")
         String eventCategoryId,   // 특정 코스 필터 (EventCategory의 PK)
         RegistrationStatus status,// 신청 진행 상태 필터
-        String keyword            // 통합 검색어 (이름, 단체명, 주문번호, 연락처)
+        String keyword,           // 통합 검색어 (이름, 단체명, 주문번호, 연락처)
+        String startGroupCode,
+        Boolean startGroupUnselected
 ) {
+    /** 그룹 검색을 사용하지 않는 기존 엑셀 요청의 조건을 유지한다. */
+    public RegistrationSearchCondition(String eventId, String type, String eventCategoryId,
+                                       RegistrationStatus status, String keyword) {
+        this(eventId, type, eventCategoryId, status, keyword, null, null);
+    }
 }

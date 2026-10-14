@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.PersonalRegistrationPassword;
@@ -8,7 +10,7 @@ import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 
 import java.util.List;
 
-/** 개인 신청 생성 입력이며 비밀번호 정책은 변경 요청과 공유한다. */
+/** 개인 신청의 그룹 선택·미선택 입력을 포함하며 비밀번호 정책은 변경 요청과 공유한다. */
 public record RegistrationCreateRequest(
 
         @NotBlank
@@ -58,7 +60,15 @@ public record RegistrationCreateRequest(
         Boolean termsMarketingChannelAgreed,
 
         @Email(message = "이메일 형식이 올바르지 않습니다.")
-        String email
-
+        String email,
+        String startGroupId,
+        @NotNull Boolean startGroupUnselected
 ) {
+    /** 미선택이 아니면 선택 그룹의 식별자를 반드시 전달한다. */
+    @JsonIgnore
+    @AssertTrue(message = "그룹을 선택하거나 미선택을 체크해주세요.")
+    public boolean isStartGroupSelectionValid() {
+        return startGroupUnselected == null || startGroupUnselected
+                || (startGroupId != null && !startGroupId.isBlank());
+    }
 }

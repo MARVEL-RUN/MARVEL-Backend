@@ -39,6 +39,7 @@ public class RegistrationModificationClassifier {
         }
         return !Objects.equals(current.getName(), request.name())
                 || !Objects.equals(current.getPhNum(), request.phNum()) || current.getGender() != request.gender()
+                || startGroupChanged(current, request.startGroupId(), request.startGroupUnselected())
                 ? Change.PERSONAL_INFORMATION : Change.NONE;
     }
 
@@ -74,8 +75,8 @@ public class RegistrationModificationClassifier {
             return Change.FULL;
         }
 
-        boolean changed =
-                !Objects.equals(current.getName(), request.name())
+        boolean changed = startGroupChanged(current, request.startGroupId(), request.startGroupUnselected())
+                || !Objects.equals(current.getName(), request.name())
                         || !Objects.equals(current.getEmail(), request.email()) // 추가됨
                         || !Objects.equals(current.getPhNum(), request.phNum())
                         || current.getGender() != request.gender()
@@ -158,7 +159,8 @@ public class RegistrationModificationClassifier {
                     participant.selectedSouvenirList());
             changed |= !Objects.equals(current.getName(), participant.name())
                     || !Objects.equals(current.getPhNum(), participant.phNum())
-                    || current.getGender() != participant.gender();
+                    || current.getGender() != participant.gender()
+                    || startGroupChanged(current, participant.startGroupId(), participant.startGroupUnselected());
         }
         if (full || !requestedIds.equals(currentById.keySet())) {
             return Change.FULL;
@@ -202,6 +204,12 @@ public class RegistrationModificationClassifier {
                     souvenir.selectedSize() == null ? null : souvenir.selectedSize().trim());
         }
         return selections;
+    }
+
+    /** 서버가 확정한 그룹과 미선택 여부는 금융 영향 없는 변경으로 비교한다. */
+    private boolean startGroupChanged(Registration current, String groupId, Boolean unselected) {
+        return !Objects.equals(current.getStartGroupId(), groupId)
+                || !Objects.equals(current.isStartGroupUnselected(), unselected);
     }
 
     /** 개인 신청 적용 메서드의 기존 보호자 이름 strip·빈 값 null 변환을 따른다. */

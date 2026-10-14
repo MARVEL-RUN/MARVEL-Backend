@@ -4,9 +4,12 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
+/** 사용자 업무에서 사용하는 HTTP 상태와 공개 오류 메시지를 정의한다. */
 @Getter
 @AllArgsConstructor
 public enum ErrorCode {
+    INVALID_START_GROUP_SELECTION(HttpStatus.BAD_REQUEST, "해당 종목에서 선택할 수 있는 그룹을 지정해주세요."),
+    START_GROUP_CONFIGURATION_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "종목의 출발 그룹 설정을 확인해주세요."),
 
     EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED(
             HttpStatus.CONFLICT,

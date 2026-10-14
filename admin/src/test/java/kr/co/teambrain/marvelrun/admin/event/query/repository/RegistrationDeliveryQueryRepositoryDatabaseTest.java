@@ -53,7 +53,8 @@ class RegistrationDeliveryQueryRepositoryDatabaseTest {
     void createFixtureEvent() {
         eventId=id(); categoryId=id();
         insertEvent(eventId);
-        jdbc.update("insert into event_category(id,event_id,amount,name,is_active,sort_order) values(?,?,40000,'A',true,0)",categoryId,eventId);
+        jdbc.update("insert into event_category(id,event_id,amount,name,is_active,sort_order,distance_meters) values(?,?,40000,'A',true,0,5000)",categoryId,eventId);
+        jdbc.update("INSERT INTO event_category_start_group (id,event_category_id,code,description,sort_order,min_pace_seconds_per_km,min_expected_finish_seconds,is_active) VALUES (UUID(),?,'B','테스트 후미 그룹',20,360,1800,1)", categoryId);
     }
 
     /** 개인·단체 신청의 저장 성별을 배송 조회 결과에 그대로 전달한다. */
@@ -331,7 +332,9 @@ class RegistrationDeliveryQueryRepositoryDatabaseTest {
 
     /** 테스트 참가자를 생성하며 실제 개인정보와 외부 서비스 식별자는 사용하지 않는다. */
     private Registration registration(Organization organization,RegistrationStatus state,boolean deleted) {
-        Registration row=Registration.builder().event(em.getReference(Event.class,eventId)).eventCategory(em.getReference(EventCategory.class,categoryId))
+        Registration row=Registration.builder()
+                .startGroupId(jdbc.queryForObject("select id from event_category_start_group where event_category_id=?",String.class,categoryId))
+                .startGroupUnselected(true).event(em.getReference(Event.class,eventId)).eventCategory(em.getReference(EventCategory.class,categoryId))
                 .organization(organization).name("test-"+id().substring(0,8)).phNum("010-0000-0000").birth("1990-01-01")
                 .gender(GenderClass.M).password("fixture").address("개인 주소").addressDetail("상세").souvenirJson(List.of())
                 .status(state).softDeleted(deleted).contractAmount(new BigDecimal("40000")).paidAmount(new BigDecimal("40000"))

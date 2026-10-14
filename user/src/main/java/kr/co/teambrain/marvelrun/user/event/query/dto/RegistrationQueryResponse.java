@@ -27,5 +27,6 @@ public record RegistrationQueryResponse(
         RegistrationPaymentAction paymentAction, String warningMessage,
         String paymentId, String orderId,
         boolean externalPayment,
-        RegistrationActionPolicyModels.UserPolicy userPolicy
+        RegistrationActionPolicyModels.UserPolicy userPolicy,
+        String startGroupId, String startGroupCode, boolean startGroupUnselected
 ) { }

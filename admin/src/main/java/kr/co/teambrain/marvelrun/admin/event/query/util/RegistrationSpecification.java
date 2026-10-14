@@ -1,6 +1,9 @@
 package kr.co.teambrain.marvelrun.admin.event.query.util;
 
 import jakarta.persistence.criteria.Join;
+import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Subquery;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCategoryStartGroup;
 import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Predicate;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event;
@@ -19,6 +22,7 @@ import java.util.List;
  */
 public class RegistrationSpecification {
 
+    /** 기존 검색과 그룹 코드·미선택 조건을 목록 및 count에 동일하게 적용한다. */
     public static Specification<Registration> searchWith(
             RegistrationSearchCondition condition
     ) {
@@ -61,6 +65,18 @@ public class RegistrationSpecification {
                 Predicate orgNameMatch = cb.like(orgJoin.get("groupName"), likeKeyword);
 
                 predicates.add(cb.or(nameMatch, phoneMatch, orgNameMatch));
+            }
+
+            // 그룹 연관관계 추가 없이 저장 ID의 서브쿼리로 코드의 정확한 일치를 찾는다.
+            if (StringUtils.hasText(condition.startGroupCode())) {
+                Subquery<String> groupIds = query.subquery(String.class);
+                Root<EventCategoryStartGroup> group = groupIds.from(EventCategoryStartGroup.class);
+                groupIds.select(group.get("id"))
+                        .where(cb.equal(group.get("code"), condition.startGroupCode()));
+                predicates.add(root.get("startGroupId").in(groupIds));
+            }
+            if (condition.startGroupUnselected() != null) {
+                predicates.add(cb.equal(root.get("startGroupUnselected"), condition.startGroupUnselected()));
             }
 
             // N+1 방지를 위한 fetch join (Pageable의 Count 쿼리 실행 시에는 제외)

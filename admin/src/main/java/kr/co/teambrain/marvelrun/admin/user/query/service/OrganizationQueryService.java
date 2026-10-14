@@ -6,12 +6,15 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Payment;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCategoryStartGroup;
+import kr.co.teambrain.marvelrun.admin.event.command.repository.EventCategoryStartGroupRepository;
 import kr.co.teambrain.marvelrun.admin.event.policy.RegistrationActionPolicyModels;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.PaymentQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
@@ -33,6 +36,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/** 관리자 단체 목록·상세와 참가자별 정책 및 저장된 그룹을 조회한다. */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -45,6 +49,7 @@ public class OrganizationQueryService {
     private final RegistrationQueryRepository registrationQueryRepository;
     private final SouvenirQueryRepository souvenirQueryRepository;
     private final PaymentQueryRepository paymentQueryRepository;
+    private final EventCategoryStartGroupRepository startGroupRepository;
 
     public Page<OrganizationListResponse> getOrganizationList(
             OrganizationSearchCondition condition,
@@ -86,6 +91,7 @@ public class OrganizationQueryService {
                 .build();
     }
 
+    /** 단체 상세와 참가자별 현재 그룹 코드를 일괄 조회하여 응답한다. */
     public OrganizationDetailResponse getOrganizationDetail(String organizationId) {
         // 1. 단체 정보 조회
         Organization organization = organizationQueryRepository.findById(organizationId)
@@ -98,6 +104,13 @@ public class OrganizationQueryService {
         // 2. 소속된 신청자 목록 조회 (삭제된 인원 제외)
         List<Registration> registrations = registrationQueryRepository
                 .findByOrganizationIdAndSoftDeletedFalse(organizationId);
+
+        // 기존 비활성 그룹도 표시하며 중복 ID를 제거하여 한 번에 조회한다.
+        List<String> groupIds = registrations.stream().map(Registration::getStartGroupId)
+                .filter(Objects::nonNull).distinct().toList();
+        Map<String, String> groupCodes = groupIds.isEmpty() ? Map.of()
+                : startGroupRepository.findByIdIn(groupIds).stream()
+                .collect(Collectors.toMap(EventCategoryStartGroup::getId, EventCategoryStartGroup::getCode));
 
         // 3. 신청자들의 기념품 ID 추출 및 매핑
         List<String> souvenirIds = registrations.stream()
@@ -145,6 +158,8 @@ public class OrganizationQueryService {
                     .memberPolicy(actionPolicies.evaluateOrganizationMemberPolicy(reg, now, policies))
                     .listNumber(listNumber++) // 페이징 번호 할당
                     .registrationId(reg.getId())
+                    .startGroupCode(groupCodes.get(reg.getStartGroupId()))
+                    .startGroupUnselected(reg.isStartGroupUnselected())
                     .name(reg.getName())
                     .birth(reg.getBirth())
                     .gender(genderStr)

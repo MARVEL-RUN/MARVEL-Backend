@@ -40,6 +40,7 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class RegistrationPasswordStorageTest {
     @Mock private RegistrationActionPolicyService actionPolicies;
+    @Mock private RegistrationStartGroupResolver startGroups;
     @Spy private PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(4);
     @Spy private OrgParticipantPasswordEncoder participantPasswordEncoder =
             new OrgParticipantPasswordEncoder(new BCryptPasswordEncoder(4));
@@ -66,6 +67,7 @@ class RegistrationPasswordStorageTest {
     /** 개인 신청 저장에는 서비스에서 만든 해시가 전달되고 입력 record는 유지된다. */
     @Test
     void storesPersonalHashWithoutChangingRequest() {
+        prepareStartGroupSelections();
         RegistrationCreateRequest request = personalRequest("TestPassword1!");
         preparePersonal(request);
         when(registrations.save(any(Registration.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -83,6 +85,7 @@ class RegistrationPasswordStorageTest {
     /** 단체 계정은 구성원 생성과 별도로 계정 비밀번호 해시를 저장한다. */
     @Test
     void storesOrganizationHashWithoutChangingRequest() {
+        prepareStartGroupSelections();
         OrgRegistrationCreateRequest request = organizationRequest("TestPassword1!");
         prepareOrganization(request);
         when(organizations.save(any(Organization.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -102,13 +105,14 @@ class RegistrationPasswordStorageTest {
     /** 최초 단체 생성에서도 참가자마다 고정 원문의 서로 다른 해시를 저장한다. */
     @Test
     void storesDistinctHashesForInitialOrganizationParticipants() {
+        prepareStartGroupSelections();
         OrgRegistrationCreateRequest request = organizationRequest("TestPassword1!");
         OrgRegistrationParticipantRequest participant = new OrgRegistrationParticipantRequest(
-                "category", List.of(), "참가자", "010-0000-0000", "1990-01-01", GenderClass.M);
+                "category", List.of(), "참가자", "010-0000-0000", "1990-01-01", GenderClass.M, "group", false);
         OrgRegistrationCreateContext.ParticipantContext context =
                 new OrgRegistrationCreateContext.ParticipantContext(participant, category, List.of());
         OrgRegistrationParticipantRequest secondParticipant = new OrgRegistrationParticipantRequest(
-                "category", List.of(), "다른 참가자", "010-0000-0001", "1990-01-01", GenderClass.M);
+                "category", List.of(), "다른 참가자", "010-0000-0001", "1990-01-01", GenderClass.M, "group", false);
         OrgRegistrationCreateContext.ParticipantContext secondContext =
                 new OrgRegistrationCreateContext.ParticipantContext(secondParticipant, category, List.of());
         when(time.currentDateTime()).thenReturn(NOW);
@@ -157,6 +161,16 @@ class RegistrationPasswordStorageTest {
         verify(passwordEncoder, never()).encode(any());
     }
 
+    /** 정상 저장 사례에서만 참가자 수에 맞는 그룹 결과를 제공한다. 비밀번호 사전 거부 사례에는 설정하지 않는다. */
+    private void prepareStartGroupSelections() {
+        // 그룹 규칙 자체는 기존 Resolver 테스트가 검증하며 여기서는 저장 흐름에 필요한 결과만 전달한다.
+        when(startGroups.resolveRegistrationStartGroups(anyList())).thenAnswer(invocation -> {
+            List<RegistrationStartGroupResolver.Input> inputs = invocation.getArgument(0);
+            return inputs.stream().map(input -> new RegistrationStartGroupResolver.Selection(
+                    input.startGroupId(), input.unselected())).toList();
+        });
+    }
+
     /** 해시 저장 경계에 집중하도록 기존 개인 신청 정책 검증 결과를 준비한다. */
     private void preparePersonal(RegistrationCreateRequest request) {
         when(time.currentDateTime()).thenReturn(NOW);
@@ -176,7 +190,7 @@ class RegistrationPasswordStorageTest {
     private RegistrationCreateRequest personalRequest(String password) {
         return new RegistrationCreateRequest("category", List.of(), password, "참가자", "010-0000-0000",
                 "1990-01-01", GenderClass.M, "주소", "상세", false, null, null, null,
-                true, false, false, "test@example.com");
+                true, false, false, "test@example.com", "group", false);
     }
 
     /** 원문 비밀번호를 담은 단체 생성 요청을 만든다. */

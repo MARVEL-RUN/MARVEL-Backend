@@ -42,6 +42,7 @@ import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegis
 import kr.co.teambrain.marvelrun.admin.event.command.application.service.AdminUnpaidRegistrationCancellationService;
 import kr.co.teambrain.marvelrun.admin.event.command.application.service.OfflineRegistrationImportService;
 import kr.co.teambrain.marvelrun.admin.event.command.application.service.RegistrationCommandService;
+import kr.co.teambrain.marvelrun.admin.event.command.application.service.RegistrationStartGroupResolver;
 import kr.co.teambrain.marvelrun.admin.event.command.application.service.RegistrationPricingService;
 import kr.co.teambrain.marvelrun.admin.event.command.application.valid.*;
 import kr.co.teambrain.marvelrun.admin.event.command.application.valid.loader.RegistrationPolicyLoader;
@@ -114,7 +115,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.datasource.hikari.maximum-pool-size=4"})
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@Import({ReservationHistoryRecorder.class,RegistrationQueryService.class, AdminUnpaidRegistrationCancellationService.class, RegistrationCommandService.class, AdminRefundEvidenceStore.class, AdminRefundEvidenceService.class, AdminRefundEvidenceMatcher.class, AdminPaymentQueryRepository.class, AdminRefundPreparationService.class, AdminRefundPreparationTransactionService.class, AdminRefundPreparationStore.class,
+@Import({RegistrationStartGroupResolver.class,ReservationHistoryRecorder.class,RegistrationQueryService.class, AdminUnpaidRegistrationCancellationService.class, RegistrationCommandService.class, AdminRefundEvidenceStore.class, AdminRefundEvidenceService.class, AdminRefundEvidenceMatcher.class, AdminPaymentQueryRepository.class, AdminRefundPreparationService.class, AdminRefundPreparationTransactionService.class, AdminRefundPreparationStore.class,
         RegistrationActionPolicyReader.class,
         AdminRefundAccessService.class, AdminRefundLockRepository.class, AdminRefundTime.class,
         RegistrationPolicyCandidateValidator.class, RegistrationPolicyValidator.class, RegistrationPolicyLoader.class,
@@ -283,6 +284,7 @@ class AdminRefundPreparationDatabaseTest {
             jdbc.update("insert into capacity_category(id,capacity_id,event_category_id) values(?,?,?)", id(), capacityA, categoryA);
             jdbc.update("insert into capacity_category(id,capacity_id,event_category_id) values(?,?,?)", id(), capacityB, categoryB);
             Registration registration = Registration.builder().event(em.getReference(Event.class, eventId))
+                    .startGroupId(startGroupId(categoryA)).startGroupUnselected(true)
                     .eventCategory(em.getReference(EventCategory.class, categoryA)).name("test-"+id().substring(0,8))
                     .phNum("010-0000-0000").birth("1990-01-01").gender(GenderClass.M).password("Test1234!")
                     .souvenirJson(List.of(new SouvenirJson(souvenir,"M"))).status(RegistrationStatus.CONFIRMED)
@@ -403,6 +405,7 @@ class AdminRefundPreparationDatabaseTest {
             jdbc.update("update payment set registration_id=null,organization_id=?,amount=140000 where id=?",organizationId,paymentId);
             Registration second = Registration.builder().event(em.getReference(Event.class,eventId))
                     .organization(em.getReference(Organization.class,organizationId))
+                    .startGroupId(startGroupId(categoryA)).startGroupUnselected(true)
                     .eventCategory(em.getReference(EventCategory.class,categoryA)).name("second-"+id().substring(0,8))
                     .phNum("010-0000-0000").birth("1990-01-01").gender(GenderClass.M).password("Test1234!")
                     .souvenirJson(List.of(new SouvenirJson(souvenir,"M"))).status(RegistrationStatus.CONFIRMED)
@@ -634,6 +637,7 @@ class AdminRefundPreparationDatabaseTest {
             jdbc.update("delete ecs from event_category_souvenir ecs join event_category ec on ec.id=ecs.event_category_id where ec.event_id=?",eventId);
             jdbc.update("delete from souvenir where event_id=?",eventId);
             jdbc.update("delete p from event_category_registration_policy p join event_category ec on ec.id=p.event_category_id where ec.event_id=?",eventId);
+            jdbc.update("delete g from event_category_start_group g join event_category c on c.id=g.event_category_id where c.event_id=?",eventId);
             jdbc.update("delete from event_category where event_id=?",eventId);
             jdbc.update("delete from event_registration_policy where event_id=?",eventId);
             jdbc.update("delete from organization where event_id=?",eventId);
@@ -644,7 +648,8 @@ class AdminRefundPreparationDatabaseTest {
 
     /** 대회별 종목과 제한 없는 출생일 정책을 생성한다. */
     private void category(String category,int price) {
-        jdbc.update("insert into event_category(id,event_id,amount,name,is_active,sort_order) values(?,?,?,'test',true,0)",category,eventId,price);
+        jdbc.update("insert into event_category(id,event_id,amount,name,is_active,sort_order,distance_meters) values(?,?,?,'test',true,0,5000)",category,eventId,price);
+        insertStartGroup(category);
         jdbc.update("insert into event_category_registration_policy(id,event_category_id,allowed_birth_from,allowed_birth_to) values(?,?,null,null)",id(),category);
     }
     /** 사용자 테스트와 같은 자원 구조로 현재 확정 수량을 구성한다. */
@@ -653,6 +658,16 @@ class AdminRefundPreparationDatabaseTest {
         jdbc.update("insert into capacity(id,event_id,type,resource_key,name,souvenir_id,size,limit_count,held_count,confirmed_count,active,created_at,updated_at) values(?,?,?,?,?,?,?,20,0,?,true,?,?)",
                 c,eventId,type,"TEST:"+c,"test",gift,size,confirmed,now,now); return c;
     }
+    /** 정산 테스트의 종목도 신청 그룹 필수 제약에 맞춰 후미 정의를 준비한다. */
+    private void insertStartGroup(String categoryId) {
+        jdbc.update("INSERT INTO event_category_start_group (id,event_category_id,code,description,sort_order,min_pace_seconds_per_km,min_expected_finish_seconds,is_active) VALUES (UUID(),?,'B','테스트 후미 그룹',20,360,1800,1)", categoryId);
+    }
+
+    /** 해당 테스트 종목의 실제 그룹 UUID를 신청 fixture에 연결한다. */
+    private String startGroupId(String categoryId) {
+        return jdbc.queryForObject("select id from event_category_start_group where event_category_id=?",String.class,categoryId);
+    }
+
     /** fixture 간 충돌을 피할 식별자를 만든다. */
     private String id() { return UUID.randomUUID().toString(); }
     /** 인증된 관리자 진입점의 추적정보를 대신한다. */
@@ -899,7 +914,8 @@ class AdminRefundPreparationDatabaseTest {
             for(int i=0;i<members;i++) {
                 Registration member=Registration.builder().event(em.getReference(Event.class,eventId))
                         .organization(em.getReference(Organization.class,org))
-                        .eventCategory(em.getReference(EventCategory.class,categoryA)).name("selection-"+i)
+                        .startGroupId(startGroupId(categoryA)).startGroupUnselected(true)
+                    .eventCategory(em.getReference(EventCategory.class,categoryA)).name("selection-"+i)
                         .phNum("010-0000-0000").birth("1990-01-01").gender(GenderClass.M).password("Test1234!")
                         .souvenirJson(List.of(new SouvenirJson(souvenir,"M"))).status(RegistrationStatus.PENDING)
                         .contractAmount(BigDecimal.ZERO).paidAmount(BigDecimal.ZERO)
@@ -1262,10 +1278,11 @@ class AdminRefundPreparationDatabaseTest {
                         from event where id=?
                         """, foreignEventId, eventId);
                 jdbc.update("""
-                        insert into event_category(id, event_id, amount, name, is_active, sort_order)
-                        values(?, ?, 70000, 'foreign category', true, 0)
+                        insert into event_category(id, event_id, amount, name, is_active, sort_order, distance_meters)
+                        values(?, ?, 70000, 'foreign category', true, 0, 5000)
                         """, foreignCategoryId, foreignEventId);
 
+                insertStartGroup(foreignCategoryId);
                 Registration foreign = persistUnpaidBatchRegistration(foreignEventId, foreignCategoryId);
                 em.flush();
 
@@ -1295,6 +1312,7 @@ class AdminRefundPreparationDatabaseTest {
         } finally {
             tx.executeWithoutResult(status -> {
                 jdbc.update("delete from registration where event_id=?", foreignEventId);
+                jdbc.update("delete g from event_category_start_group g join event_category c on c.id=g.event_category_id where c.event_id=?", foreignEventId);
                 jdbc.update("delete from event_category where event_id=?", foreignEventId);
                 jdbc.update("delete from event where id=?", foreignEventId);
             });
@@ -1673,6 +1691,7 @@ class AdminRefundPreparationDatabaseTest {
     private Registration persistUnpaidBatchRegistration(String targetEventId, String targetCategoryId) {
         Registration registration = Registration.builder()
                 .event(em.getReference(Event.class, targetEventId))
+                .startGroupId(startGroupId(targetCategoryId)).startGroupUnselected(true)
                 .eventCategory(em.getReference(EventCategory.class, targetCategoryId))
                 .name("batch-" + id().substring(0, 8))
                 .phNum("010-0000-0000")
@@ -1716,6 +1735,7 @@ class AdminRefundPreparationDatabaseTest {
             jdbc.update("update payment set registration_id=null,organization_id=?,amount=? where id=?", orgId, completed ? 70000 : 140000, paymentId);
             var org = em.getReference(Organization.class, orgId);
             Registration other = Registration.builder().organization(org).event(em.getReference(Event.class, eventId))
+                    .startGroupId(startGroupId(categoryA)).startGroupUnselected(true)
                     .eventCategory(em.getReference(EventCategory.class, categoryA)).name("other-" + id().substring(0, 8))
                     .phNum("010-0000-0000").birth("1990-01-01").gender(GenderClass.M).password("Test1234!")
                     .souvenirJson(List.of(new SouvenirJson(souvenir, "M")))

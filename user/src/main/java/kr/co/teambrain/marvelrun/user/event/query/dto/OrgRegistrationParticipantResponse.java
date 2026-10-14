@@ -12,5 +12,6 @@ public record OrgRegistrationParticipantResponse(
         List<RegistrationSouvenirResponse> selectedSouvenirList,
         String address, String addressDetail, String guardianName, String guardianPhNum,
         RegistrationStatus registrationStatus,
-        RegistrationActionPolicyModels.OrganizationMemberPolicy memberPolicy
+        RegistrationActionPolicyModels.OrganizationMemberPolicy memberPolicy,
+        String startGroupId, String startGroupCode, boolean startGroupUnselected
 ) { }

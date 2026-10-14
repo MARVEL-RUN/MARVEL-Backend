@@ -405,6 +405,6 @@ class RegistrationModificationAccessValidatorTest {
                 null,
                 null,
                 null,
-                null);
+                null, "group", false);
     }
 }
