@@ -37,7 +37,7 @@ public class RegistrationCommandController {
 
 
     /** 개인 신청 정보와 선택한 그룹을 검증하여 접수한다. */
-    @Operation(summary = "개인 신청", description = "그룹을 직접 선택하거나 미선택으로 요청하면 해당 종목 후미 그룹에 배정합니다.")
+    @Operation(summary = "개인 신청", description = "참가자의 인적사항, 종목·기념품·그룹 선택 및 약관 동의 정보를 받아 개인 참가신청을 생성합니다. 신청 결과와 결제 진행에 필요한 정보를 반환합니다.")
     @PostMapping("/{eventId}/registrations")
     public ResponseEntity<RegistrationCreateResponse> register(
             @PathVariable String eventId,

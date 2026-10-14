@@ -132,7 +132,6 @@ public class RegistrationQueryService {
 
         return RegistrationListResponse.builder()
                 .registrationId(registration.getId())
-                .startGroupId(registration.getStartGroupId())
                 .startGroupCode(groupCodes.get(registration.getStartGroupId()))
                 .startGroupUnselected(registration.isStartGroupUnselected())
                 .listNumber(listNumber)

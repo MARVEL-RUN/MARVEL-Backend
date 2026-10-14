@@ -121,7 +121,6 @@ class RegistrationStartGroupDatabaseTest {
 
         RegistrationListResponse row = queries.getRegistrationList(condition("B", true), page(0, 10)).getContent().getFirst();
         RegistrationDetailResponse detail = queries.getRegistrationDetail(registration.getId());
-        assertThat(row.startGroupId()).isEqualTo(inactive);
         assertThat(row.startGroupCode()).isEqualTo("B");
         assertThat(row.startGroupUnselected()).isTrue();
         assertThat(detail.startGroupId()).isEqualTo(inactive);
