@@ -472,7 +472,7 @@ class OfflineRegistrationImportTest {
     @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     // JPA 슬라이스에서도 확보·결제 확정에 필요한 실제 이력 기록 빈을 함께 구성한다.
-    @Import({OfflineRegistrationPersistenceService.class, ReservationHistoryRecorder.class,
+    @Import({RegistrationStartGroupResolver.class, OfflineRegistrationPersistenceService.class, ReservationHistoryRecorder.class,
             RegistrationCapacityService.class, OfflineRegistrationCapacityService.class, CapacityRequirementResolver.class,
             CapacityHoldService.class, ReservationPaymentService.class, OfflineRegistrationImportValidator.class,
             RegistrationPolicyLoader.class, RegistrationPolicyValidator.class,
@@ -503,7 +503,8 @@ class OfflineRegistrationImportTest {
                     values(?,?,?,?,?,?,'CLOSED','OPEN',?,?,?,true,true,true,false)
                     """, eventId, "offline test", now.plusDays(30), "test", "test", "test",
                     now.minusDays(20), now.minusDays(10), now.minusDays(5));
-            jdbc.update("insert into event_category(id,event_id,amount,name,is_active,sort_order) values(?,?,70000,'test',true,0)", categoryId, eventId);
+            jdbc.update("insert into event_category(id,event_id,amount,name,is_active,sort_order,distance_meters) values(?,?,70000,'test',true,0,5000)", categoryId, eventId);
+            jdbc.update("INSERT INTO event_category_start_group (id,event_category_id,code,description,sort_order,min_pace_seconds_per_km,min_expected_finish_seconds,is_active) VALUES (UUID(),?,'B','테스트 후미 그룹',20,360,1800,1)", categoryId);
             jdbc.update("insert into souvenir(id,event_id,name,sizes,is_active,sort_order) values(?,?,'test','M',true,0)", souvenirId, eventId);
             String total = insertCapacity("EVENT_TOTAL", null, "");
             String category = insertCapacity("CATEGORY", null, "");
@@ -524,6 +525,7 @@ class OfflineRegistrationImportTest {
             jdbc.update("delete cc from capacity_category cc join capacity c on c.id=cc.capacity_id where c.event_id=?", eventId);
             jdbc.update("delete from capacity where event_id=?", eventId);
             jdbc.update("delete from souvenir where event_id=?", eventId);
+            jdbc.update("delete g from event_category_start_group g join event_category c on c.id=g.event_category_id where c.event_id=?", eventId);
             jdbc.update("delete from event_category where event_id=?", eventId);
             jdbc.update("delete from event where id=?", eventId);
         }
@@ -534,6 +536,7 @@ class OfflineRegistrationImportTest {
             OfflineRegistrationImportResult result = databaseInput("participant");
             OfflineRegistrationImportResponse response = persistence.persistOfflinePaidRegistrations(eventId, result, Map.of(7, "encoded"), LocalDateTime.now());
             assertThat(response.savedCount()).isEqualTo(1);
+            assertThat(jdbc.queryForObject("select count(*) from registration r join event_category_start_group g on g.id=r.start_group_id where r.event_id=? and r.start_group_unselected=1 and g.code='B'", Integer.class, eventId)).isEqualTo(1);
             assertThat(jdbc.queryForObject("select count(*) from registration where event_id=? and external_payment=1 and status='CONFIRMED'", Integer.class, eventId)).isEqualTo(1);
             assertThat(jdbc.queryForObject("select count(*) from payment p join registration r on r.id=p.registration_id where r.event_id=? and p.process_status='COMPLETED' and p.payment_key is null and p.toss_status is null", Integer.class, eventId)).isEqualTo(1);
             assertThat(jdbc.queryForObject("select count(*) from capacity where event_id=? and held_count=0 and confirmed_count=1", Integer.class, eventId)).isEqualTo(3);

@@ -50,9 +50,24 @@ public final class RegistrationAccessVerifier {
         }
     }
 
+    /** 개인 그룹 전용 수정에서 신청 비밀번호만 검증한다. */
+    public static void verifyPersonalPassword(Registration registration, String password, PasswordEncoder encoder) {
+        if (registration == null || registration.getOrganization() != null
+                || !matches(password, registration.getPassword(), encoder)) {
+            throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
+        }
+    }
+
+    /** 단체 그룹 전용 수정에서 단체 계정의 비밀번호만 검증한다. */
+    public static void verifyOrganizationPassword(Organization organization, String password, PasswordEncoder encoder) {
+        if (organization == null || !matches(password, organization.getPassword(), encoder)) {
+            throw new CustomException(ErrorCode.ORGANIZATION_ACCESS_DENIED);
+        }
+    }
+
     /** 누락·입력 한도 초과·손상된 해시는 원문 비교 없이 인증 실패로 처리한다. */
     private static boolean matches(String rawPassword, String encodedPassword, PasswordEncoder passwordEncoder) {
-        if (encodedPassword == null || encodedPassword.isBlank()
+        if (rawPassword == null || rawPassword.isBlank() || encodedPassword == null || encodedPassword.isBlank()
                 || rawPassword.getBytes(StandardCharsets.UTF_8).length > 72) {
             return false;
         }

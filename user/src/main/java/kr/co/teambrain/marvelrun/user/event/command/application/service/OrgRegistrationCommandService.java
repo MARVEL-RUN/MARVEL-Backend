@@ -53,6 +53,7 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class OrgRegistrationCommandService {
+    private final RegistrationStartGroupResolver startGroups;
     private final RegistrationActionPolicyService actionPolicies;
     private final PasswordEncoder passwordEncoder;
     private final OrgParticipantPasswordEncoder participantPasswordEncoder;
@@ -469,6 +470,11 @@ public class OrgRegistrationCommandService {
             OrgRegistrationCreateRequest request,
             LocalDateTime now
     ) {
+        // 참가자 전체의 종목별 그룹을 한 번에 조회하여 요청 순서대로 적용한다.
+        List<RegistrationStartGroupResolver.Selection> selections = startGroups.resolveRegistrationStartGroups(
+                context.registrations().stream().map(participant -> new RegistrationStartGroupResolver.Input(
+                        participant.eventCategory().getId(), participant.request().startGroupId(),
+                        participant.request().startGroupUnselected())).toList());
         List<Registration> registrations =
                 new ArrayList<>(
                         context.registrations().size()
@@ -513,6 +519,8 @@ public class OrgRegistrationCommandService {
                             null
                     );
 
+            RegistrationStartGroupResolver.Selection selection = selections.get(registrations.size());
+            registration.applyStartGroupSelection(selection.startGroupId(), selection.unselected());
             registrations.add(
                     registration
             );

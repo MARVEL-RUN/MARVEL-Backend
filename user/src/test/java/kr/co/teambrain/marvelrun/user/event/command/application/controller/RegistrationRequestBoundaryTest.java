@@ -35,6 +35,7 @@ class RegistrationRequestBoundaryTest {
     private final RegistrationQueryService queries = mock(RegistrationQueryService.class);
     private final RegistrationModificationCommandService modifications = mock(RegistrationModificationCommandService.class);
     private final PaymentRetryPreparationService retries = mock(PaymentRetryPreparationService.class);
+    private final RegistrationStartGroupModificationService startGroups = mock(RegistrationStartGroupModificationService.class);
     private final AdditionalPaymentPreparationService additional = mock(AdditionalPaymentPreparationService.class);
     private final RegistrationCancellationCommandService cancellations = mock(RegistrationCancellationCommandService.class);
     private final RegistrationCommandService personalCreation = mock(RegistrationCommandService.class);
@@ -46,7 +47,7 @@ class RegistrationRequestBoundaryTest {
     void prepare() {
         mvc = MockMvcBuilders.standaloneSetup(
                 new RegistrationQueryController(queries), new OrgRegistrationQueryController(queries),
-                new RegistrationModificationController(modifications, retries),
+                new RegistrationModificationController(modifications, retries, startGroups),
                 new AdditionalPaymentController(additional), new RegistrationCancellationController(cancellations),
                 new RegistrationCommandController(personalCreation, mock(RegistrationPasswordChangeService.class)),
                 new OrgRegistrationCommandController(organizationCreation, mock(RegistrationPasswordChangeService.class)))
@@ -179,9 +180,41 @@ class RegistrationRequestBoundaryTest {
                 "/organizations/o/payments/additional/prepare", "/organizations/o/payments/p/retry");
     }
 
+    /** 그룹 전용 요청의 누락·조합 오류는 서비스 호출 전에 차단한다. */
+    @Test
+    void rejectsInvalidStartGroupSelections() throws Exception {
+        ObjectNode missing = json.createObjectNode().put("password", "test");
+        reject("/registrations/r/start-group", true, missing, "startGroupUnselected");
+        ObjectNode invalid = json.createObjectNode().put("password", "test").put("startGroupUnselected", false);
+        reject("/registrations/r/start-group", true, invalid, "startGroupSelectionValid");
+        ObjectNode organization = json.createObjectNode().put("password", "test");
+        organization.putArray("registrations").addObject().put("registrationId", "r").put("startGroupUnselected", false);
+        reject("/organizations/o/registrations/start-groups", true, organization,
+                "registrations[0].startGroupSelectionValid");
+        verifyNoInteractions(startGroups);
+    }
+
+    /** 미선택은 null ID를 허용하고 단체는 각 참가자의 선택을 그대로 전달한다. */
+    @Test
+    void acceptsPersonalAndBulkOrganizationStartGroups() throws Exception {
+        mvc.perform(patch(ROOT + "/registrations/r/start-group").contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"password":"test","startGroupId":null,"startGroupUnselected":true}
+                        """)).andExpect(status().isNoContent());
+        mvc.perform(patch(ROOT + "/organizations/o/registrations/start-groups").contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"password":"test","registrations":[
+                          {"registrationId":"r1","startGroupId":"g1","startGroupUnselected":false},
+                          {"registrationId":"r2","startGroupId":null,"startGroupUnselected":true}]}
+                        """)).andExpect(status().isNoContent());
+        verify(startGroups).modifyPersonalRegistrationStartGroup(eq("event"), eq("r"), any());
+        verify(startGroups).modifyOrganizationRegistrationStartGroups(eq("event"), eq("o"), any());
+        verifyNoInteractions(modifications, retries);
+    }
+
     /** 필수값 오류가 업무 서비스와 저장·인증 로직까지 전파되지 않아야 한다. */
     private void assertServicesUntouched() {
         verifyNoInteractions(queries, modifications, retries, additional, cancellations,
-                personalCreation, organizationCreation);
+                personalCreation, organizationCreation, startGroups);
     }
 }

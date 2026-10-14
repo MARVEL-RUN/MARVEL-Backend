@@ -1,6 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.controller;
 
 import jakarta.validation.Valid;
+import io.swagger.v3.oas.annotations.Operation;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.PersonalPasswordChangeRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.RegistrationPasswordChangeService;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationCreateRequest;
@@ -35,6 +36,8 @@ public class RegistrationCommandController {
     }
 
 
+    /** 개인 신청 정보와 선택한 그룹을 검증하여 접수한다. */
+    @Operation(summary = "개인 신청", description = "그룹을 직접 선택하거나 미선택으로 요청하면 해당 종목 후미 그룹에 배정합니다.")
     @PostMapping("/{eventId}/registrations")
     public ResponseEntity<RegistrationCreateResponse> register(
             @PathVariable String eventId,

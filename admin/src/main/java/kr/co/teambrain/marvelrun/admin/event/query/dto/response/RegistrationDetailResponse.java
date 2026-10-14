@@ -47,6 +47,9 @@ public record RegistrationDetailResponse(
 
         boolean externalPayment,       // 외부 결제 여부. 결제 관련 정보 변경·환불 제한 안내용
         
-        RegistrationActionPolicyModels.UserPolicy userPolicy
+        RegistrationActionPolicyModels.UserPolicy userPolicy,
+        String startGroupId,
+        String startGroupCode,
+        boolean startGroupUnselected
 ) {
 }

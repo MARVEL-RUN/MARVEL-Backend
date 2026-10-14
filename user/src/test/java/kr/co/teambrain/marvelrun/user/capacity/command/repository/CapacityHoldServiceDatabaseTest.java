@@ -136,14 +136,16 @@ class CapacityHoldServiceDatabaseTest {
             jdbcTemplate.update(
                     """
                     insert into event_category (
-                        id, event_id, amount, name, is_active, sort_order
-                    ) values (?, ?, 40000, ?, true, 0)
+                        id, event_id, amount, name, is_active, sort_order, distance_meters
+                    ) values (?, ?, 40000, ?, true, 0, 5000)
                     """,
                     categoryId,
                     eventId,
                     "테스트 종목"
             );
 
+            // 테스트 신청의 실제 그룹 UUID를 준비한다.
+            jdbcTemplate.update("INSERT INTO event_category_start_group (id,event_category_id,code,description,sort_order,min_pace_seconds_per_km,min_expected_finish_seconds,is_active) VALUES (UUID(),?,'B','테스트 후미 그룹',20,360,1800,1)", categoryId);
             insertCapacity(totalCapacityId, "EVENT_TOTAL");
             insertCapacity(categoryCapacityId, "CATEGORY");
 
@@ -382,6 +384,8 @@ class CapacityHoldServiceDatabaseTest {
      */
     private Registration persistRegistration() {
         Registration registration = Registration.builder()
+                .startGroupId(jdbcTemplate.queryForObject("select id from event_category_start_group where event_category_id=?", String.class, categoryId))
+                .startGroupUnselected(true)
                 .event(entityManager.getReference(Event.class, eventId))
                 .eventCategory(
                         entityManager.getReference(EventCategory.class, categoryId)
@@ -465,6 +469,7 @@ class CapacityHoldServiceDatabaseTest {
                     eventId
             );
 
+            jdbcTemplate.update("delete from event_category_start_group where event_category_id=?", categoryId);
             jdbcTemplate.update(
                     "delete from event_category where event_id = ?",
                     eventId

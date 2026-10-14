@@ -23,6 +23,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class OfflineRegistrationPersistenceService {
     private final EntityManager entityManager;
+    private final RegistrationStartGroupResolver startGroups;
     private final RegistrationCapacityService registrationCapacityService;
     private final OfflineRegistrationCapacityService offlineCapacityService;
     private final CapacityHoldService capacityHoldService;
@@ -45,6 +46,11 @@ public class OfflineRegistrationPersistenceService {
             throw new OfflineRegistrationImportException(result.canceledCount(), result.errors());
         }
 
+        // 엑셀에는 그룹 입력을 추가하지 않으며 종목별 후미 그룹을 일괄 확정한다.
+        List<RegistrationStartGroupResolver.Selection> selections = startGroups.resolveRegistrationStartGroups(
+                contexts.stream().map(context -> new RegistrationStartGroupResolver.Input(
+                        context.categoryId(), null, true)).toList());
+
         // 한 참가자에 하나의 결제와 전액 배분을 만들고 PG 전용 필드는 비워둔다.
         List<CapacityHoldRequest> holds = new ArrayList<>();
         List<Payment> payments = new ArrayList<>();
@@ -53,6 +59,8 @@ public class OfflineRegistrationPersistenceService {
             Registration registration = Registration.createOfflinePaidRegistration(event,
                     categories.getReferenceById(context.categoryId()), context,
                     passwordHashes.get(context.rowNumber()));
+            RegistrationStartGroupResolver.Selection selection = selections.get(payments.size());
+            registration.applyStartGroupSelection(selection.startGroupId(), selection.unselected());
             entityManager.persist(registration);
             Payment payment = Payment.createOfflineCompletedPayment(registration, context.approvedAtUtc());
             entityManager.persist(payment);

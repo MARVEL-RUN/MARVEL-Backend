@@ -11,6 +11,7 @@ import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyServi
 import kr.co.teambrain.marvelrun.user.event.query.dto.OrgRegistrationQueryResponse;
 import kr.co.teambrain.marvelrun.user.event.query.repository.RegistrationQueryRepository;
 import kr.co.teambrain.marvelrun.user.event.query.service.RegistrationQueryService;
+import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategoryStartGroupRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -55,7 +56,7 @@ class RegistrationAdjustmentPaymentQueryTest {
         Member external = new Member("r", "외부결제자", null, "1990-01-01", "010-0000-0000", "test",
                 null, "c", "category", List.of(), null, null, null, false, null, null, null,
                 RegistrationStatus.ADDITIONAL_PAYMENT_REQUIRED, new BigDecimal("70000"),
-                new BigDecimal("40000"), false, ReservationStatus.CONSUMED, now.plusDays(1), true, now.minusDays(2), null);
+                new BigDecimal("40000"), false, ReservationStatus.CONSUMED, now.plusDays(1), true, now.minusDays(2), null, "group", false);
         Payment payment = new Payment("p", "r", "o", new BigDecimal("30000"),
                 PaymentPurpose.ADDITIONAL_PAYMENT, PaymentProcessStatus.READY);
 
@@ -90,7 +91,7 @@ class RegistrationAdjustmentPaymentQueryTest {
         when(repository.members("e", "org")).thenReturn(List.of(paid, unpaid));
         when(policies.loadEnabledRegistrationActionPolicies("e", List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT, RegistrationActionType.REGIST))).thenReturn(List.of(new RegistrationActionPolicyInput(
                 "p", "e", Action.PAYMENT, now.minusDays(4), now.minusDays(1), now, true)));
-        RegistrationQueryService service = new RegistrationQueryService(encoder, repository, resolver, time, policies);
+        RegistrationQueryService service = new RegistrationQueryService(encoder, repository, resolver, time, policies, mock(EventCategoryStartGroupRepository.class));
         OrgRegistrationQueryResponse response = service.findOrganizationRegistrationDetails(
                 "e", new OrganizationAccessRequest("login", "test")).getFirst();
 
@@ -110,13 +111,13 @@ class RegistrationAdjustmentPaymentQueryTest {
             RegistrationStatus status, EventInput event) {
         return new Member(id, "name", null, "1990-01-01", "010-0000-0000", "encoded",
                 null, "c", "category", List.of(), null, null, null, false, null, null, null,
-                status, contract, paid, false, ReservationStatus.CONSUMED, null, false, registeredAt, event);
+                status, contract, paid, false, ReservationStatus.CONSUMED, null, false, registeredAt, event, "group", false);
     }
 
     private Member member(boolean additional) {
         return new Member("r","name",null,"1990-01-01","010-0000-0000","test",null,"c","category",List.of(),
                 null,null,null,false,null,null,null,additional ? RegistrationStatus.ADDITIONAL_PAYMENT_REQUIRED : RegistrationStatus.PAYMENT_PENDING,
                 new BigDecimal("70000"),additional ? new BigDecimal("40000") : BigDecimal.ZERO,false,
-                additional ? ReservationStatus.CONSUMED : ReservationStatus.HELD,now.minusDays(1), false, now.minusDays(2), null);
+                additional ? ReservationStatus.CONSUMED : ReservationStatus.HELD,now.minusDays(1), false, now.minusDays(2), null, "group", false);
     }
 }

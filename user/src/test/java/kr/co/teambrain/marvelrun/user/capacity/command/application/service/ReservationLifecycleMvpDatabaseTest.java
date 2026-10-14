@@ -27,7 +27,7 @@ class ReservationLifecycleMvpDatabaseTest extends CapacityMvpTestSupport {
                         (id, event_category_id, code, description, sort_order,
                          min_pace_seconds_per_km, max_pace_seconds_per_km,
                          min_expected_finish_seconds, max_expected_finish_seconds, is_active)
-                    VALUES (UUID(), ?, 'B', '정리 검증용 그룹', 20, 360, NULL, 1800, NULL, 1)
+                    VALUES (UUID(), ?, 'C', '정리 검증용 그룹', 30, 480, NULL, 2400, NULL, 1)
                     """, firstCategoryId);
             prepareMvpFixtures();
 

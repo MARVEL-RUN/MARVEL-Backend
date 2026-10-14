@@ -54,7 +54,9 @@ class OrgRegistrationPersonalInformationServiceTest {
     private final OrgRegistrationPersonalInformationValidator validator = new OrgRegistrationPersonalInformationValidator(
             INPUTS.getValidator(), new RegistrationInformationPolicyValidator(),
             new RegistrationUniqueInfoValidator(repository));
+    private final RegistrationStartGroupResolver startGroups = mock(RegistrationStartGroupResolver.class);
     private final RegistrationModificationTransactionService commands = new RegistrationModificationTransactionService(
+            startGroups,
             personal, full, settlement, time, mock(RegistrationModificationAccessValidator.class),
             mock(RegistrationPersonalInformationValidator.class), new RegistrationModificationClassifier(),
             mock(RegistrationPersonalInformationService.class), access, validator,
@@ -70,6 +72,11 @@ class OrgRegistrationPersonalInformationServiceTest {
     /** 최초 비교와 잠금 현재 읽기가 같은 두 구성원을 반환하도록 준비한다. */
     @BeforeEach
     void prepare() {
+        when(startGroups.resolveRegistrationStartGroups(anyList())).thenAnswer(invocation -> {
+            List<RegistrationStartGroupResolver.Input> inputs = invocation.getArgument(0);
+            return inputs.stream().map(input -> new RegistrationStartGroupResolver.Selection(
+                    input.startGroupId(), input.unselected())).toList();
+        });
         Event event = Event.builder().id("e").eventStatus(EventStatus.OPEN)
                 .startDate(NOW.plusDays(10)).registStartDate(NOW.minusDays(1)).registDeadline(NOW.plusDays(1)).build();
         organization = Organization.builder().id("o").event(event).loginId("group-test").password(passwordEncoder.encode("Test1234!"))
@@ -88,7 +95,7 @@ class OrgRegistrationPersonalInformationServiceTest {
     void changesOnlyInformationAndSkipsFullServices() {
         OrgRegistrationModificationParticipantRequest first = participant("a", "새 이름", "c");
         first = new OrgRegistrationModificationParticipantRequest(first.registrationId(), first.eventCategoryId(),
-                first.selectedSouvenirList(), first.name(), "010-2222-3333", first.birth(), GenderClass.F);
+                first.selectedSouvenirList(), first.name(), "010-2222-3333", first.birth(), GenderClass.F, "group", false);
         RegistrationModificationSettlementResult result = commands.modifyOrganizationRegistration("e", "o",
                 request(first, participant("b", "b", "c")));
         assertThat(members.getFirst().getName()).isEqualTo("새 이름");
@@ -195,7 +202,7 @@ class OrgRegistrationPersonalInformationServiceTest {
 
     /** 저장된 단체 참가자를 외부 조회 없이 구성한다. */
     private Registration member(String id, Event event) {
-        return Registration.builder().id(id).event(event).organization(organization)
+        return Registration.builder().startGroupId("group").startGroupUnselected(false).id(id).event(event).organization(organization)
                 .eventCategory(EventCategory.builder().id("c").build()).souvenirJson(List.of(new SouvenirJson("s", "S")))
                 .name(id).phNum("010-1111-2222").birth("1990-01-01").gender(GenderClass.M).version(7L)
                 .status(RegistrationStatus.CONFIRMED).contractAmount(new BigDecimal("10000")).paidAmount(new BigDecimal("5000")).build();
@@ -204,7 +211,7 @@ class OrgRegistrationPersonalInformationServiceTest {
     /** fixture 정책값과 원하는 개인정보를 합쳐 기존 DTO를 만든다. */
     private OrgRegistrationModificationParticipantRequest participant(String id, String name, String category) {
         return new OrgRegistrationModificationParticipantRequest(id, category, List.of(new SouvenirJson("s", "S")),
-                name, "010-1111-2222", "1990-01-01", GenderClass.M);
+                name, "010-1111-2222", "1990-01-01", GenderClass.M, "group", false);
     }
 
     /** 최종 전체목록과 테스트 인증정보를 담는다. */

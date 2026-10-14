@@ -10,19 +10,22 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
+import java.util.ArrayList;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategoryStartGroup;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** 종목·기념품 목록을 접수 허용 여부와 무관하게 보존하여 응답을 조립한다. */
+/** 종목·기념품·그룹 선택지를 접수 허용 여부와 무관하게 보존하여 응답을 조립한다. */
 @Component
 public class RegistrationOptionResponseAssembler {
 
 
-    /** 목록을 모두 조립한 뒤 별도로 계산한 접수 정책 결과를 함께 제공한다. */
+    /** 종목별 그룹과 기념품 목록을 조립한 뒤 기존 접수 정책 결과를 함께 제공한다. */
     public RegistrationOptionResponse assemble(
             List<RegistrationOptionProjection> projections,
-            RegistrationActionPolicyModels.Decision registrationDecision
+            RegistrationActionPolicyModels.Decision registrationDecision,
+            List<EventCategoryStartGroup> startGroups
     ) {
 
         Map<String, CategoryAccumulator> categoryMap =
@@ -59,6 +62,15 @@ public class RegistrationOptionResponseAssembler {
             );
         }
 
+
+        // 종목·기념품의 기존 순서를 보존하고 조회된 그룹 순서대로 선택지를 결합한다.
+        for (EventCategoryStartGroup group : startGroups) {
+            CategoryAccumulator category = categoryMap.get(group.getEventCategoryId());
+            if (category != null) {
+                category.startGroups.add(new RegistrationOptionResponse.StartGroupOption(
+                        group.getId(), group.getCode(), group.getDescription()));
+            }
+        }
 
         List<RegistrationOptionResponse.EventCategoryOption>
                 categories =
@@ -269,6 +281,8 @@ public class RegistrationOptionResponseAssembler {
      */
     private static class CategoryAccumulator {
 
+        private final List<RegistrationOptionResponse.StartGroupOption> startGroups = new ArrayList<>();
+
         private final long order;
 
         private final String categoryId;
@@ -325,6 +339,7 @@ public class RegistrationOptionResponseAssembler {
         }
 
 
+        /** 누적된 기념품과 그룹 선택지를 변경 불가능한 목록으로 반환한다. */
         private RegistrationOptionResponse.EventCategoryOption
         toResponse() {
 
@@ -338,7 +353,8 @@ public class RegistrationOptionResponseAssembler {
                     amount,
                     List.copyOf(
                             souvenirMap.values()
-                    )
+                    ),
+                    List.copyOf(startGroups)
             );
         }
     }

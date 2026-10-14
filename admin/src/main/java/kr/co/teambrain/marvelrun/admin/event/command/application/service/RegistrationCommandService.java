@@ -40,6 +40,7 @@ public class RegistrationCommandService {
 
     private final RegistrationCommandRepository registrationCommandRepository;
     private final AdminUnpaidRegistrationCancellationService unpaidCancellation;
+    private final RegistrationStartGroupResolver startGroups;
 
     /**
      * 개인 신청 비밀번호를 해시로 변환하여 초기화한다.
@@ -62,7 +63,7 @@ public class RegistrationCommandService {
         registration.resetPasswordByAdmin(passwordEncoder.encode(request.newPassword()));
     }
 
-    /** 기본정보를 정정하되 이미 결제한 신청의 가격 구분 변경을 차단한다. */
+    /** 기본정보와 그룹을 정정하되 이미 결제한 신청의 가격 구분 변경은 차단한다. */
     public void modifyRegistrationBasicInfo(String registrationId, AdminRegistrationModifyRequest request) {
         Registration registration = registrationCommandRepository.findById(registrationId)
                 .orElseThrow(() -> new CustomException(ErrorCode.REGISTRATION_NOT_FOUND));
@@ -108,6 +109,11 @@ public class RegistrationCommandService {
             throw new CustomException(ErrorCode.DUPLICATE_REGISTRATION);
         }
 
+        // 기존 기본정보 검증을 유지하고 현재 종목의 그룹만 변경한다.
+        RegistrationStartGroupResolver.Selection selection = startGroups.resolveRegistrationStartGroups(List.of(
+                new RegistrationStartGroupResolver.Input(registration.getEventCategory().getId(),
+                        request.startGroupId(), request.startGroupUnselected()))).getFirst();
+        registration.applyStartGroupSelection(selection.startGroupId(), selection.unselected());
         registration.modifyBasicInfoByAdmin(
                 request.name(),
                 request.phNum(),

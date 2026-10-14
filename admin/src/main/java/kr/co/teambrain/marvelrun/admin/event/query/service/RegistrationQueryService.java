@@ -30,6 +30,8 @@ import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProce
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import lombok.RequiredArgsConstructor;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCategoryStartGroup;
+import kr.co.teambrain.marvelrun.admin.event.command.repository.EventCategoryStartGroupRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -42,6 +44,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class RegistrationQueryService {
     private final RegistrationActionPolicyReader actionPolicies;
     private final ServerTimeProvider policyTime;
+    private final EventCategoryStartGroupRepository startGroupRepository;
 
 
 
@@ -51,6 +54,7 @@ public class RegistrationQueryService {
     private final SouvenirQueryRepository souvenirQueryRepository;
     private static final LocalDate CHILD_CUTOFF_DATE = LocalDate.of(2013, 11, 1);
 
+    /** 현재 페이지의 그룹 코드를 일괄 조회하고 기존 정렬·건수를 유지한다. */
     public Page<RegistrationListResponse> getRegistrationList(
             RegistrationSearchCondition condition,
             Pageable pageable
@@ -75,6 +79,8 @@ public class RegistrationQueryService {
                         SouvenirQueryRepository.SouvenirNameProjection::getName
                 ));
 
+        // 그룹 코드는 현재 페이지의 ID만 묶어서 조회한다.
+        Map<String, String> groupCodes = findStartGroupCodes(registrations.getContent());
         long totalElements = registrations.getTotalElements();
         int pageNumber = pageable.getPageNumber();
         int pageSize = pageable.getPageSize();
@@ -85,11 +91,13 @@ public class RegistrationQueryService {
                     - ((long) pageNumber * pageSize)
                     - currentIndex;
 
-            return convertToDto(registration, listNumber, souvenirNames);
+            return convertToDto(registration, listNumber, souvenirNames, groupCodes);
         });
     }
 
-    private RegistrationListResponse convertToDto(Registration registration, long listNumber, Map<String, String> souvenirNames) {
+    /** 일괄 조회한 표시 코드와 기존 목록 정보를 결합한다. */
+    private RegistrationListResponse convertToDto(Registration registration, long listNumber,
+                                                  Map<String, String> souvenirNames, Map<String, String> groupCodes) {
 
         boolean isOrganization = registration.getOrganization() != null;
         String type = isOrganization ? "단체" : "개인";
@@ -124,6 +132,9 @@ public class RegistrationQueryService {
 
         return RegistrationListResponse.builder()
                 .registrationId(registration.getId())
+                .startGroupId(registration.getStartGroupId())
+                .startGroupCode(groupCodes.get(registration.getStartGroupId()))
+                .startGroupUnselected(registration.isStartGroupUnselected())
                 .listNumber(listNumber)
                 .type(type)
                 .name(plainName)
@@ -150,11 +161,13 @@ public class RegistrationQueryService {
         Payment payment = paymentQueryRepository.findFirstByRegistrationIdOrderByCreatedAtDesc(registrationId)
                 .orElse(null);
 
-        return toRegistrationDetailResponse(registration, payment);
+        // 비활성화된 기존 선택도 저장된 코드로 표시한다.
+        Map<String, String> groupCodes = findStartGroupCodes(List.of(registration));
+        return toRegistrationDetailResponse(registration, payment, groupCodes.get(registration.getStartGroupId()));
     }
 
     /* 신청 정보와 결제 표시값을 변환하며 외부 결제 여부는 저장된 값을 그대로 제공한다. */
-    private RegistrationDetailResponse toRegistrationDetailResponse(Registration registration, Payment payment) {
+    private RegistrationDetailResponse toRegistrationDetailResponse(Registration registration, Payment payment, String startGroupCode) {
         boolean isOrganization = registration.getOrganization() != null;
 
         // 이메일 추출: 단체면 단체 대표 이메일, 개인이면 유저 이메일
@@ -222,6 +235,9 @@ public class RegistrationQueryService {
                 ? payment.getPaymentMethod().name() : "-";
 
         return RegistrationDetailResponse.builder()
+                .startGroupId(registration.getStartGroupId())
+                .startGroupCode(startGroupCode)
+                .startGroupUnselected(registration.isStartGroupUnselected())
                 .userPolicy(actionPolicies.evaluateRegistrationUserPolicy(registration, policyTime.currentDateTime(), actionPolicies.loadEnabledRegistrationActionPolicies(registration.getEvent().getId(), List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT))))
                 .externalPayment(registration.isExternalPayment())
                 .name(registration.getName())
@@ -255,6 +271,16 @@ public class RegistrationQueryService {
                 .termsMarketingAgreed(registration.getTermsMarketingAgreed())
                 .termsMarketingChannelAgreed(registration.getTermsMarketingChannelAgreed())
                 .build();
+    }
+
+    /** 저장된 그룹의 활성 여부와 무관하게 목록 한 번으로 코드를 가져온다. */
+    private Map<String, String> findStartGroupCodes(List<Registration> registrations) {
+        // 빈 조회는 생략하고 중복 그룹 ID를 제거한다.
+        List<String> ids = registrations.stream().map(Registration::getStartGroupId)
+                .filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) { return Map.of(); }
+        return startGroupRepository.findByIdIn(ids).stream()
+                .collect(Collectors.toMap(EventCategoryStartGroup::getId, EventCategoryStartGroup::getCode));
     }
 
     public EventStatisticsResponse getEventStatistics(String eventId) {

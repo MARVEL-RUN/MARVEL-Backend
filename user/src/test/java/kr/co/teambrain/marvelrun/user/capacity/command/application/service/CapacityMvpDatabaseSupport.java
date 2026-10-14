@@ -86,6 +86,7 @@ import static org.mockito.Mockito.when;
         RegistrationCapacityService.class,
         ReservationReleaseService.class,
         ReservationPaymentService.class,
+        RegistrationStartGroupResolver.class,
         RegistrationCommandService.class,
         OrgRegistrationCommandService.class,
         OrgParticipantPasswordEncoder.class,
@@ -227,6 +228,14 @@ abstract class CapacityMvpDatabaseSupport {
                 );
 
                 // 출생일 제한 없는 종목도 정책 행 자체는 필요하다.
+                jdbc.update("""
+                        INSERT INTO event_category_start_group
+                            (id, event_category_id, code, description, sort_order, min_pace_seconds_per_km,
+                             max_pace_seconds_per_km, min_expected_finish_seconds, max_expected_finish_seconds, is_active)
+                        VALUES (UUID(), ?, 'A', '테스트 선두 그룹', 10, 0, 360, 0, ?, 1),
+                               (UUID(), ?, 'B', '테스트 후미 그룹', 20, 360, NULL, ?, NULL, 1)
+                        """, categoryId, categoryId.equals(categoryA) ? 1800 : 3600,
+                        categoryId, categoryId.equals(categoryA) ? 1800 : 3600);
                 jdbc.update(
                         """
                         insert into event_category_registration_policy (
@@ -351,7 +360,7 @@ abstract class CapacityMvpDatabaseSupport {
                 true,
                 false,
                 false,
-                null)
+                null, null, true)
         );
     }
 
@@ -371,8 +380,7 @@ abstract class CapacityMvpDatabaseSupport {
                     "단체참가자" + i,
                     "010-0000-0000",
                     "1990-01-01",
-                    GenderClass.M
-            ));
+                    GenderClass.M, null, true));
         }
 
         return organizations.register(

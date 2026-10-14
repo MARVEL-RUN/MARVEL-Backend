@@ -158,7 +158,7 @@ class RegistrationPersonalModificationServiceTest {
                 " 보호자 ",
                 null,
                 null,
-                null);
+                null, "group", false);
 
         normalizedSouvenirs =
                 List.of(new SouvenirJson("shirt", "130"));

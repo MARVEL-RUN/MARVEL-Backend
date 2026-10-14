@@ -60,7 +60,7 @@ public class Registration extends RegistrationBase<
 
 
     /**
-     * 개인 신청의 기본정보와 보호자 정보를 공통 반영한다.
+     * 개인 신청의 기본정보·보호자 정보와 서버가 검증한 그룹 선택을 공통 반영한다.
      * 종목·생년월일·기념품·금융 정보는 변경하지 않는다.
      */
     public void applyPersonalInformation(RegistrationModificationRequest request) {
@@ -95,6 +95,7 @@ public class Registration extends RegistrationBase<
         this.name = request.name();
         this.phNum = request.phNum();
         this.gender = request.gender();
+        applyStartGroupSelection(request.startGroupId(), Boolean.TRUE.equals(request.startGroupUnselected()));
         this.address = request.address();
         this.addressDetail = request.addressDetail();
 
@@ -135,6 +136,8 @@ public class Registration extends RegistrationBase<
                 .event(event)
                 .eventCategory(eventCategory)
                 .souvenirJson(souvenirJsons)
+                .startGroupId(request.startGroupId())
+                .startGroupUnselected(Boolean.TRUE.equals(request.startGroupUnselected()))
                 .password(encodedPassword)
                 .name(request.name())
                 .phNum(request.phNum())
@@ -178,6 +181,8 @@ public class Registration extends RegistrationBase<
     ) {
 
         return Registration.builder()
+                .startGroupId(request.startGroupId())
+                .startGroupUnselected(Boolean.TRUE.equals(request.startGroupUnselected()))
                 .event(
                         event
                 )
@@ -408,11 +413,12 @@ public class Registration extends RegistrationBase<
         this.phNum = request.phNum();
         this.birth = request.birth();
         this.gender = request.gender();
+        applyStartGroupSelection(request.startGroupId(), Boolean.TRUE.equals(request.startGroupUnselected()));
 
         this.contractAmount = newContractAmount;
     }
 
-    /** 기존 단체 신청의 개인정보만 정정하며 정책·금융·귀속 필드는 요청값으로 덮어쓰지 않는다. */
+    /** 기존 단체 신청의 개인정보와 검증된 그룹을 정정하며 금융·귀속 필드는 보존한다. */
     public void applyOrganizationPersonalInformation(OrgRegistrationModificationParticipantRequest request) {
         if (organization == null || softDeleted || id == null || request == null
                 || !Objects.equals(id, request.registrationId())) {
@@ -421,6 +427,7 @@ public class Registration extends RegistrationBase<
         this.name = request.name();
         this.phNum = request.phNum();
         this.gender = request.gender();
+        applyStartGroupSelection(request.startGroupId(), Boolean.TRUE.equals(request.startGroupUnselected()));
     }
 
     /** 단체 일부 제거의 기존 호출 계약을 유지하며 공통 참가 취소 상태 전이를 사용한다. */

@@ -53,6 +53,7 @@ public class RegistrationCommandController {
 
     /** 기존 신청 기본 정보 수정 경로를 유지한다. */
     @PatchMapping("/registrations/{registrationId}/basic-info")
+    @Operation(summary = "신청 기본정보 및 그룹 수정", description = "현재 신청 종목에 속한 그룹을 선택하거나 미선택 시 후미 그룹으로 변경합니다.")
     public ResponseEntity<Void> modifyRegistrationBasicInfo(
             @PathVariable String registrationId,
             @Valid @RequestBody AdminRegistrationModifyRequest request

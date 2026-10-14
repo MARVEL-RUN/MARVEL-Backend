@@ -79,6 +79,7 @@ import static org.mockito.Mockito.when;
         RegistrationCapacityService.class,
         ReservationReleaseService.class,
 
+        RegistrationStartGroupResolver.class,
         RegistrationCommandService.class,
         OrgRegistrationCommandService.class,
         OrgParticipantPasswordEncoder.class,
@@ -241,7 +242,7 @@ class RegistrationCreateFlowDatabaseTest {
                 true,
                 false,
                 false,
-                null)
+                null, null, true)
                 );
 
         /*
@@ -496,8 +497,7 @@ class RegistrationCreateFlowDatabaseTest {
                                 ),
                                 "010-0000-0000",
                                 "1990-01-01",
-                                GenderClass.M
-                        ),
+                                GenderClass.M, null, true),
                         new OrgRegistrationParticipantRequest(
                                 "category-3",
                                 List.of(
@@ -511,8 +511,7 @@ class RegistrationCreateFlowDatabaseTest {
                                 ),
                                 "010-0000-0000",
                                 "2013-09-11",
-                                GenderClass.M
-                        )
+                                GenderClass.M, null, true)
                 ),
                         true, false, false
                 );

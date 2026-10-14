@@ -67,11 +67,11 @@ class OrgParticipantPasswordStorageTest {
         OrgRegistrationModificationAccessContext access = mock(OrgRegistrationModificationAccessContext.class);
         when(access.organization()).thenReturn(organization);
         OrgRegistrationModificationParticipantRequest participant = new OrgRegistrationModificationParticipantRequest(
-                null, "category", List.of(), "추가 참가자", "010-0000-0000", "1990-01-01", GenderClass.M);
+                null, "category", List.of(), "추가 참가자", "010-0000-0000", "1990-01-01", GenderClass.M, "group", false);
         OrgRegistrationModificationCandidateContext.ParticipantCandidate added =
                 new OrgRegistrationModificationCandidateContext.ParticipantCandidate(null, participant, category, List.of());
         OrgRegistrationModificationParticipantRequest secondParticipant = new OrgRegistrationModificationParticipantRequest(
-                null, "category", List.of(), "다른 추가 참가자", "010-0000-0001", "1990-01-01", GenderClass.M);
+                null, "category", List.of(), "다른 추가 참가자", "010-0000-0001", "1990-01-01", GenderClass.M, "group", false);
         OrgRegistrationModificationCandidateContext.ParticipantCandidate secondAdded =
                 new OrgRegistrationModificationCandidateContext.ParticipantCandidate(null, secondParticipant, category, List.of());
         OrgRegistrationModificationCandidateContext candidate = new OrgRegistrationModificationCandidateContext(

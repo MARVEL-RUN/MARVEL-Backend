@@ -9,6 +9,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.Regi
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrganizationAccessRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationAccessRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.RegistrationModificationCommandService;
+import kr.co.teambrain.marvelrun.user.event.command.application.service.RegistrationStartGroupModificationService;
 import kr.co.teambrain.marvelrun.user.payment.command.application.PaymentRetryPreparationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,12 +27,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class RegistrationModificationControllerTest {
     private final RegistrationModificationCommandService modifications = mock(RegistrationModificationCommandService.class);
     private final PaymentRetryPreparationService retries = mock(PaymentRetryPreparationService.class);
+    private final RegistrationStartGroupModificationService startGroups = mock(RegistrationStartGroupModificationService.class);
     private MockMvc mvc;
 
     /** 컨트롤러와 실제 MVC 요청 바인딩을 구성한다. 외부 서버는 실행하지 않는다. */
     @BeforeEach
     void setUp() {
-        mvc = MockMvcBuilders.standaloneSetup(new RegistrationModificationController(modifications, retries)).build();
+        mvc = MockMvcBuilders.standaloneSetup(new RegistrationModificationController(modifications, retries, startGroups)).build();
     }
 
     /** 개인 수정 요청은 DB 처리만 하는 서비스가 아닌 환불까지 연결하는 facade로 전달한다. */
@@ -42,7 +44,7 @@ class RegistrationModificationControllerTest {
                 .contentType(MediaType.APPLICATION_JSON).content("""
                 {"access":{"name":"참가자","birth":"1990-01-01","phNum":"010-1234-5678","password":"test"},
                  "eventCategoryId":"category","selectedSouvenirList":[{"souvenirId":"shirt","selectedSize":"S"}],
-                 "name":"수정이름","birth":"1990-01-01","phNum":"010-1234-5678","gender":"M"}
+                 "name":"수정이름","birth":"1990-01-01","phNum":"010-1234-5678","gender":"M","startGroupUnselected":true}
                 """))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.orders.length()").value(1))
                 .andExpect(jsonPath("$.orders[0].amount").value(60000));
@@ -61,10 +63,10 @@ class RegistrationModificationControllerTest {
                  "access":{"loginId":"leader","password":"test"},"registrations":[
                  {"registrationId":"existing","eventCategoryId":"category",
                   "selectedSouvenirList":[{"souvenirId":"shirt","selectedSize":"S"}],
-                  "name":"기존참가자","phNum":"010-1234-5678","birth":"1990-01-01","gender":"M"},
+                  "name":"기존참가자","phNum":"010-1234-5678","birth":"1990-01-01","gender":"M","startGroupUnselected":true},
                  {"registrationId":null,"eventCategoryId":"category",
                   "selectedSouvenirList":[{"souvenirId":"shirt","selectedSize":"S"}],
-                  "name":"신규참가자","phNum":"010-1234-5678","birth":"1991-01-01","gender":"M"}]}
+                  "name":"신규참가자","phNum":"010-1234-5678","birth":"1991-01-01","gender":"M","startGroupUnselected":true}]}
                 """))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.orders.length()").value(1));
         ArgumentCaptor<OrgRegistrationModificationRequest> captured = ArgumentCaptor.forClass(OrgRegistrationModificationRequest.class);

@@ -268,7 +268,7 @@ class RegistrationModificationPricingServiceTest {
                 "보호자",
                 null,
                 null,
-                null);
+                null, "group", false);
 
         return new RegistrationModificationCandidateContext(
                 event,
@@ -295,7 +295,6 @@ class RegistrationModificationPricingServiceTest {
                 name,
                 "010-1111-2222",
                 birth,
-                GenderClass.M
-        );
+                GenderClass.M, "group", false);
     }
 }

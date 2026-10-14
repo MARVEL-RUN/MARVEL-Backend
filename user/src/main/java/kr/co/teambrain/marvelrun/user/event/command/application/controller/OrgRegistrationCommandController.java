@@ -1,6 +1,8 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.controller;
 
 import jakarta.validation.Valid;
+import io.swagger.v3.oas.annotations.Operation;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.OrgRegistrationCreateResponse;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrganizationPasswordChangeRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.RegistrationPasswordChangeService;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrgRegistrationCreateRequest;
@@ -56,12 +58,13 @@ public class OrgRegistrationCommandController {
      * Controller 자체에는 /api를 중복 선언하지 않는다.
      */
     @PostMapping("/registrations/organization")
-    public ResponseEntity<?> registerOrganization(
+    @Operation(summary = "단체 신청", description = "참가자마다 그룹 선택 또는 미선택을 전달하여 접수합니다.")
+    public ResponseEntity<OrgRegistrationCreateResponse> registerOrganization(
             @PathVariable String eventId,
             @Valid @RequestBody OrgRegistrationCreateRequest request
     ) {
 
-        Object response =
+        OrgRegistrationCreateResponse response =
                 orgRegistrationCommandService.register(
                         eventId,
                         request

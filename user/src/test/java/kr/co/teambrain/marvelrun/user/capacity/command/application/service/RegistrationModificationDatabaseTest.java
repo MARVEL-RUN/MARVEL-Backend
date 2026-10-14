@@ -49,6 +49,7 @@ import static org.mockito.Mockito.*;
  * 각 수정 요청은 실제 CommandService의 트랜잭션으로 실행한다.
  */
 @Import({
+        RegistrationStartGroupModificationService.class,
         RegistrationInformationPolicyValidator.class, OrgRegistrationPersonalInformationValidator.class,
         OrgRegistrationPersonalInformationService.class, OrgRegistrationModificationGuard.class,
 
@@ -77,6 +78,114 @@ import static org.mockito.Mockito.*;
 })
 class RegistrationModificationDatabaseTest
         extends CapacityMvpTestSupport {
+
+    @Autowired
+    private RegistrationStartGroupModificationService startGroupModifications;
+
+    /** 신청 시 직접 고른 그룹은 미선택 기본값으로 덮어쓰지 않는다. */
+    @Test
+    void createsPersonalRegistrationWithExplicitStartGroup() {
+        String front = queryStringValue("select id from event_category_start_group where event_category_id=? and code='A'", categoryA);
+        RegistrationCreateResponse created = registrations.register(eventId, new RegistrationCreateRequest(categoryA,
+                List.of(new SouvenirJson(souvenirId, "S")), "Test1234!", "선택참가자", "010-0000-0000",
+                "1990-01-01", GenderClass.M, "테스트 주소", "상세", true, "테스트 보호자", null, null,
+                true, false, false, null, front, false));
+        assertThat(queryStringValue("select start_group_id from registration where id=?", created.registrationId())).isEqualTo(front);
+        assertThat(queryIntegerValue("select start_group_unselected from registration where id=?", created.registrationId())).isZero();
+    }
+
+    /** 수정 정책·접수 마감·외부결제 제한과 독립적으로 개인 그룹을 수정하고 비밀번호를 검증한다. */
+    @Test
+    void modifiesPersonalStartGroupWithoutActionPolicyOrExternalPaymentChecks() {
+        RegistrationCreateResponse created = createPersonalRegistration(categoryA, "S", "1990-01-01");
+        String registrationId = created.registrationId();
+        String front = queryStringValue("select id from event_category_start_group where event_category_id=? and code='A'", categoryA);
+        String rear = queryStringValue("select start_group_id from registration where id=?", registrationId);
+        insertActionPolicy("REGIST");
+        insertActionPolicy("MODIFY");
+        jdbc.update("update event set event_status='CLOSED',regist_deadline=? where id=?", NOW.minusDays(1), eventId);
+        jdbc.update("update registration set external_payment=1 where id=?", registrationId);
+
+        // 잘못된 비밀번호는 저장하지 않고, 정상 인증이면 그룹만 변경한다.
+        expectError(ErrorCode.REGISTRATION_ACCESS_DENIED, () -> startGroupModifications.modifyPersonalRegistrationStartGroup(
+                eventId, registrationId, new RegistrationStartGroupModificationRequest("wrong", front, false)));
+        assertThat(queryStringValue("select start_group_id from registration where id=?", registrationId)).isEqualTo(rear);
+        startGroupModifications.modifyPersonalRegistrationStartGroup(eventId, registrationId,
+                new RegistrationStartGroupModificationRequest("Test1234!", front, false));
+        assertThat(queryStringValue("select start_group_id from registration where id=?", registrationId)).isEqualTo(front);
+        assertThat(queryIntegerValue("select start_group_unselected from registration where id=?", registrationId)).isZero();
+
+        // 미선택은 전달 ID를 무시하며 직접 후미 선택은 false로 구별한다.
+        startGroupModifications.modifyPersonalRegistrationStartGroup(eventId, registrationId,
+                new RegistrationStartGroupModificationRequest("Test1234!", "ignored", true));
+        assertThat(queryStringValue("select start_group_id from registration where id=?", registrationId)).isEqualTo(rear);
+        startGroupModifications.modifyPersonalRegistrationStartGroup(eventId, registrationId,
+                new RegistrationStartGroupModificationRequest("Test1234!", rear, false));
+        assertThat(queryIntegerValue("select start_group_unselected from registration where id=?", registrationId)).isZero();
+    }
+
+    /** 단체 비밀번호 하나로 참가자별 선택을 저장하고 누락된 인원은 그대로 둔다. */
+    @Test
+    void modifiesBulkOrganizationStartGroupsAndRejectsForeignOrDuplicateMembers() {
+        OrgRegistrationCreateResponse created = createOrganizationRegistration(categoryA, categoryB, categoryA);
+        List<String> ids = created.registrationIds();
+        String front = queryStringValue("select id from event_category_start_group where event_category_id=? and code='A'", categoryA);
+        String unchanged = queryStringValue("select start_group_id from registration where id=?", ids.get(2));
+        OrgRegistrationStartGroupModificationRequest request = new OrgRegistrationStartGroupModificationRequest(
+                "Test1234!", List.of(
+                new OrgRegistrationStartGroupModificationRequest.Participant(ids.get(0), front, false),
+                new OrgRegistrationStartGroupModificationRequest.Participant(ids.get(1), null, true)));
+        startGroupModifications.modifyOrganizationRegistrationStartGroups(eventId, created.organizationId(), request);
+        assertThat(queryStringValue("select start_group_id from registration where id=?", ids.get(0))).isEqualTo(front);
+        assertThat(queryIntegerValue("select start_group_unselected from registration where id=?", ids.get(0))).isZero();
+        assertThat(queryIntegerValue("select start_group_unselected from registration where id=?", ids.get(1))).isEqualTo(1);
+        assertThat(queryStringValue("select start_group_id from registration where id=?", ids.get(2))).isEqualTo(unchanged);
+
+        // 후행 인원 검증 실패 시 앞 인원도 갱신되지 않는다.
+        expectError(ErrorCode.INVALID_START_GROUP_SELECTION,
+                () -> startGroupModifications.modifyOrganizationRegistrationStartGroups(eventId, created.organizationId(),
+                        new OrgRegistrationStartGroupModificationRequest("Test1234!", List.of(
+                                new OrgRegistrationStartGroupModificationRequest.Participant(ids.get(0), null, true),
+                                new OrgRegistrationStartGroupModificationRequest.Participant(ids.get(1), front, false)))));
+        assertThat(queryStringValue("select start_group_id from registration where id=?", ids.get(0))).isEqualTo(front);
+        expectError(ErrorCode.DUPLICATE_REGISTRATION_MODIFICATION_TARGET,
+                () -> startGroupModifications.modifyOrganizationRegistrationStartGroups(eventId, created.organizationId(),
+                        new OrgRegistrationStartGroupModificationRequest("Test1234!", List.of(
+                                request.registrations().getFirst(), request.registrations().getFirst()))));
+        expectError(ErrorCode.ORGANIZATION_ACCESS_DENIED,
+                () -> startGroupModifications.modifyOrganizationRegistrationStartGroups(eventId, created.organizationId(),
+                        new OrgRegistrationStartGroupModificationRequest("wrong", request.registrations())));
+        expectError(ErrorCode.REGISTRATION_NOT_FOUND,
+                () -> startGroupModifications.modifyPersonalRegistrationStartGroup(eventId, ids.get(0),
+                        new RegistrationStartGroupModificationRequest("Test1234!", front, false)));
+
+        // 다른 단체 인원의 ID를 섞어 보낸 경우도 전체 거부한다.
+        OrgRegistrationCreateResponse other = createOrganizationRegistration(categoryA);
+        expectError(ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET,
+                () -> startGroupModifications.modifyOrganizationRegistrationStartGroups(eventId, created.organizationId(),
+                        new OrgRegistrationStartGroupModificationRequest("Test1234!", List.of(
+                                new OrgRegistrationStartGroupModificationRequest.Participant(other.registrationIds().getFirst(), null, true)))));
+    }
+
+    /** 일반 신청 수정의 그룹 변경은 주문 재생성 없이 저장되며 같은 미선택 요청은 무변경으로 처리한다. */
+    @Test
+    void modifiesStartGroupThroughOrdinaryPersonalModification() {
+        RegistrationCreateResponse created = createPersonalRegistration(categoryA, "S", "1990-01-01");
+        String id = created.registrationId();
+        String front = queryStringValue("select id from event_category_start_group where event_category_id=? and code='A'", categoryA);
+        RegistrationModificationRequest template = personalRequest(id, categoryA, "S");
+        RegistrationModificationRequest selected = new RegistrationModificationRequest(template.access(),
+                template.eventCategoryId(), template.selectedSouvenirList(), template.name(), template.phNum(),
+                template.birth(), template.gender(), template.address(), template.addressDetail(), template.guardianConsent(),
+                template.guardianName(), template.guardianPhNum(), template.guardianRelationship(), template.email(), front, false);
+        assertThat(modifications.modifyPersonalRegistration(eventId, id, selected).orders()).isEmpty();
+        assertThat(queryStringValue("select start_group_id from registration where id=?", id)).isEqualTo(front);
+        assertThat(queryIntegerValue("select start_group_unselected from registration where id=?", id)).isZero();
+        modifications.modifyPersonalRegistration(eventId, id, template);
+        Long version = jdbc.queryForObject("select version from registration where id=?", Long.class, id);
+        modifications.modifyPersonalRegistration(eventId, id, template);
+        assertThat(jdbc.queryForObject("select version from registration where id=?", Long.class, id)).isEqualTo(version);
+    }
 
     @Autowired
     private RegistrationActionPolicyRepository actionPolicyRepository;
@@ -240,7 +349,7 @@ class RegistrationModificationDatabaseTest
         OrgRegistrationModificationRequest template = groupRequest(original.organizationId(), retainedId);
         OrgRegistrationModificationParticipantRequest unchanged = new OrgRegistrationModificationParticipantRequest(
                 retainedId, categoryA, List.of(new SouvenirJson(souvenirId, "S")),
-                queryStringValue("select name from registration where id=?", retainedId), "010-0000-0000", "1990-01-01", GenderClass.M);
+                queryStringValue("select name from registration where id=?", retainedId), "010-0000-0000", "1990-01-01", GenderClass.M, null, true);
         modifications.modifyOrganizationRegistration(eventId, original.organizationId(), new OrgRegistrationModificationRequest(
                 template.guardianConsent(), template.email(), template.address(), template.addressDetail(),
                 template.leaderName(), template.leaderBirth(), template.leaderPhNum(), template.access(),
@@ -1275,7 +1384,7 @@ class RegistrationModificationDatabaseTest
                 "테스트 보호자",
                 null,
                 null,
-                null);
+                null, null, true);
     }
 
     /**
@@ -1351,7 +1460,7 @@ class RegistrationModificationDatabaseTest
                 "테스트 보호자",
                 null,
                 null,
-                null);
+                null, null, true);
     }
 
     /**
@@ -1385,8 +1494,7 @@ class RegistrationModificationDatabaseTest
                                 ),
                                 "010-0000-0000",
                                 "1990-01-01",
-                                GenderClass.M
-                        ),
+                                GenderClass.M, null, true),
                         new OrgRegistrationModificationParticipantRequest(
                                 null,
                                 categoryA,
@@ -1395,8 +1503,7 @@ class RegistrationModificationDatabaseTest
                                         .toString().substring(0, 8),
                                 "010-0000-0000",
                                 "1990-01-01",
-                                GenderClass.M
-                        )
+                                GenderClass.M, null, true)
                 ));
     }
 

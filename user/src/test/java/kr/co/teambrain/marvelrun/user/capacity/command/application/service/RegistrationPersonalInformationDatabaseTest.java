@@ -99,6 +99,10 @@ class RegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupport
         List<RegistrationQueryResponse> response = queries.findPersonalRegistrationDetails(eventId, access);
         assertThat(response).hasSize(1);
         assertThat(response.getFirst().externalPayment()).isEqualTo(external);
+        // 실제 Tuple 조회에서 그룹 ID와 미선택 여부가 누락되지 않는지 확인한다.
+        assertThat(response.getFirst().startGroupId()).isEqualTo(before.get("start_group_id"));
+        assertThat(response.getFirst().startGroupCode()).isEqualTo("B");
+        assertThat(response.getFirst().startGroupUnselected()).isTrue();
         assertThat(response.getFirst().registrationStatus().name()).isEqualTo("CONFIRMED");
         assertThat(response.getFirst().paymentStatus().name()).isEqualTo("COMPLETED");
         assertThat(response.getFirst().paymentAction()).isEqualTo(RegistrationPaymentAction.NONE);
@@ -353,7 +357,7 @@ class RegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupport
                 "테스트 보호자",
                 null,
                 null,
-                null);
+                null, null, true);
     }
 
     /** 신청의 전체 저장값을 JSON 문자열과 함께 비교한다. */

@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.admin.event.command.application.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -35,6 +37,15 @@ public record AdminRegistrationModifyRequest(
         @Pattern(regexp = "^[0-9]*$", message = "보호자 연락처는 '-' 없이 숫자만 입력해주세요.")
         String guardianPhNum,
 
-        String guardianRelationship
+        String guardianRelationship,
+        String startGroupId,
+        @NotNull Boolean startGroupUnselected
 ) {
+    /** 미선택이 아니면 그룹 ID를 반드시 전달한다. */
+    @JsonIgnore
+    @AssertTrue(message = "그룹을 선택하거나 미선택을 체크해주세요.")
+    public boolean isStartGroupSelectionValid() {
+        return startGroupUnselected == null || startGroupUnselected
+                || (startGroupId != null && !startGroupId.isBlank());
+    }
 }

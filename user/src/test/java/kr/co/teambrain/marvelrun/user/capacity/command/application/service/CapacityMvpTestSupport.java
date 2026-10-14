@@ -93,6 +93,7 @@ import static org.mockito.Mockito.*;
         ReservationReleaseService.class,
         ReservationPaymentService.class,
 
+        RegistrationStartGroupResolver.class,
         RegistrationCommandService.class,
         OrgRegistrationCommandService.class,
         OrgParticipantPasswordEncoder.class,
@@ -285,6 +286,14 @@ abstract class CapacityMvpTestSupport {
                 id, eventId, name, id.equals(categoryA) ? 5000 : 10000
         );
 
+        // 각 종목의 선택지와 후미 기본값을 실제 스키마에 맞춰 준비한다.
+        jdbc.update("""
+                INSERT INTO event_category_start_group
+                    (id, event_category_id, code, description, sort_order, min_pace_seconds_per_km,
+                     max_pace_seconds_per_km, min_expected_finish_seconds, max_expected_finish_seconds, is_active)
+                VALUES (UUID(), ?, 'A', '테스트 선두 그룹', 10, 0, 360, 0, ?, 1),
+                       (UUID(), ?, 'B', '테스트 후미 그룹', 20, 360, NULL, ?, NULL, 1)
+                """, id, id.equals(categoryA) ? 1800 : 3600, id, id.equals(categoryA) ? 1800 : 3600);
         jdbc.update(
                 """
                 insert into event_category_registration_policy (
@@ -375,7 +384,7 @@ abstract class CapacityMvpTestSupport {
                 true,
                 false,
                 false,
-                null)
+                null, null, true)
         );
     }
 
@@ -392,8 +401,7 @@ abstract class CapacityMvpTestSupport {
                                         .toString().substring(0, 8),
                                 "010-0000-0000",
                                 "1990-01-01",
-                                GenderClass.M
-                        ))
+                                GenderClass.M, null, true))
                         .toList();
 
         return organizations.register(
