@@ -9,6 +9,14 @@ import kr.co.teambrain.marvelrun.admin.user.query.dto.OrganizationMemberDto;
 import kr.co.teambrain.marvelrun.admin.event.policy.RegistrationActionPolicyReasons.*;
 
 import java.util.Optional;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCategory;
+import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
+import kr.co.teambrain.marvelrun.admin.event.query.repository.SouvenirQueryRepository;
+import kr.co.teambrain.marvelrun.admin.event.query.repository.PaymentQueryRepository;
+import kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization;
+import kr.co.teambrain.marvelrun.admin.user.query.repository.OrganizationQueryRepository;
+import kr.co.teambrain.marvelrun.admin.user.query.service.OrganizationQueryService;
+import org.junit.jupiter.params.provider.ValueSource;
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
@@ -50,6 +58,63 @@ class RegistrationPolicyDetailTest {
     private final ServerTimeProvider time = mock(ServerTimeProvider.class);
     private final EventCategoryStartGroupRepository groups = mock(EventCategoryStartGroupRepository.class);
     private final LocalDateTime now = LocalDateTime.of(2026, 10, 14, 12, 0);
+
+    /** 단체원별 후미 직접 선택과 미선택을 구분하고 비활성 그룹도 한 번에 읽는다. */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void organizationMembersExposeGroupCodeAndSelectionWithoutGroupId(boolean empty) {
+        // 단체와 참가자 조회 결과를 준비한다. DB나 외부 시스템을 사용하지 않는다.
+        OrganizationQueryRepository organizations = mock(OrganizationQueryRepository.class);
+        RegistrationQueryRepository registrations = mock(RegistrationQueryRepository.class);
+        SouvenirQueryRepository souvenirs = mock(SouvenirQueryRepository.class);
+        PaymentQueryRepository payments = mock(PaymentQueryRepository.class);
+        Organization organization = mock(Organization.class);
+        Event storedEvent = mock(Event.class);
+        EventCategory category = mock(EventCategory.class);
+        when(organizations.findById("org")).thenReturn(Optional.of(organization));
+        when(organization.getEvent()).thenReturn(storedEvent);
+        when(storedEvent.getId()).thenReturn("event");
+        Registration explicit = mock(Registration.class);
+        Registration unselected = mock(Registration.class);
+        List<Registration> members = empty ? List.of() : List.of(explicit, unselected);
+        when(registrations.findByOrganizationIdAndSoftDeletedFalse("org")).thenReturn(members);
+        if (!empty) {
+            for (Registration member : members) {
+                when(member.getStartGroupId()).thenReturn("rear");
+                when(member.getEventCategory()).thenReturn(category);
+                when(member.getStatus()).thenReturn(RegistrationStatus.CONFIRMED);
+            }
+            when(explicit.getId()).thenReturn("first");
+            when(unselected.getId()).thenReturn("second");
+            when(unselected.isStartGroupUnselected()).thenReturn(true);
+            when(groups.findByIdIn(List.of("rear"))).thenReturn(List.of(group("rear", "category", "B", false)));
+        }
+
+        // 기존 순서 그대로 단체 상세를 구성한다.
+        OrganizationQueryService service = new OrganizationQueryService(policies, time, organizations,
+                registrations, souvenirs, payments, groups);
+        OrganizationDetailResponse response = service.getOrganizationDetail("org");
+
+        // 빈 목록은 그룹 조회를 생략하고, 참가자가 있으면 코드와 미선택만 노출한다.
+        if (empty) {
+            assertThat(response.getMembers()).isEmpty();
+            verifyNoInteractions(groups);
+        } else {
+            assertThat(response.getMembers()).extracting(OrganizationMemberDto::getRegistrationId)
+                    .containsExactly("first", "second");
+            assertThat(response.getMembers()).extracting(OrganizationMemberDto::getStartGroupCode)
+                    .containsExactly("B", "B");
+            assertThat(response.getMembers()).extracting(OrganizationMemberDto::isStartGroupUnselected)
+                    .containsExactly(false, true);
+            JsonNode json = new ObjectMapper().valueToTree(response.getMembers());
+            assertThat(json.get(0).has("startGroupId")).isFalse();
+            assertThat(json.get(0).get("startGroupCode").asText()).isEqualTo("B");
+            assertThat(json.get(0).get("startGroupUnselected").asBoolean()).isFalse();
+            assertThat(json.get(1).get("startGroupUnselected").asBoolean()).isTrue();
+            verify(groups).findByIdIn(List.of("rear"));
+            verifyNoMoreInteractions(groups);
+        }
+    }
 
     /** 없는 대회는 기존 업무 오류를 반환하고 선택지·정책 조회를 진행하지 않는다. */
     @Test void registrationOptionsRejectMissingEvent() {
