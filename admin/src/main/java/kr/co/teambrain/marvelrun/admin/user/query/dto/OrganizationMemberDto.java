@@ -6,6 +6,7 @@ import kr.co.teambrain.marvelrun.admin.event.policy.RegistrationActionPolicyMode
 import lombok.Builder;
 import lombok.Getter;
 
+/** 관리자 단체 상세의 참가자별 정보와 저장된 그룹 선택 상태를 제공한다. */
 @Getter
 @Builder
 public class OrganizationMemberDto {
@@ -14,6 +15,8 @@ public class OrganizationMemberDto {
 
     private Long listNumber;         // 번호
     private String registrationId;
+    private String startGroupCode;   // 현재 저장된 그룹 코드
+    private boolean startGroupUnselected; // true: 미선택 후미 배정, false: 직접 선택
     private String name;             // 성명
     private String birth;            // 생년월일
     private String gender;           // 성별
