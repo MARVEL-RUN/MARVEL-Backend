@@ -19,11 +19,27 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/** 신청의 공통 저장 필드와 검증된 그룹 선택값 반영을 제공한다. */
 @Getter
 @SuperBuilder
 @NoArgsConstructor // abstract Class지만 SuperBuilder를 사용해야하므로 별도로 작성. Builder 어노테이션이 자체적으로 생성자를 만들어버려 기본생성자 생성이 안되기때문
 @MappedSuperclass
 public abstract class RegistrationBase<U extends UserBase, E extends EventBase, EC extends EventCategoryBase, O extends OrganizationBase, S extends SouvenirBase> {
+    /** 종목 그룹 정의의 UUID이며 그룹 결정 서비스에서 검증한 값을 저장한다. */
+    @Column(name = "start_group_id", nullable = false, length = 40)
+    protected String startGroupId;
+
+    /** 직접 선택하지 않아 후미에 배정했는지 나타낸다. */
+    @Column(name = "start_group_unselected", nullable = false)
+    protected boolean startGroupUnselected;
+
+    /** 검증과 그룹 결정을 마친 두 값을 하나의 신청 변경으로 반영한다. */
+    public void applyStartGroupSelection(String startGroupId, boolean startGroupUnselected) {
+        // 그룹 소속과 필수값 검증은 그룹 결정 서비스에서 완료한다.
+        this.startGroupId = startGroupId;
+        this.startGroupUnselected = startGroupUnselected;
+    }
+
     /** 외부 단말기에서 이미 결제한 신청의 관리자 등록 여부다. 요청 차단 정책은 별도 적용한다. */
     @Column(name = "external_payment", nullable = false)
     protected boolean externalPayment;

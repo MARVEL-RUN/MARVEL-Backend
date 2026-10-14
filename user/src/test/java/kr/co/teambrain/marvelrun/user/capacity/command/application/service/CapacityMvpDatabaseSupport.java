@@ -220,10 +220,10 @@ abstract class CapacityMvpDatabaseSupport {
                 jdbc.update(
                         """
                         insert into event_category (
-                            id, event_id, amount, name, is_active, sort_order
-                        ) values (?, ?, 40000, ?, true, 0)
+                            id, event_id, amount, name, is_active, sort_order, distance_meters
+                        ) values (?, ?, 40000, ?, true, 0, ?)
                         """,
-                        categoryId, eventId, "테스트 종목"
+                        categoryId, eventId, "테스트 종목", categoryId.equals(categoryA) ? 5000 : 10000
                 );
 
                 // 출생일 제한 없는 종목도 정책 행 자체는 필요하다.
@@ -607,93 +607,7 @@ abstract class CapacityMvpDatabaseSupport {
      */
     @AfterEach
     void cleanupMvpData() {
-        tx.executeWithoutResult(status -> {
-            jdbc.update(
-                    """
-                    delete from payment_process_log
-                    where payment_id in (
-                        select id from payment
-                        where registration_id in (
-                            select id from registration where event_id = ?
-                        ) or organization_id in (
-                            select id from organization where event_id = ?
-                        )
-                    )
-                    """,
-                    eventId, eventId
-            );
-
-            jdbc.update(
-                    """
-                    delete from payment
-                    where registration_id in (
-                        select id from registration where event_id = ?
-                    ) or organization_id in (
-                        select id from organization where event_id = ?
-                    )
-                    """,
-                    eventId, eventId
-            );
-
-            jdbc.update(
-                    """
-                    delete from reservation_item
-                    where capacity_id in (
-                        select id from capacity where event_id = ?
-                    )
-                    """,
-                    eventId
-            );
-
-            jdbc.update(
-                    """
-                    delete from reservation
-                    where registration_id in (
-                        select id from registration where event_id = ?
-                    )
-                    """,
-                    eventId
-            );
-
-            jdbc.update("delete from registration where event_id = ?", eventId);
-            jdbc.update("delete from organization where event_id = ?", eventId);
-
-            jdbc.update(
-                    """
-                    delete from capacity_category
-                    where capacity_id in (
-                        select id from capacity where event_id = ?
-                    )
-                    """,
-                    eventId
-            );
-
-            jdbc.update("delete from capacity where event_id = ?", eventId);
-
-            jdbc.update(
-                    """
-                    delete from event_category_souvenir
-                    where event_category_id in (
-                        select id from event_category where event_id = ?
-                    )
-                    """,
-                    eventId
-            );
-
-            jdbc.update(
-                    """
-                    delete from event_category_registration_policy
-                    where event_category_id in (
-                        select id from event_category where event_id = ?
-                    )
-                    """,
-                    eventId
-            );
-
-            jdbc.update("delete from souvenir where event_id = ?", eventId);
-            jdbc.update("delete from event_category where event_id = ?", eventId);
-            jdbc.update("delete from event_registration_policy where event_id = ?", eventId);
-            jdbc.update("delete from event where id = ?", eventId);
-        });
+        // 현재 테스트가 만든 대회만 독립 트랜잭션에서 참조 역순으로 정리한다.
+        CapacityMvpFixtureCleaner.deleteCreatedEventFixtures(jdbc, transactionManager, eventId);
     }
 }

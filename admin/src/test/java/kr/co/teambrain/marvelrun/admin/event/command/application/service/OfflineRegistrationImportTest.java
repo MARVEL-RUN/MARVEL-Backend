@@ -1,5 +1,9 @@
 package kr.co.teambrain.marvelrun.admin.event.command.application.service;
 
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCategoryStartGroup;
+import kr.co.teambrain.marvelrun.admin.event.command.repository.EventCategoryStartGroupRepository;
+import org.mockito.Mockito;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import jakarta.validation.Validation;
@@ -76,6 +80,77 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /** 업로드 파일 해석부터 오류 응답·적재 입력까지 기능별 메서드로 검증한다. */
 class OfflineRegistrationImportTest {
+
+    /** 같은 종목의 여러 입력을 한 번에 조회하며 직접 후미 선택과 미선택을 구별한다. */
+    @Test
+    void resolvesStartGroupsInInputOrderUsingOneCategoryQuery() {
+        // B라는 코드에 의존하지 않고 실제 최하위인 C를 선택하도록 준비한다.
+        EventCategoryStartGroupRepository groupRepository = Mockito.mock(EventCategoryStartGroupRepository.class);
+        EventCategoryStartGroup front = EventCategoryStartGroup.builder()
+                .id("front").eventCategoryId("course").code("A").sortOrder(10).active(true).build();
+        EventCategoryStartGroup rear = EventCategoryStartGroup.builder()
+                .id("rear").eventCategoryId("course").code("C").sortOrder(30).active(true).build();
+        Mockito.when(groupRepository.findByEventCategoryIdInAndActiveTrueOrderByEventCategoryIdAscSortOrderAsc(
+                List.of("course"))).thenReturn(List.of(front, rear));
+        RegistrationStartGroupResolver resolver = new RegistrationStartGroupResolver(groupRepository);
+
+        // true 요청의 잘못된 ID는 무시하고 직접 선택한 같은 후미 UUID는 false로 남긴다.
+        List<RegistrationStartGroupResolver.Selection> selections = resolver.resolveRegistrationStartGroups(List.of(
+                new RegistrationStartGroupResolver.Input("course", "ignored", true),
+                new RegistrationStartGroupResolver.Input("course", "rear", false),
+                new RegistrationStartGroupResolver.Input("course", "front", false)));
+
+        // 참가자별 입력 순서와 불린을 보존하고 종목 조회를 반복하지 않는다.
+        assertThat(selections).containsExactly(
+                new RegistrationStartGroupResolver.Selection("rear", true),
+                new RegistrationStartGroupResolver.Selection("rear", false),
+                new RegistrationStartGroupResolver.Selection("front", false));
+        Mockito.verify(groupRepository, Mockito.times(1))
+                .findByEventCategoryIdInAndActiveTrueOrderByEventCategoryIdAscSortOrderAsc(List.of("course"));
+    }
+
+    /** 활성 그룹을 조회했더라도 다른 종목의 UUID를 해당 참가자에게 사용할 수 없다. */
+    @Test
+    void rejectsStartGroupFromAnotherCategoryAndMissingDefinition() {
+        // 서로 다른 종목의 그룹이 같은 일괄 조회 결과에 포함되는 상황을 구성한다.
+        EventCategoryStartGroupRepository groupRepository = Mockito.mock(EventCategoryStartGroupRepository.class);
+        EventCategoryStartGroup first = EventCategoryStartGroup.builder()
+                .id("first-group").eventCategoryId("first").sortOrder(10).active(true).build();
+        EventCategoryStartGroup second = EventCategoryStartGroup.builder()
+                .id("second-group").eventCategoryId("second").sortOrder(10).active(true).build();
+        Mockito.when(groupRepository.findByEventCategoryIdInAndActiveTrueOrderByEventCategoryIdAscSortOrderAsc(
+                List.of("first", "second"))).thenReturn(List.of(first, second));
+        RegistrationStartGroupResolver resolver = new RegistrationStartGroupResolver(groupRepository);
+
+        // 타 종목 선택과 활성 정의 자체의 누락을 서로 다른 업무 오류로 구별한다.
+        assertThatThrownBy(() -> resolver.resolveRegistrationStartGroups(List.of(
+                new RegistrationStartGroupResolver.Input("first", "second-group", false),
+                new RegistrationStartGroupResolver.Input("second", null, true))))
+                .isInstanceOfSatisfying(CustomException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.INVALID_START_GROUP_SELECTION));
+        Mockito.when(groupRepository.findByEventCategoryIdInAndActiveTrueOrderByEventCategoryIdAscSortOrderAsc(
+                List.of("missing"))).thenReturn(List.of());
+        assertThatThrownBy(() -> resolver.resolveRegistrationStartGroups(List.of(
+                new RegistrationStartGroupResolver.Input("missing", null, true))))
+                .isInstanceOfSatisfying(CustomException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.START_GROUP_CONFIGURATION_ERROR));
+    }
+
+    /** 내부 호출도 false와 빈 ID 조합을 거부하고 빈 일괄 입력은 DB에 전달하지 않는다. */
+    @Test
+    void validatesStartGroupInputsBeforeQuerying() {
+        // 호출자의 DTO 검증 유무와 독립적인 그룹 결정 계약을 확인한다.
+        EventCategoryStartGroupRepository groupRepository = Mockito.mock(EventCategoryStartGroupRepository.class);
+        RegistrationStartGroupResolver resolver = new RegistrationStartGroupResolver(groupRepository);
+
+        // 불완전한 선택은 오류이고 대상이 없는 목록은 아무 조회도 하지 않는다.
+        assertThatThrownBy(() -> resolver.resolveRegistrationStartGroups(List.of(
+                new RegistrationStartGroupResolver.Input("course", null, false))))
+                .isInstanceOfSatisfying(CustomException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.INVALID_START_GROUP_SELECTION));
+        assertThat(resolver.resolveRegistrationStartGroups(List.of())).isEmpty();
+        Mockito.verifyNoInteractions(groupRepository);
+    }
     private final OfflineRegistrationExcelReader reader = new OfflineRegistrationExcelReader();
     private final ValidatorFactory factory = Validation.buildDefaultValidatorFactory();
     private final EventCommandRepository events = mock(EventCommandRepository.class);
