@@ -65,7 +65,7 @@ public class RegistrationQueryRepository {
                        o.addressDetail as addressDetail, e.paymentDeadline as paymentDeadline,
                        e.id as eventId, e.eventStatus as eventStatus, e.registStartDate as registrationStart, e.registDeadline as registrationDeadline
                 from Organization o join o.event e
-                where e.id = :eventId and o.loginId = :loginId order by o.id
+                where e.id = :eventId and o.loginId = :loginId and o.softDeleted = false order by o.id
                 """, Tuple.class).setParameter("eventId", eventId).setParameter("loginId", loginId)
                 .getResultList().stream().map(t -> new RegistrationQueryData.Organization(
                         t.get("id", String.class), t.get("loginId", String.class), t.get("password", String.class),
@@ -165,7 +165,7 @@ public class RegistrationQueryRepository {
                 t.get("contractAmount", BigDecimal.class), t.get("paidAmount", BigDecimal.class),
                 t.get("deleted", Boolean.class), t.get("reservationStatus", ReservationStatus.class),
                 t.get("paymentDeadline", LocalDateTime.class), t.get("externalPayment", Boolean.class), t.get("registrationDate", LocalDateTime.class), mapEventActionPolicyInput(t),
-                t.get("startGroupId", String.class), t.get("startGroupUnselected", Boolean.class));
+                t.get("startGroupId", String.class), Boolean.TRUE.equals(t.get("startGroupUnselected", Boolean.class)));
     }
     /** 상세 조회와 명령 판정에 동일한 대회 시각 값을 전달한다. */
     private EventInput mapEventActionPolicyInput(Tuple t) {

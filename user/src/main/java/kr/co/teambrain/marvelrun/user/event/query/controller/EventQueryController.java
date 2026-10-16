@@ -19,7 +19,7 @@ public class EventQueryController {
 
 
     /** 그룹 ID와 DB 안내문을 종목별 선택지에 포함한다. */
-    @Operation(summary = "신청 선택지 조회", description = "대회 신청 화면 구성에 필요한 종목·기념품·그룹 선택지와 안내 정보를 제공합니다. 신규 접수 가능 여부와 제한 사유를 함께 반환합니다.")
+    @Operation(summary = "신청 선택지 조회", description = "대회 신청 화면 구성에 필요한 종목·기념품 선택지와 안내 정보를 제공합니다. 신규 접수 가능 여부와 제한 사유를 함께 반환합니다.")
     @ApiResponse(responseCode = "200", description = "신청 선택지 및 접수 정책")
     @GetMapping("/events/{eventId}/registration-options")
     public ResponseEntity<RegistrationOptionResponse> getRegistrationOptions(

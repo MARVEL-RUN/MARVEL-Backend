@@ -48,11 +48,10 @@ public class EventQueryService {
                 .orElseThrow(() -> new CustomException(ErrorCode.EVENT_NOT_FOUND));
         RegistrationActionPolicyModels.Decision decision = actionPolicies.evaluateNewRegistrationPolicy(event, now);
 
-        // 종목·기념품을 읽고 중복 없는 종목 ID로 활성 그룹을 한 번에 조회한다.
+        // 대회의 종목·기념품 선택지를 조회한다.
         List<RegistrationOptionProjection> projections = optionRepository.findRegistrationOptionsProjectionByEventId(eventId);
-        List<String> categoryIds = projections.stream().map(RegistrationOptionProjection::getEventCategoryId).distinct().toList();
-        List<EventCategoryStartGroup> groups = categoryIds.isEmpty() ? List.of()
-                : startGroupRepository.findByEventCategoryIdInAndActiveTrueOrderByEventCategoryIdAscSortOrderAsc(categoryIds);
+        // 그룹 기능 임시 중단: 선택지에서 그룹을 읽거나 노출하지 않는다.
+        List<EventCategoryStartGroup> groups = List.of();
 
         // 저장된 안내문과 기존 선택지 순서를 보존한다.
         return optionAssembler.assemble(projections, decision, groups);

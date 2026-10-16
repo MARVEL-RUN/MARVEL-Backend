@@ -92,7 +92,7 @@ public class RegistrationQueryService {
         }
         List<RegistrationActionPolicyInput> policies = actionPolicies.loadEnabledRegistrationActionPolicies(eventId, List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT));
         Map<String, String> names = souvenirNames(eventId, members);
-        Map<String, String> groupCodes = findStartGroupCodes(members);
+        Map<String, String> groupCodes = Map.of(); // 그룹 기능 임시 중단: 그룹 조회를 생략한다.
         List<RegistrationQueryData.Payment> payments = repository.personalPayments(eventId,
                 members.stream().map(RegistrationQueryData.Member::id).toList());
         List<String> ids = payments.stream().map(RegistrationQueryData.Payment::id).toList();
@@ -114,7 +114,7 @@ public class RegistrationQueryService {
                     row.categoryId(), row.categoryName(), selections(row, names), row.address(), row.addressDetail(),
                     row.guardianConsent(), row.guardianName(), row.guardianPhNum(), row.guardianRelationShip(), row.status(), row.contractAmount(), row.paidAmount(),
                     payment.status(), payment.refundStatus(), payment.action(), payment.warning(), payment.paymentId(), payment.orderId(), row.externalPayment(), policyEvaluator.evaluateRegistrationUserPolicy(row.policyEvent(), toParticipantActionPolicyInput(row), now, policies),
-                    row.startGroupId(), groupCodes.get(row.startGroupId()), row.startGroupUnselected()));
+                    row.startGroupId(), row.startGroupId() == null ? null : groupCodes.get(row.startGroupId()), row.startGroupUnselected()));
         }
         return List.copyOf(result);
     }
@@ -135,7 +135,7 @@ public class RegistrationQueryService {
             if (loadedPolicies == null) { loadedPolicies = actionPolicies.loadEnabledRegistrationActionPolicies(eventId, List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT, RegistrationActionType.REGIST)); }
             List<RegistrationActionPolicyInput> policies = loadedPolicies;
             Map<String, String> names = souvenirNames(eventId, members);
-            Map<String, String> groupCodes = findStartGroupCodes(members);
+            Map<String, String> groupCodes = Map.of(); // 그룹 기능 임시 중단: 그룹 조회를 생략한다.
             List<RegistrationQueryData.Payment> payments = repository.payments(eventId, org.id(), true);
             List<String> ids = payments.stream().map(RegistrationQueryData.Payment::id).toList();
             RegistrationPaymentQueryResolver.Result payment = paymentResolver.resolveRegistrationPaymentGuidance(members, payments,
@@ -147,7 +147,7 @@ public class RegistrationQueryService {
                             row.address() == null ? org.addressDetail() : row.addressDetail(),
                             row.guardianBase() == GuardianBase.ORG_LEADER ? org.leaderName() : row.guardianName(),
                             row.guardianBase() == GuardianBase.ORG_LEADER ? org.phNum() : row.guardianPhNum(), row.status(), policyEvaluator.evaluateOrganizationMemberPolicy(row.policyEvent(), toParticipantActionPolicyInput(row), now, policies),
-                            row.startGroupId(), groupCodes.get(row.startGroupId()), row.startGroupUnselected())).toList();
+                            row.startGroupId(), row.startGroupId() == null ? null : groupCodes.get(row.startGroupId()), row.startGroupUnselected())).toList();
             BigDecimal total = members.stream().map(RegistrationQueryData.Member::contractAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
             BigDecimal paid = members.stream().map(RegistrationQueryData.Member::paidAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
             result.add(new OrgRegistrationQueryResponse(org.id(), org.name(), org.loginId(), org.leaderName(),

@@ -89,9 +89,7 @@ public class OrgRegistrationPersonalInformationService {
 
             if (!Objects.equals(registration.getName(), request.name())
                     || !Objects.equals(registration.getPhNum(), request.phNum())
-                    || registration.getGender() != request.gender()
-                    || !Objects.equals(registration.getStartGroupId(), request.startGroupId())
-                    || !Objects.equals(registration.isStartGroupUnselected(), request.startGroupUnselected())) {
+                    || registration.getGender() != request.gender()) {
 
                 registration.applyOrganizationPersonalInformation(request);
                 changed = true;

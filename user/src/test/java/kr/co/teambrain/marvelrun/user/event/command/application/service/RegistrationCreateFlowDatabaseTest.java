@@ -1,4 +1,10 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
+import kr.co.teambrain.marvelrun.user.event.command.application.service.OrganizationLifecycleService;
+import kr.co.teambrain.marvelrun.user.discount.service.LinkDiscountEligibilityService;
+import kr.co.teambrain.marvelrun.user.discount.service.OrganizationDiscountGuard;
+import kr.co.teambrain.marvelrun.user.discount.service.DiscountPolicyResolver;
+
+import org.junit.jupiter.api.Disabled;
 
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategoryStartGroup;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategoryStartGroupRepository;
@@ -71,6 +77,10 @@ import static org.mockito.Mockito.when;
         replace = AutoConfigureTestDatabase.Replace.NONE
 )
 @Import({
+        OrganizationLifecycleService.class,
+        LinkDiscountEligibilityService.class,
+        OrganizationDiscountGuard.class,
+        DiscountPolicyResolver.class,
         ReservationHistoryRecorder.class,
         RegistrationActionPolicyService.class,
         BCryptPasswordEncoder.class,
@@ -99,6 +109,7 @@ class RegistrationCreateFlowDatabaseTest {
 
     /** 같은 종목의 여러 입력을 한 번에 조회하며 직접 후미 선택과 미선택을 구별한다. */
     @Test
+    @Disabled("그룹 기능 임시 중단: 재활성화 시 복원")
     void resolvesStartGroupsInInputOrderUsingOneCategoryQuery() {
         // B라는 코드에 의존하지 않고 실제 최하위인 C를 선택하도록 준비한다.
         EventCategoryStartGroupRepository groupRepository = Mockito.mock(EventCategoryStartGroupRepository.class);
@@ -127,6 +138,7 @@ class RegistrationCreateFlowDatabaseTest {
 
     /** 활성 그룹을 조회했더라도 다른 종목의 UUID를 해당 참가자에게 사용할 수 없다. */
     @Test
+    @Disabled("그룹 기능 임시 중단: 재활성화 시 복원")
     void rejectsStartGroupFromAnotherCategoryAndMissingDefinition() {
         // 서로 다른 종목의 그룹이 같은 일괄 조회 결과에 포함되는 상황을 구성한다.
         EventCategoryStartGroupRepository groupRepository = Mockito.mock(EventCategoryStartGroupRepository.class);
@@ -154,6 +166,7 @@ class RegistrationCreateFlowDatabaseTest {
 
     /** 내부 호출도 false와 빈 ID 조합을 거부하고 빈 일괄 입력은 DB에 전달하지 않는다. */
     @Test
+    @Disabled("그룹 기능 임시 중단: 재활성화 시 복원")
     void validatesStartGroupInputsBeforeQuerying() {
         // 호출자의 DTO 검증 유무와 독립적인 그룹 결정 계약을 확인한다.
         EventCategoryStartGroupRepository groupRepository = Mockito.mock(EventCategoryStartGroupRepository.class);

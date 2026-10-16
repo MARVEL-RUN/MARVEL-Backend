@@ -1,5 +1,11 @@
 package kr.co.teambrain.marvelrun.admin.event.query.dto.response;
 
+import kr.co.teambrain.marvelrun.admin.discount.query.ReferenceFilterSummaryResponse;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -12,6 +18,7 @@ import lombok.Builder;
  */
 @Builder
 public record RegistrationDetailResponse(
+        ReferenceFilterSummaryResponse referenceFilter,
         String name,                  // 성명
         String orgName,               // 단체명 (개인은 null 또는 "-")
         String courseName,            // 코스
@@ -48,8 +55,14 @@ public record RegistrationDetailResponse(
         boolean externalPayment,       // 외부 결제 여부. 결제 관련 정보 변경·환불 제한 안내용
         
         RegistrationActionPolicyModels.UserPolicy userPolicy,
+        // 그룹 기능 임시 중단: 내부 호환 필드는 JSON·Swagger에서 제외한다.
+        @JsonIgnore @Schema(hidden = true)
         String startGroupId,
+        // 그룹 기능 임시 중단: 내부 호환 필드는 JSON·Swagger에서 제외한다.
+        @JsonIgnore @Schema(hidden = true)
         String startGroupCode,
+        // 그룹 기능 임시 중단: 내부 호환 필드는 JSON·Swagger에서 제외한다.
+        @JsonIgnore @Schema(hidden = true)
         boolean startGroupUnselected
 ) {
 }

@@ -1,4 +1,5 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
+import kr.co.teambrain.marvelrun.user.discount.service.OrganizationDiscountGuard;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -50,6 +51,7 @@ class OrgParticipantPasswordStorageTest {
     @Mock private ReservationRemovalService removal;
     @Mock private OrgRegistrationModificationGuard guard;
     @Mock private RegistrationModificationPaymentGuard paymentGuard;
+    @Mock private OrganizationDiscountGuard discountGuard;
     @InjectMocks private OrgRegistrationModificationService service;
 
     /** 기존 단체원을 교체하는 수정에서도 새 참가자만 해시를 생성하고 기존 저장값은 보존한다. */

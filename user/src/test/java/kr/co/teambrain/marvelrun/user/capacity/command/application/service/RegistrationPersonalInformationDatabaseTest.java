@@ -21,8 +21,10 @@ import kr.co.teambrain.marvelrun.user.event.command.application.context.Registra
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationAccessRequest;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrganizationAccessRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationModificationRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.RegistrationCreateResponse;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.OrgRegistrationCreateResponse;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.*;
 import kr.co.teambrain.marvelrun.user.event.query.dto.RegistrationPaymentAction;
@@ -99,15 +101,30 @@ class RegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupport
         List<RegistrationQueryResponse> response = queries.findPersonalRegistrationDetails(eventId, access);
         assertThat(response).hasSize(1);
         assertThat(response.getFirst().externalPayment()).isEqualTo(external);
-        // 실제 Tuple 조회에서 그룹 ID와 미선택 여부가 누락되지 않는지 확인한다.
+        // 그룹이 없는 신규 신청도 실제 Tuple 조회와 상세 구성이 가능해야 한다.
         assertThat(response.getFirst().startGroupId()).isEqualTo(before.get("start_group_id"));
-        assertThat(response.getFirst().startGroupCode()).isEqualTo("B");
-        assertThat(response.getFirst().startGroupUnselected()).isTrue();
+        assertThat(response.getFirst().startGroupCode()).isNull(); // 그룹 기능 임시 중단
+        assertThat(before.get("start_group_id")).isNull(); // 신규 신청은 그룹을 배정하지 않는다.
         assertThat(response.getFirst().registrationStatus().name()).isEqualTo("CONFIRMED");
         assertThat(response.getFirst().paymentStatus().name()).isEqualTo("COMPLETED");
         assertThat(response.getFirst().paymentAction()).isEqualTo(RegistrationPaymentAction.NONE);
         assertThat(registration(created.registrationId())).isEqualTo(before);
         assertThat(resources()).isEqualTo(resourcesBefore);
+    }
+
+    /** 출발그룹 없는 신규 단체원도 상세 조회 시 NULL 키 조회 오류가 발생하지 않는다. */
+    @Test
+    void organizationLookupAllowsMembersWithoutStartGroup() {
+        // 실제 신규 단체와 그룹 없는 참가자를 준비한다.
+        OrgRegistrationCreateResponse created = createOrganizationRegistration(categoryA, categoryA);
+        String loginId = jdbc.queryForObject("select login_id from organization where id=?",
+                String.class, created.organizationId());
+        Map<String, List<Map<String, Object>>> before = resources();
+
+        // 기존 인증으로 단체 상세를 조회하고 정원과 예약이 변경되지 않음을 확인한다.
+        assertThat(queries.findOrganizationRegistrationDetails(eventId,
+                new OrganizationAccessRequest(loginId, "Test1234!"))).hasSize(1);
+        assertThat(resources()).isEqualTo(before);
     }
 
     /* 정보만 변경하는 분기와 종목까지 변경하는 분기 모두 외부 결제 신청을 보존한다. */

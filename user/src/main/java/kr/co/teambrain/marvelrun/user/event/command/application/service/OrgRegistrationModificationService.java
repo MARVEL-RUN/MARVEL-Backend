@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import kr.co.teambrain.marvelrun.user.discount.service.OrganizationDiscountGuard;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -48,6 +49,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(propagation = Propagation.MANDATORY)
 public class OrgRegistrationModificationService {
     private final ReservationHistoryRecorder historyRecorder;
+    private final OrganizationDiscountGuard discountGuard;
 
     private final OrgParticipantPasswordEncoder participantPasswordEncoder;
 
@@ -146,6 +148,8 @@ public class OrgRegistrationModificationService {
                         .map(p -> p.candidate().currentRegistration().getId())
                         .collect(Collectors.toSet());
 
+        discountGuard.validateOrganizationMemberChange(candidate.organization(), candidate.currentRegistrations(), retainedIds, added.size());
+
         List<Registration> removed =
                 candidate.currentRegistrations().stream()
                         .filter(r -> !retainedIds.contains(r.getId()))
@@ -186,6 +190,9 @@ public class OrgRegistrationModificationService {
             // 값이 그대로인 참가자의 엔티티·예약 상세·수정 이력을 재적용하지 않는다.
             if (classifier.classifyOrganizationParticipant(registration, participant.request())
                     != RegistrationModificationClassifier.Change.NONE) {
+                if (item.price().discountPrice() != null) {
+                    registration.recordAppliedDiscountPrice(item.price().discountPrice());
+                }
                 registration.applyOrganizationModification(
                     participant.eventCategory(),
                     participant.souvenirJsons(),
@@ -306,6 +313,13 @@ public class OrgRegistrationModificationService {
                             )
                     );
 
+            // 새 참가자에게만 기간 내 승계 결과를 적용한다.
+            if (item.price().acquiredLinkId() != null) {
+                registration.assignDiscountQualification(item.price().acquiredLinkId(), item.price().acquiredFilterId());
+            }
+            if (item.price().discountPrice() != null) {
+                registration.recordAppliedDiscountPrice(item.price().discountPrice());
+            }
             boolean child =
                     CapacityRequirementInput.fromCandidate(
                             participant.eventCategory().getId(),

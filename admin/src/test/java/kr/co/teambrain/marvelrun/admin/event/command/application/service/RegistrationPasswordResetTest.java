@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.admin.event.command.application.service;
 
+import org.junit.jupiter.api.Disabled;
+
 import kr.co.teambrain.marvelrun.admin.common.dto.request.PasswordResetRequest;
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
@@ -45,6 +47,7 @@ class RegistrationPasswordResetTest {
         when(groupRepository.findByEventCategoryIdInAndActiveTrueOrderByEventCategoryIdAscSortOrderAsc(List.of("category")))
                 .thenReturn(List.of(EventCategoryStartGroup.builder().id("rear").eventCategoryId("category").active(true).sortOrder(20).build()));
         Registration registration = Registration.builder().id("r").event(event).eventCategory(category)
+                .startGroupId("preserved-group").startGroupUnselected(true)
                 .externalPayment(external).birth("2013-11-01").build();
         when(registrations.findById("r")).thenReturn(Optional.of(registration));
         AdminRegistrationModifyRequest request =
@@ -59,6 +62,8 @@ class RegistrationPasswordResetTest {
             personalService.modifyRegistrationBasicInfo("r", request);
             assertThat(registration.getBirth()).isEqualTo("2013-10-31");
         }
+        assertThat(registration.getStartGroupId()).isEqualTo("preserved-group");
+        assertThat(registration.getStartGroupUnselected()).isTrue();
     }
     private final PasswordEncoder encoder = new BCryptPasswordEncoder(4);
     private final RegistrationCommandRepository registrations = mock(RegistrationCommandRepository.class);
@@ -72,6 +77,7 @@ class RegistrationPasswordResetTest {
     /** 관리자 기본정보 수정은 직접 후미 선택과 미선택을 구별하며 외부결제 신청에도 반영된다. */
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
+    @Disabled("그룹 기능 임시 중단: 재활성화 시 복원")
     void updatesAdminStartGroupForExternalRegistration(boolean unselected) {
         Event event = mock(Event.class);
         EventCategory category = mock(EventCategory.class);

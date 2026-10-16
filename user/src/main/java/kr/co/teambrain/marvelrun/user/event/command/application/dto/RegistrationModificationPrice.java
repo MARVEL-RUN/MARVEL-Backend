@@ -1,6 +1,8 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.dto;
 
 import java.math.BigDecimal;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
 
 /**
  * 수정 후보의 가격 계산 결과다.
@@ -13,8 +15,15 @@ import java.math.BigDecimal;
 public record RegistrationModificationPrice(
         BigDecimal oldContractAmount,
         BigDecimal newContractAmount,
-        BigDecimal contractDelta
+        BigDecimal contractDelta,
+        @JsonIgnore DiscountModels.PriceResult discountPrice,
+        @JsonIgnore String acquiredLinkId,
+        @JsonIgnore String acquiredFilterId
 ) {
+    /** 기존 정산 DTO 생성은 가격 재계산 메타데이터 없이 호환한다. */
+    public RegistrationModificationPrice(BigDecimal oldContractAmount, BigDecimal newContractAmount, BigDecimal contractDelta) {
+        this(oldContractAmount, newContractAmount, contractDelta, null, null, null);
+    }
 
     /**
      * 기존 참가자의 이전 계약금액과 새 계약금액을 비교한다.

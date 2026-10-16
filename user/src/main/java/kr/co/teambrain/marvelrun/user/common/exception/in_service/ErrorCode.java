@@ -8,6 +8,11 @@ import org.springframework.http.HttpStatus;
 @Getter
 @AllArgsConstructor
 public enum ErrorCode {
+    DISCOUNT_CONFIGURATION_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "할인 정책 설정을 확인할 수 없습니다. 관리자에게 문의해주세요."),
+    DISCOUNT_ZERO_AMOUNT_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, "할인 적용 후 참가비가 0원인 신청은 현재 지원하지 않습니다."),
+    DISCOUNT_GROUP_MINIMUM_NOT_MET(HttpStatus.BAD_REQUEST, "해당 할인 단체의 최소 참가 인원을 유지해야 합니다."),
+    DISCOUNT_LINK_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 대회의 할인 링크를 찾을 수 없습니다."),
+    REGISTRATION_DISCOUNT_LINK_UNAVAILABLE(HttpStatus.BAD_REQUEST, "현재 신청에 사용할 수 없는 할인 링크입니다. 안내를 확인한 후 대회 메인에서 일반 접수를 진행해주세요."),
     INVALID_START_GROUP_SELECTION(HttpStatus.BAD_REQUEST, "해당 종목에서 선택할 수 있는 그룹을 지정해주세요."),
     START_GROUP_CONFIGURATION_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "종목의 출발 그룹 설정을 확인해주세요."),
 

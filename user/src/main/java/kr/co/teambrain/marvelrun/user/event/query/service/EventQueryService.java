@@ -8,6 +8,7 @@ import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModel
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import kr.co.teambrain.marvelrun.user.event.query.assembler.RegistrationOptionResponseAssembler;
 import kr.co.teambrain.marvelrun.user.event.query.dto.response.RegistrationOptionResponse;
+import kr.co.teambrain.marvelrun.user.discount.query.DiscountQueryService;
 import kr.co.teambrain.marvelrun.user.event.query.repository.EventCategorySouvenirQueryRepository;
 import kr.co.teambrain.marvelrun.user.event.query.repository.EventQueryRepository;
 import kr.co.teambrain.marvelrun.user.event.query.repository.projection.RegistrationOptionProjection;
@@ -20,11 +21,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 
-/** 종목·기념품·그룹 선택지와 현재 요청시각의 신규 접수 정책을 함께 조회한다. */
+/** 종목·기념품 선택지와 현재 요청시각의 신규 접수 정책을 함께 조회한다. */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class EventQueryService {
+    private final DiscountQueryService discountQueries;
     private final EventQueryRepository eventQueryRepository;
     private final EventCategorySouvenirQueryRepository eventCategorySouvenirQueryRepository;
     private final RegistrationOptionResponseAssembler registrationOptionResponseAssembler;
@@ -44,11 +46,10 @@ public class EventQueryService {
         List<RegistrationOptionProjection> projections =
                 eventCategorySouvenirQueryRepository.findRegistrationOptionsProjectionByEventId(eventId);
 
-        // 종목별 반복 조회 없이 활성 선택지를 한 번에 읽는다.
-        List<String> categoryIds = projections.stream()
-                .map(RegistrationOptionProjection::getEventCategoryId).distinct().toList();
-        List<EventCategoryStartGroup> startGroups = categoryIds.isEmpty() ? List.of()
-                : startGroupRepository.findByEventCategoryIdInAndActiveTrueOrderByEventCategoryIdAscSortOrderAsc(categoryIds);
-        return registrationOptionResponseAssembler.assemble(projections, decision, startGroups);
+        // 그룹 기능 임시 중단: 선택지에서 그룹을 읽거나 노출하지 않는다.
+        List<EventCategoryStartGroup> startGroups = List.of();
+
+        return discountQueries.appendInternalPricingOptions(eventId,
+                registrationOptionResponseAssembler.assemble(projections, decision, startGroups));
     }
 }

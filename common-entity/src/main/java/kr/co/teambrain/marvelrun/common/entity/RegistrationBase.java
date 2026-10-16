@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.common.entity;
 
+import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
+
 import jakarta.persistence.*;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.AddressBase;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
@@ -26,12 +28,17 @@ import java.util.List;
 @MappedSuperclass
 public abstract class RegistrationBase<U extends UserBase, E extends EventBase, EC extends EventCategoryBase, O extends OrganizationBase, S extends SouvenirBase> {
     /** 종목 그룹 정의의 UUID이며 그룹 결정 서비스에서 검증한 값을 저장한다. */
-    @Column(name = "start_group_id", nullable = false, length = 40)
+    @Column(name = "start_group_id", length = 40)
     protected String startGroupId;
 
     /** 직접 선택하지 않아 후미에 배정했는지 나타낸다. */
-    @Column(name = "start_group_unselected", nullable = false)
-    protected boolean startGroupUnselected;
+    @Column(name = "start_group_unselected")
+    protected Boolean startGroupUnselected;
+
+    /** 그룹 기능 중단 중 신규 NULL은 내부 호환 조회에서 false로 취급하며 외부에 노출하지 않는다. */
+    public boolean isStartGroupUnselected() {
+        return Boolean.TRUE.equals(startGroupUnselected);
+    }
 
     /** 검증과 그룹 결정을 마친 두 값을 하나의 신청 변경으로 반영한다. */
     public void applyStartGroupSelection(String startGroupId, boolean startGroupUnselected) {
@@ -284,4 +291,38 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
 //
 //    @Column(name = "refund_requested_at")
 //    protected LocalDateTime refundRequestedAt; // 환불 요청 시각
+
+    /** 취득한 링크 자격과 필터는 취소·소프트 삭제 후에도 보존한다. */
+    @Column(name = "discount_link_id", length = 40)
+    protected String discountLinkId;
+
+    @Column(name = "reference_filter_id", length = 40)
+    protected String referenceFilterId;
+
+    /** 신규 취득 또는 승인된 단체 승계 결과를 함께 기록한다. */
+    public void assignDiscountQualification(String linkId, String filterId) {
+        this.discountLinkId = linkId;
+        this.referenceFilterId = filterId;
+    }
+    @Column(name = "internal_price_policy_id", length = 40)
+    protected String internalPricePolicyId;
+    @Column(name = "internal_price_policy_revision")
+    protected Long internalPricePolicyRevision;
+    @Column(name = "link_price_policy_revision")
+    protected Long linkPricePolicyRevision;
+
+    /** 실제 재계산을 수행한 경우에만 현재 가격의 정책 개정을 교체한다. */
+    public void recordAppliedDiscountPrice(DiscountModels.PriceResult result) {
+        this.internalPricePolicyId = null;
+        this.internalPricePolicyRevision = null;
+        this.linkPricePolicyRevision = null;
+        for (DiscountModels.AppliedDiscount applied : result.appliedDiscounts()) {
+            if (applied.stage() == DiscountModels.Stage.INTERNAL) {
+                this.internalPricePolicyId = applied.policyId();
+                this.internalPricePolicyRevision = applied.revision();
+            } else {
+                this.linkPricePolicyRevision = applied.revision();
+            }
+        }
+    }
 }

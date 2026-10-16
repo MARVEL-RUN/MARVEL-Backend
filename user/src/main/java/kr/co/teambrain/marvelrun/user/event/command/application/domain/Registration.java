@@ -95,7 +95,7 @@ public class Registration extends RegistrationBase<
         this.name = request.name();
         this.phNum = request.phNum();
         this.gender = request.gender();
-        applyStartGroupSelection(request.startGroupId(), Boolean.TRUE.equals(request.startGroupUnselected()));
+        // 그룹 기능 임시 중단: 기존 저장값은 변경하지 않는다.
         this.address = request.address();
         this.addressDetail = request.addressDetail();
 
@@ -136,8 +136,8 @@ public class Registration extends RegistrationBase<
                 .event(event)
                 .eventCategory(eventCategory)
                 .souvenirJson(souvenirJsons)
-                .startGroupId(request.startGroupId())
-                .startGroupUnselected(Boolean.TRUE.equals(request.startGroupUnselected()))
+
+
                 .password(encodedPassword)
                 .name(request.name())
                 .phNum(request.phNum())
@@ -181,8 +181,8 @@ public class Registration extends RegistrationBase<
     ) {
 
         return Registration.builder()
-                .startGroupId(request.startGroupId())
-                .startGroupUnselected(Boolean.TRUE.equals(request.startGroupUnselected()))
+
+
                 .event(
                         event
                 )
@@ -413,7 +413,7 @@ public class Registration extends RegistrationBase<
         this.phNum = request.phNum();
         this.birth = request.birth();
         this.gender = request.gender();
-        applyStartGroupSelection(request.startGroupId(), Boolean.TRUE.equals(request.startGroupUnselected()));
+        // 그룹 기능 임시 중단: 기존 저장값은 변경하지 않는다.
 
         this.contractAmount = newContractAmount;
     }
@@ -427,7 +427,7 @@ public class Registration extends RegistrationBase<
         this.name = request.name();
         this.phNum = request.phNum();
         this.gender = request.gender();
-        applyStartGroupSelection(request.startGroupId(), Boolean.TRUE.equals(request.startGroupUnselected()));
+        // 그룹 기능 임시 중단: 기존 저장값은 변경하지 않는다.
     }
 
     /** 단체 일부 제거의 기존 호출 계약을 유지하며 공통 참가 취소 상태 전이를 사용한다. */

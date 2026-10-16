@@ -38,7 +38,7 @@ public final class RegistrationAccessVerifier {
     /** 단체 엔티티의 저장 해시와 로그인 ID를 공통 검증에 전달한다. */
     public static void verifyOrganization(Organization organization, OrganizationAccessRequest access,
             PasswordEncoder passwordEncoder) {
-        if (organization == null) { throw new CustomException(ErrorCode.ORGANIZATION_ACCESS_DENIED); }
+        if (organization == null || organization.isSoftDeleted()) { throw new CustomException(ErrorCode.ORGANIZATION_ACCESS_DENIED); }
         verifyOrganization(organization.getLoginId(), organization.getPassword(), access, passwordEncoder);
     }
 
@@ -60,7 +60,7 @@ public final class RegistrationAccessVerifier {
 
     /** 단체 그룹 전용 수정에서 단체 계정의 비밀번호만 검증한다. */
     public static void verifyOrganizationPassword(Organization organization, String password, PasswordEncoder encoder) {
-        if (organization == null || !matches(password, organization.getPassword(), encoder)) {
+        if (organization == null || organization.isSoftDeleted() || !matches(password, organization.getPassword(), encoder)) {
             throw new CustomException(ErrorCode.ORGANIZATION_ACCESS_DENIED);
         }
     }

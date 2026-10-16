@@ -181,6 +181,10 @@ public class RegistrationPersonalModificationService {
                 now
         );
 
+        // 현재 가격에 실제 적용한 정책 개정을 함께 보존한다.
+        if (price.discountPrice() != null) {
+            registration.recordAppliedDiscountPrice(price.discountPrice());
+        }
         registration.applyPersonalModification(
                 candidate.eventCategory(),
                 candidate.souvenirJsons(),

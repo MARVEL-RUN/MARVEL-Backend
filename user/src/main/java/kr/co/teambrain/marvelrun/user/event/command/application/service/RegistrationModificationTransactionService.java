@@ -64,11 +64,7 @@ public class RegistrationModificationTransactionService {
 
         informationValidator.validateInput(request);
         RegistrationModificationAccessContext verified = accessValidator.validate(eventId, registrationId, request, now);
-        // 미선택을 실제 후미 ID로 확정한 뒤 무변경·개인정보·전체 수정으로 분류한다.
-        RegistrationStartGroupResolver.Selection selection = startGroups.resolveRegistrationStartGroups(List.of(
-                new RegistrationStartGroupResolver.Input(request.eventCategoryId(), request.startGroupId(),
-                        request.startGroupUnselected()))).getFirst();
-        request = request.withResolvedStartGroupId(selection.startGroupId());
+        // 그룹 기능 임시 중단: 그룹 입력을 수정 분류에 사용하지 않는다.
         RegistrationModificationAccessContext access = new RegistrationModificationAccessContext(
                 verified.event(), verified.registration(), request, now);
         RegistrationModificationClassifier.Change change = classifier.classifyPersonal(access.registration(), request);
@@ -113,16 +109,7 @@ public class RegistrationModificationTransactionService {
         organizationInformationValidator.validateInput(request);
         OrgRegistrationModificationAccessContext verified = organizationAccessValidator.validate(
                 eventId, organizationId, request, now);
-        // 전체 참가자 그룹을 일괄 검증하여 일반 수정과 참가자 추가 모두 같은 값을 사용한다.
-        List<RegistrationStartGroupResolver.Selection> selections = startGroups.resolveRegistrationStartGroups(
-                request.registrations().stream().map(member -> new RegistrationStartGroupResolver.Input(
-                        member.eventCategoryId(), member.startGroupId(), member.startGroupUnselected())).toList());
-        List<OrgRegistrationModificationParticipantRequest> resolvedMembers = new ArrayList<>();
-        for (int index = 0; index < selections.size(); index++) {
-            resolvedMembers.add(request.registrations().get(index)
-                    .withResolvedStartGroupId(selections.get(index).startGroupId()));
-        }
-        request = request.withResolvedRegistrations(resolvedMembers);
+        // 그룹 기능 임시 중단: 일반 수정·추가 인원의 그룹을 결정하지 않는다.
         OrgRegistrationModificationAccessContext access = new OrgRegistrationModificationAccessContext(
                 verified.event(), verified.organization(), verified.currentRegistrations(), request, now);
         RegistrationModificationClassifier.Change change = classifier.classifyOrganization(

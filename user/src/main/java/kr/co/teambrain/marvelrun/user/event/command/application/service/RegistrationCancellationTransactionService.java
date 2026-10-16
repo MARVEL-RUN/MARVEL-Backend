@@ -43,6 +43,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class RegistrationCancellationTransactionService {
+    private final OrganizationLifecycleService organizationLifecycle;
     private final PasswordEncoder passwordEncoder;
     private final EntityManager entityManager;
     private final EventCommandRepository events;
@@ -115,6 +116,7 @@ public class RegistrationCancellationTransactionService {
         for (Registration member : active) { member.cancelParticipation(); }
         RegistrationModificationSettlementResult settled = settlement.settleRegistrationModification(event.getId(), organizationId, activeIds, now, policies);
         entityManager.flush();
+        organizationLifecycle.completeOrganizationCancellation(organizationId);
         return new Prepared(snapshot(members, payments, settled.refunds()), true);
     }
 

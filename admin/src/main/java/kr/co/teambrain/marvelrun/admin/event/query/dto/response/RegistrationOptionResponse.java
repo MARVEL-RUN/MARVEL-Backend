@@ -1,5 +1,9 @@
 package kr.co.teambrain.marvelrun.admin.event.query.dto.response;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.math.BigDecimal;
 import java.util.List;
@@ -28,6 +32,8 @@ public record RegistrationOptionResponse(
             BigDecimal amount,
 
             List<SouvenirOption> souvenirs,
+            // 그룹 기능 임시 중단: 내부 호환 필드는 JSON·Swagger에서 제외한다.
+            @JsonIgnore @Schema(hidden = true)
             List<StartGroupOption> startGroups
     ) {
     }

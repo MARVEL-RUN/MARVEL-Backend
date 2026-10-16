@@ -1,5 +1,10 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
+import kr.co.teambrain.marvelrun.user.discount.domain.DiscountLink;
+import kr.co.teambrain.marvelrun.user.discount.service.DiscountPolicyResolver;
+import kr.co.teambrain.marvelrun.user.discount.service.LinkDiscountEligibilityService;
+
 import org.springframework.security.crypto.password.PasswordEncoder;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import java.nio.charset.StandardCharsets;
@@ -53,6 +58,8 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class OrgRegistrationCommandService {
+    private final DiscountPolicyResolver discountPolicies;
+    private final LinkDiscountEligibilityService discountEligibility;
     private final RegistrationStartGroupResolver startGroups;
     private final RegistrationActionPolicyService actionPolicies;
     private final PasswordEncoder passwordEncoder;
@@ -115,9 +122,9 @@ public class OrgRegistrationCommandService {
             String eventId,
             OrgRegistrationCreateRequest request
     ) {
-        LocalDateTime now = serverTimeProvider.currentDateTime();
-
         registrationCapacityService.lockEvent(eventId);
+
+        LocalDateTime now = serverTimeProvider.currentDateTime();
 
         OrgRegistrationCreateContext context =
                 orgRegistrationApplyValidator.validate(
@@ -132,6 +139,17 @@ public class OrgRegistrationCommandService {
         actionPolicies.validateNewRegistrationPolicy(event, now);
 
 
+        // 비대상 종목도 자격을 취득하지만 최소 인원 조건은 단체 전체에 적용한다.
+        List<DiscountModels.Policy> discountSnapshot = discountPolicies.resolveEventPolicies(eventId);
+        DiscountLink discountLink = discountEligibility.acquireRegistrationLink(
+                request.discountLinkCode(), eventId, true, now, discountSnapshot);
+        if (discountLink != null) {
+            DiscountModels.Policy policy = discountPolicies.resolveLinkPolicy(discountLink, eventId, discountSnapshot);
+            if (policy.minimumGroupSize() != null && request.registrations().size() < policy.minimumGroupSize()) {
+                throw new CustomException(ErrorCode.DISCOUNT_GROUP_MINIMUM_NOT_MET);
+            }
+        }
+
         String rawPassword = request.account().organizationPassword();
         if (rawPassword.getBytes(StandardCharsets.UTF_8).length > 72) {
             throw new CustomException(ErrorCode.REGISTRATION_PASSWORD_TOO_LONG);
@@ -140,6 +158,9 @@ public class OrgRegistrationCommandService {
         Organization organization =
                 createOrganization(event, request, encodedPassword);
 
+        if (discountLink != null) {
+            organization.assignDiscountQualification(discountLink.getId(), discountLink.getReferenceFilterId());
+        }
         Organization savedOrganization =
                 organizationCommandRepository.save(organization);
 
@@ -148,7 +169,7 @@ public class OrgRegistrationCommandService {
                         savedOrganization,
                         context,
                         request,
-                        now
+                        now, discountLink, discountSnapshot
                 );
 
         List<Registration> savedRegistrations =
@@ -240,7 +261,7 @@ public class OrgRegistrationCommandService {
 
         Organization organization = failedPayment.getOrganization();
 
-        if (organization == null || !organization.getId().equals(organizationId)) {
+        if (organization == null || organization.isSoftDeleted() || !organization.getId().equals(organizationId)) {
             throw new CustomException(ErrorCode.PAYMENT_NOT_CONFIRMABLE, " 결제 주문의 대상 단체가 일치하지 않습니다.");
         }
 
@@ -468,13 +489,11 @@ public class OrgRegistrationCommandService {
             Organization organization,
             OrgRegistrationCreateContext context,
             OrgRegistrationCreateRequest request,
-            LocalDateTime now
+            LocalDateTime now,
+            DiscountLink discountLink,
+            List<DiscountModels.Policy> discountSnapshot
     ) {
-        // 참가자 전체의 종목별 그룹을 한 번에 조회하여 요청 순서대로 적용한다.
-        List<RegistrationStartGroupResolver.Selection> selections = startGroups.resolveRegistrationStartGroups(
-                context.registrations().stream().map(participant -> new RegistrationStartGroupResolver.Input(
-                        participant.eventCategory().getId(), participant.request().startGroupId(),
-                        participant.request().startGroupUnselected())).toList());
+        // 그룹 기능 임시 중단: 참가자 그룹 검증·자동 배정을 생략한다.
         List<Registration> registrations =
                 new ArrayList<>(
                         context.registrations().size()
@@ -496,12 +515,10 @@ public class OrgRegistrationCommandService {
              * Client 금액은 사용하지 않으며,
              * 개인 신청과 동일한 RegistrationPricingService를 사용한다.
              */
-            BigDecimal contractAmount =
-                    registrationPricingService.calculateContractAmount(
-                            context.event(),
-                            participantContext.eventCategory(),
-                            participantContext.request().birth()
-                    );
+            DiscountModels.PriceResult discountPrice = registrationPricingService.calculateRegistrationPrice(
+                    context.event(), participantContext.eventCategory(), participantContext.request().birth(),
+                    true, discountLink, discountSnapshot);
+            BigDecimal contractAmount = discountPrice.finalAmount();
 
             Registration registration =
                     Registration.createForOrgPaymentMvp(
@@ -519,8 +536,13 @@ public class OrgRegistrationCommandService {
                             null
                     );
 
-            RegistrationStartGroupResolver.Selection selection = selections.get(registrations.size());
-            registration.applyStartGroupSelection(selection.startGroupId(), selection.unselected());
+            // 신규 구성원의 링크 자격과 최근 가격 적용 내역을 보존한다.
+            if (discountLink != null) {
+                registration.assignDiscountQualification(discountLink.getId(), discountLink.getReferenceFilterId());
+            }
+            registration.recordAppliedDiscountPrice(discountPrice);
+
+            // 그룹 기능 임시 중단: 신규 참가자는 그룹 값 없이 저장한다.
             registrations.add(
                     registration
             );

@@ -1,4 +1,8 @@
 package kr.co.teambrain.marvelrun.admin.payment.command;
+import kr.co.teambrain.marvelrun.admin.discount.query.ReferenceFilterQueryService;
+import kr.co.teambrain.marvelrun.admin.user.command.application.service.OrganizationLifecycleService;
+import kr.co.teambrain.marvelrun.admin.discount.service.OrganizationDiscountGuard;
+import kr.co.teambrain.marvelrun.admin.discount.service.DiscountPolicyResolver;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
 
@@ -115,7 +119,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.datasource.hikari.maximum-pool-size=4"})
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@Import({RegistrationStartGroupResolver.class,ReservationHistoryRecorder.class,RegistrationQueryService.class, AdminUnpaidRegistrationCancellationService.class, RegistrationCommandService.class, AdminRefundEvidenceStore.class, AdminRefundEvidenceService.class, AdminRefundEvidenceMatcher.class, AdminPaymentQueryRepository.class, AdminRefundPreparationService.class, AdminRefundPreparationTransactionService.class, AdminRefundPreparationStore.class,
+@Import({
+        ReferenceFilterQueryService.class,
+        OrganizationLifecycleService.class,
+        OrganizationDiscountGuard.class,
+        DiscountPolicyResolver.class,RegistrationStartGroupResolver.class,ReservationHistoryRecorder.class,RegistrationQueryService.class, AdminUnpaidRegistrationCancellationService.class, RegistrationCommandService.class, AdminRefundEvidenceStore.class, AdminRefundEvidenceService.class, AdminRefundEvidenceMatcher.class, AdminPaymentQueryRepository.class, AdminRefundPreparationService.class, AdminRefundPreparationTransactionService.class, AdminRefundPreparationStore.class,
         RegistrationActionPolicyReader.class,
         AdminRefundAccessService.class, AdminRefundLockRepository.class, AdminRefundTime.class,
         RegistrationPolicyCandidateValidator.class, RegistrationPolicyValidator.class, RegistrationPolicyLoader.class,

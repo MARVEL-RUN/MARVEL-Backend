@@ -153,6 +153,11 @@ final class CapacityMvpFixtureCleaner {
                         DELETE FROM event_category_registration_policy WHERE event_category_id IN (SELECT id FROM
                         event_category WHERE event_id = :eventId)
                         """),
+                new Deletion("discount_link", "DELETE FROM discount_link WHERE policy_id IN (SELECT id FROM discount_policy WHERE event_id=:eventId)"),
+                new Deletion("discount_policy_category", "DELETE FROM discount_policy_category WHERE policy_id IN (SELECT id FROM discount_policy WHERE event_id=:eventId)"),
+                new Deletion("discount_age_condition", "DELETE FROM discount_age_condition WHERE policy_id IN (SELECT id FROM discount_policy WHERE event_id=:eventId)"),
+                new Deletion("discount_policy", "DELETE FROM discount_policy WHERE event_id=:eventId"),
+                new Deletion("reference_filter", "DELETE FROM reference_filter WHERE event_id=:eventId"),
                 new Deletion("event_category_start_group",
                         """
                         DELETE FROM event_category_start_group WHERE event_category_id IN (SELECT id FROM event_category

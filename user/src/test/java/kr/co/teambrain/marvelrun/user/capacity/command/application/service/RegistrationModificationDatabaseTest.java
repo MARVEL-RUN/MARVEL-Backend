@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.capacity.command.application.service;
 
+import org.junit.jupiter.api.Disabled;
+
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
 
 import java.math.BigDecimal;
@@ -84,6 +86,7 @@ class RegistrationModificationDatabaseTest
 
     /** 신청 시 직접 고른 그룹은 미선택 기본값으로 덮어쓰지 않는다. */
     @Test
+    @Disabled("그룹 기능 임시 중단: 재활성화 시 복원")
     void createsPersonalRegistrationWithExplicitStartGroup() {
         String front = queryStringValue("select id from event_category_start_group where event_category_id=? and code='A'", categoryA);
         RegistrationCreateResponse created = registrations.register(eventId, new RegistrationCreateRequest(categoryA,
@@ -96,6 +99,7 @@ class RegistrationModificationDatabaseTest
 
     /** 수정 정책·접수 마감·외부결제 제한과 독립적으로 개인 그룹을 수정하고 비밀번호를 검증한다. */
     @Test
+    @Disabled("그룹 기능 임시 중단: 재활성화 시 복원")
     void modifiesPersonalStartGroupWithoutActionPolicyOrExternalPaymentChecks() {
         RegistrationCreateResponse created = createPersonalRegistration(categoryA, "S", "1990-01-01");
         String registrationId = created.registrationId();
@@ -126,6 +130,7 @@ class RegistrationModificationDatabaseTest
 
     /** 단체 비밀번호 하나로 참가자별 선택을 저장하고 누락된 인원은 그대로 둔다. */
     @Test
+    @Disabled("그룹 기능 임시 중단: 재활성화 시 복원")
     void modifiesBulkOrganizationStartGroupsAndRejectsForeignOrDuplicateMembers() {
         OrgRegistrationCreateResponse created = createOrganizationRegistration(categoryA, categoryB, categoryA);
         List<String> ids = created.registrationIds();
@@ -169,6 +174,7 @@ class RegistrationModificationDatabaseTest
 
     /** 일반 신청 수정의 그룹 변경은 주문 재생성 없이 저장되며 같은 미선택 요청은 무변경으로 처리한다. */
     @Test
+    @Disabled("그룹 기능 임시 중단: 재활성화 시 복원")
     void modifiesStartGroupThroughOrdinaryPersonalModification() {
         RegistrationCreateResponse created = createPersonalRegistration(categoryA, "S", "1990-01-01");
         String id = created.registrationId();
@@ -601,55 +607,22 @@ class RegistrationModificationDatabaseTest
         assertThat(captureRegistrationModificationState()).isEqualTo(before);
     }
 
-    /**
-     * 수정 후 최초 참가비가 0원이면 주문 없이 예약과 재고를 확정한다.
-     */
+    /** 0원 수정은 차단하고 기존 신청·주문·예약·정원을 보존한다. */
     @Test
-    void zeroAmountModificationConfirmsWithoutPayment() {
+    void zeroAmountModificationRejectsWithoutChangingState() {
+        // 미결제 신청을 준비하고 변경하려는 종목의 금액만 0원으로 설정한다.
         RegistrationCreateResponse original =
                 createPersonalRegistration(categoryA, "S", "1990-01-01");
-
         changeCategoryPrice(categoryB, "0");
+        Map<String, List<Map<String, Object>>> before = captureRegistrationModificationState();
 
-        RegistrationModificationSettlementResult result =
-                modifications.modifyPersonalRegistration(
-                        eventId,
-                        original.registrationId(),
-                        personalRequest(
-                                original.registrationId(),
-                                categoryB,
-                                "M"
-                        )
-                );
-
-        assertThat(result.orders()).isEmpty();
-        assertThat(result.members().get(0).balance())
-                .isEqualByComparingTo("0");
-
-        assertThat(findRegistrationStatus(original.registrationId()))
-                .isEqualTo("CONFIRMED");
-
-        assertThat(queryStringValue(
-                "select status from reservation where registration_id = ?",
-                original.registrationId()
-        )).isEqualTo("CONSUMED");
-
-        assertThat(findPaymentProcessStatus(original.paymentId()))
-                .isEqualTo("INVALIDATED");
-
-        assertThat(queryIntegerValue(
-                "select count(*) from payment where registration_id = ?",
-                original.registrationId()
-        )).isEqualTo(1);
-
-        assertCapacityCounts(total, 0, 1);
-        assertCapacityCounts(categoryBCapacity, 0, 1);
-        assertCapacityCounts(shirtS, 0, 0);
-        assertCapacityCounts(shirtM, 0, 1);
-
+        // 가격 검증 실패로 신청 변경과 결제 후속 처리가 실행되지 않아야 한다.
+        expectError(ErrorCode.DISCOUNT_ZERO_AMOUNT_NOT_SUPPORTED,
+                () -> modifications.modifyPersonalRegistration(eventId, original.registrationId(),
+                        personalRequest(original.registrationId(), categoryB, "M")));
+        assertThat(captureRegistrationModificationState()).isEqualTo(before);
         verifyNoInteractions(toss);
     }
-
     /**
      * 결제 완료 단체에서 기존 구성원 수정·제거·신규 추가를 함께 처리한다.
      *

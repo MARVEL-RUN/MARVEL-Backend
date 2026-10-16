@@ -30,3 +30,8 @@ dependencies {
 
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.3'
 }
+
+// 공유 할인 계산의 경계조건을 JUnit Jupiter로 검증한다.
+tasks.named('test', Test) {
+    useJUnitPlatform()
+}

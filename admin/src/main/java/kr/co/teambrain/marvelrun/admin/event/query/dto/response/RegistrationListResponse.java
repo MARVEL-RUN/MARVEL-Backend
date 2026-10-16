@@ -1,5 +1,11 @@
 package kr.co.teambrain.marvelrun.admin.event.query.dto.response;
 
+import kr.co.teambrain.marvelrun.admin.discount.query.ReferenceFilterSummaryResponse;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import lombok.Builder;
 import java.time.LocalDateTime;
 
@@ -10,6 +16,7 @@ import java.time.LocalDateTime;
  */
 @Builder
 public record RegistrationListResponse(
+        ReferenceFilterSummaryResponse referenceFilter,
         String registrationId,    // 상세 조회 등을 위한 신청 PK
         Long listNumber,          // 번호: 페이징 정보를 기반으로 계산된 내림차순 번호
         String type,              // 유형: "개인" 또는 "단체"
@@ -23,7 +30,11 @@ public record RegistrationListResponse(
         String marketingConsent,  // 마케팅동의: 임시로 activeUniqueInfo 필드를 활용해 "Y" 또는 "N" 표기
         String status,            // 상태: 결제완료, 대기, 환불완료 등의 진행 상태
         LocalDateTime createdAt,  // 신청일시: registrationDate 필드
+        // 그룹 기능 임시 중단: 내부 호환 필드는 JSON·Swagger에서 제외한다.
+        @JsonIgnore @Schema(hidden = true)
         String startGroupCode,
+        // 그룹 기능 임시 중단: 내부 호환 필드는 JSON·Swagger에서 제외한다.
+        @JsonIgnore @Schema(hidden = true)
         boolean startGroupUnselected
 ) {
 

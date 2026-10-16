@@ -1,4 +1,5 @@
 package kr.co.teambrain.marvelrun.user.capacity.command.application.service;
+import kr.co.teambrain.marvelrun.user.event.command.application.service.OrganizationLifecycleService;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -38,6 +39,7 @@ import static org.mockito.Mockito.*;
 
 /** 실제 테스트 DB의 트랜잭션 경계·환불 반영·중복 실행을 검증한다. Toss는 모두 Mock이다. */
 @Import({
+        OrganizationLifecycleService.class,
         AdditionalPaymentTargetResolver.class,
         RegistrationModificationTransactionService.class,
         RefundExecutionLock.class, RefundExecutionTransactionService.class,
@@ -143,22 +145,32 @@ class RegistrationRefundExecutionDatabaseTest extends CapacityMvpTestSupport {
         assertThat(queryStringValue("select JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.resultComparison.status')) from payment_process_log where payment_cancel_id=? and process_type='CANCEL_SUCCEEDED'", result.refunds().get(0).paymentCancelId())).isEqualTo("SUCCESS");
     }
 
-    /** 참가비가 0원으로 바뀌면 원결제를 전액 환불하고 참가 신청 자체는 확정 상태로 유지한다. */
+    /** 결제 완료 신청의 0원 수정도 거절하고 환불·참가 상태를 보존한다. */
     @Test
-    void zeroPriceModificationRefundsFullPaymentAndKeepsRegistrationConfirmed() {
+    void zeroPriceModificationRejectsWithoutRefundingPayment() {
+        // 기존 결제 완료 상태와 예약·정원 상태를 보관한다.
         RegistrationCreateResponse original = paidPersonal();
         jdbc.update("update event_category set amount = ? where id = ?", BigDecimal.ZERO, categoryB);
-        mockCancelSuccess();
-        RegistrationModificationSettlementResult result = commands.modifyPersonalRegistration(eventId, original.registrationId(),
-                personalRequest(original.registrationId(), categoryB));
-        assertThat(result.refunds().get(0).amount()).isEqualByComparingTo("40000");
-        assertThat(result.refunds().get(0).status()).isEqualTo(PaymentCancelStatus.DONE);
-        assertThat(result.members().get(0).status().name()).isEqualTo("CONFIRMED");
-        assertThat(result.members().get(0).paidAmount()).isEqualByComparingTo("0");
-        assertThat(queryStringValue("select toss_status from payment where id = ?", original.paymentId())).isEqualTo("CANCELED");
-        assertThat(queryStringValue("select status from reservation where registration_id = ?", original.registrationId())).isEqualTo("CONSUMED");
-    }
+        List<Map<String, Object>> before = resourceSnapshot();
 
+        // 0원 가격을 차단하고 환불 원장과 PG 요청을 생성하지 않는다.
+        expectError(ErrorCode.DISCOUNT_ZERO_AMOUNT_NOT_SUPPORTED,
+                () -> commands.modifyPersonalRegistration(eventId, original.registrationId(),
+                        personalRequest(original.registrationId(), categoryB)));
+        assertThat(resourceSnapshot()).isEqualTo(before);
+        assertThat(queryStringValue("select event_category_id from registration where id=?", original.registrationId()))
+                .isEqualTo(categoryA);
+        assertThat(queryStringValue("select status from registration where id=?", original.registrationId()))
+                .isEqualTo("CONFIRMED");
+        assertThat(queryDecimalValue("select contract_amount from registration where id=?", original.registrationId()))
+                .isEqualByComparingTo("40000");
+        assertThat(queryDecimalValue("select paid_amount from registration where id=?", original.registrationId()))
+                .isEqualByComparingTo("40000");
+        assertThat(queryStringValue("select process_status from payment where id=?", original.paymentId()))
+                .isEqualTo("COMPLETED");
+        assertThat(queryIntegerValue("select count(*) from payment_cancel where payment_id=?", original.paymentId())).isZero();
+        verifyNoInteractions(cancelClient);
+    }
     /** 실패 또는 결과불명에서는 수정은 유지하고 실제 순납부액을 줄이지 않는다. */
     @ParameterizedTest
     @ValueSource(strings = {"FAILED", "UNKNOWN"})

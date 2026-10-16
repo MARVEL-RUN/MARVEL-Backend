@@ -28,6 +28,9 @@ public class OrganizationQueryController {
             @RequestParam(required = false)
             String keyword,
 
+            @RequestParam(name = "referenceFilterId", required = false)
+            String referenceFilterId,
+
             @RequestParam(defaultValue = "0")
             int page,
 
@@ -47,7 +50,7 @@ public class OrganizationQueryController {
 
         OrganizationSearchCondition condition = new OrganizationSearchCondition(
                 eventId,
-                keyword
+                keyword, referenceFilterId
         );
 
         return ResponseEntity.ok(

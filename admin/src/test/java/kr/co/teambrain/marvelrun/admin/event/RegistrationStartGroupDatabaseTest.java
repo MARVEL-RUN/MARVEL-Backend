@@ -1,4 +1,7 @@
 package kr.co.teambrain.marvelrun.admin.event;
+import kr.co.teambrain.marvelrun.admin.discount.query.ReferenceFilterQueryService;
+
+import org.junit.jupiter.api.Disabled;
 
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
@@ -45,7 +48,9 @@ import static org.mockito.Mockito.when;
         "spring.jpa.hibernate.ddl-auto=none", "spring.sql.init.mode=never",
         "spring.flyway.enabled=false", "spring.liquibase.enabled=false"})
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({RegistrationQueryService.class, RegistrationActionPolicyReader.class})
+@Import({
+        ReferenceFilterQueryService.class,RegistrationQueryService.class, RegistrationActionPolicyReader.class})
+@Disabled("그룹 기능 임시 중단: 재활성화 시 복원")
 class RegistrationStartGroupDatabaseTest {
     @Autowired private EntityManager entityManager;
     @Autowired private JdbcTemplate jdbc;

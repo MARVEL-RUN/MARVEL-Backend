@@ -1,4 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
+import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
+import kr.co.teambrain.marvelrun.user.discount.service.DiscountPolicyResolver;
+import kr.co.teambrain.marvelrun.user.discount.service.LinkDiscountEligibilityService;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.RegistrationCapacityService;
@@ -53,6 +56,8 @@ class RegistrationPasswordStorageTest {
     @Mock private RegistrationApplyValidator personalValidator;
     @Mock private OrgRegistrationApplyValidator organizationValidator;
     @Mock private RegistrationPricingService pricing;
+    @Mock private DiscountPolicyResolver discountPolicies;
+    @Mock private LinkDiscountEligibilityService discountEligibility;
     @Mock private PaymentCreator payments;
     @Mock private PaymentAllocationCreator allocations;
     @Mock private ServerTimeProvider time;
@@ -67,7 +72,8 @@ class RegistrationPasswordStorageTest {
     /** 개인 신청 저장에는 서비스에서 만든 해시가 전달되고 입력 record는 유지된다. */
     @Test
     void storesPersonalHashWithoutChangingRequest() {
-        prepareStartGroupSelections();
+
+        // 그룹 기능 임시 중단: 결정 서비스 mock 설정 생략.
         RegistrationCreateRequest request = personalRequest("TestPassword1!");
         preparePersonal(request);
         when(registrations.save(any(Registration.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -77,6 +83,8 @@ class RegistrationPasswordStorageTest {
 
         ArgumentCaptor<Registration> saved = ArgumentCaptor.forClass(Registration.class);
         verify(registrations).save(saved.capture());
+        assertThat(saved.getValue().getStartGroupId()).isNull();
+        assertThat(saved.getValue().getStartGroupUnselected()).isNull();
         assertThat(saved.getValue().getPassword()).isNotEqualTo(request.password());
         assertThat(passwordEncoder.matches(request.password(), saved.getValue().getPassword())).isTrue();
         assertThat(request.password()).isEqualTo("TestPassword1!");
@@ -85,7 +93,8 @@ class RegistrationPasswordStorageTest {
     /** 단체 계정은 구성원 생성과 별도로 계정 비밀번호 해시를 저장한다. */
     @Test
     void storesOrganizationHashWithoutChangingRequest() {
-        prepareStartGroupSelections();
+
+        // 그룹 기능 임시 중단: 결정 서비스 mock 설정 생략.
         OrgRegistrationCreateRequest request = organizationRequest("TestPassword1!");
         prepareOrganization(request);
         when(organizations.save(any(Organization.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -105,7 +114,8 @@ class RegistrationPasswordStorageTest {
     /** 최초 단체 생성에서도 참가자마다 고정 원문의 서로 다른 해시를 저장한다. */
     @Test
     void storesDistinctHashesForInitialOrganizationParticipants() {
-        prepareStartGroupSelections();
+
+        // 그룹 기능 임시 중단: 결정 서비스 mock 설정 생략.
         OrgRegistrationCreateRequest request = organizationRequest("TestPassword1!");
         OrgRegistrationParticipantRequest participant = new OrgRegistrationParticipantRequest(
                 "category", List.of(), "참가자", "010-0000-0000", "1990-01-01", GenderClass.M, "group", false);
@@ -118,7 +128,7 @@ class RegistrationPasswordStorageTest {
         when(time.currentDateTime()).thenReturn(NOW);
         when(organizationValidator.validate("event", request, NOW))
                 .thenReturn(new OrgRegistrationCreateContext(event, List.of(context, secondContext)));
-        when(pricing.calculateContractAmount(event, category, participant.birth())).thenReturn(BigDecimal.TEN);
+        when(pricing.calculateRegistrationPrice(eq(event), eq(category), eq(participant.birth()), eq(true), isNull(), anyList())).thenReturn(new DiscountModels.PriceResult(DiscountModels.Failure.NONE, BigDecimal.TEN, BigDecimal.ZERO, List.of()));
         when(organizations.save(any(Organization.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(registrations.saveAll(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
         when(payments.createInitialPayment(any(Organization.class), any(BigDecimal.class), anyString()))
@@ -131,6 +141,8 @@ class RegistrationPasswordStorageTest {
         verify(registrations).saveAll(saved.capture());
         assertThat(saved.getValue()).hasSize(2);
         assertThat(saved.getValue()).allSatisfy(registration -> {
+            assertThat(registration.getStartGroupId()).isNull();
+            assertThat(registration.getStartGroupUnselected()).isNull();
             assertThat(passwordEncoder.matches("%^MVP_ORG_T&*EM^&#P_PA$%SSWO@!RD",
                     registration.getPassword())).isTrue();
             assertThat(passwordEncoder.matches(request.account().organizationPassword(),
@@ -176,7 +188,7 @@ class RegistrationPasswordStorageTest {
         when(time.currentDateTime()).thenReturn(NOW);
         when(personalValidator.validate("event", request, NOW))
                 .thenReturn(new RegistrationCreateContext(event, category, List.of()));
-        when(pricing.calculateContractAmount(event, category, request.birth())).thenReturn(BigDecimal.TEN);
+        when(pricing.calculateRegistrationPrice(eq(event), eq(category), eq(request.birth()), eq(false), isNull(), anyList())).thenReturn(new DiscountModels.PriceResult(DiscountModels.Failure.NONE, BigDecimal.TEN, BigDecimal.ZERO, List.of()));
     }
 
     /** 구성원 정책은 기존 검증기에 맡기고 단체 계정의 저장 경계를 준비한다. */
