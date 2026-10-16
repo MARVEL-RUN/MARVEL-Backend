@@ -109,7 +109,11 @@ public class RegistrationCommandService {
             throw new CustomException(ErrorCode.DUPLICATE_REGISTRATION);
         }
 
-        // 그룹 기능 임시 중단: 기본정보 수정에서 기존 그룹은 보존한다.
+        // 기존 기본정보 검증을 유지하고 현재 종목의 그룹만 변경한다.
+        RegistrationStartGroupResolver.Selection selection = startGroups.resolveRegistrationStartGroups(List.of(
+                new RegistrationStartGroupResolver.Input(registration.getEventCategory().getId(),
+                        request.startGroupId(), request.startGroupUnselected()))).getFirst();
+        registration.applyStartGroupSelection(selection.startGroupId(), selection.unselected());
         registration.modifyBasicInfoByAdmin(
                 request.name(),
                 request.phNum(),

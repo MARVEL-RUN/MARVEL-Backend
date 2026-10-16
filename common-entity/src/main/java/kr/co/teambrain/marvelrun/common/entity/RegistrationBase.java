@@ -28,17 +28,12 @@ import java.util.List;
 @MappedSuperclass
 public abstract class RegistrationBase<U extends UserBase, E extends EventBase, EC extends EventCategoryBase, O extends OrganizationBase, S extends SouvenirBase> {
     /** 종목 그룹 정의의 UUID이며 그룹 결정 서비스에서 검증한 값을 저장한다. */
-    @Column(name = "start_group_id", length = 40)
+    @Column(name = "start_group_id", nullable = false, length = 40)
     protected String startGroupId;
 
     /** 직접 선택하지 않아 후미에 배정했는지 나타낸다. */
-    @Column(name = "start_group_unselected")
-    protected Boolean startGroupUnselected;
-
-    /** 그룹 기능 중단 중 신규 NULL은 내부 호환 조회에서 false로 취급하며 외부에 노출하지 않는다. */
-    public boolean isStartGroupUnselected() {
-        return Boolean.TRUE.equals(startGroupUnselected);
-    }
+    @Column(name = "start_group_unselected", nullable = false)
+    protected boolean startGroupUnselected;
 
     /** 검증과 그룹 결정을 마친 두 값을 하나의 신청 변경으로 반영한다. */
     public void applyStartGroupSelection(String startGroupId, boolean startGroupUnselected) {

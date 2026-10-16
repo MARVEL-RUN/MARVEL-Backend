@@ -84,7 +84,7 @@ public class RegistrationQueryService {
                 ));
 
         // 그룹 코드는 현재 페이지의 ID만 묶어서 조회한다.
-        Map<String, String> groupCodes = Map.of(); // 그룹 기능 임시 중단: 그룹 조회를 생략한다.
+        Map<String, String> groupCodes = findStartGroupCodes(registrations.getContent());
         Map<String, ReferenceFilterSummaryResponse> filterSummaries = referenceFilters.loadReferenceFilterSummaries(
                 registrations.getContent().stream().map(Registration::getReferenceFilterId).toList());
         long totalElements = registrations.getTotalElements();
@@ -168,7 +168,7 @@ public class RegistrationQueryService {
                 .orElse(null);
 
         // 비활성화된 기존 선택도 저장된 코드로 표시한다.
-        Map<String, String> groupCodes = Map.of(); // 그룹 기능 임시 중단: 그룹 조회를 생략한다.
+        Map<String, String> groupCodes = findStartGroupCodes(List.of(registration));
         return toRegistrationDetailResponse(registration, payment, registration.getStartGroupId() == null ? null : groupCodes.get(registration.getStartGroupId()));
     }
 

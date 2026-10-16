@@ -112,8 +112,12 @@ public class OrganizationQueryService {
         List<Registration> registrations = registrationQueryRepository
                 .findByOrganizationIdAndSoftDeletedFalse(organizationId);
 
-        // 그룹 기능 임시 중단: 보존된 그룹은 상세 응답에서 사용하지 않는다.
-        Map<String, String> groupCodes = Map.of();
+        // 기존 비활성 그룹도 표시하며 중복 ID를 제거하여 한 번에 조회한다.
+        List<String> groupIds = registrations.stream().map(Registration::getStartGroupId)
+                .filter(Objects::nonNull).distinct().toList();
+        Map<String, String> groupCodes = groupIds.isEmpty() ? Map.of()
+                : startGroupRepository.findByIdIn(groupIds).stream()
+                .collect(Collectors.toMap(EventCategoryStartGroup::getId, EventCategoryStartGroup::getCode));
 
         // 3. 신청자들의 기념품 ID 추출 및 매핑
         List<String> souvenirIds = registrations.stream()

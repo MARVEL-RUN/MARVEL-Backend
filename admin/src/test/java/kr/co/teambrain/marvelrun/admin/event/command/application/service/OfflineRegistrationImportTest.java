@@ -1,7 +1,5 @@
 package kr.co.teambrain.marvelrun.admin.event.command.application.service;
 
-import org.junit.jupiter.api.Disabled;
-
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCategoryStartGroup;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.EventCategoryStartGroupRepository;
 import org.mockito.Mockito;
@@ -85,7 +83,6 @@ class OfflineRegistrationImportTest {
 
     /** 같은 종목의 여러 입력을 한 번에 조회하며 직접 후미 선택과 미선택을 구별한다. */
     @Test
-    @Disabled("그룹 기능 임시 중단: 재활성화 시 복원")
     void resolvesStartGroupsInInputOrderUsingOneCategoryQuery() {
         // B라는 코드에 의존하지 않고 실제 최하위인 C를 선택하도록 준비한다.
         EventCategoryStartGroupRepository groupRepository = Mockito.mock(EventCategoryStartGroupRepository.class);
@@ -114,7 +111,6 @@ class OfflineRegistrationImportTest {
 
     /** 활성 그룹을 조회했더라도 다른 종목의 UUID를 해당 참가자에게 사용할 수 없다. */
     @Test
-    @Disabled("그룹 기능 임시 중단: 재활성화 시 복원")
     void rejectsStartGroupFromAnotherCategoryAndMissingDefinition() {
         // 서로 다른 종목의 그룹이 같은 일괄 조회 결과에 포함되는 상황을 구성한다.
         EventCategoryStartGroupRepository groupRepository = Mockito.mock(EventCategoryStartGroupRepository.class);
@@ -142,7 +138,6 @@ class OfflineRegistrationImportTest {
 
     /** 내부 호출도 false와 빈 ID 조합을 거부하고 빈 일괄 입력은 DB에 전달하지 않는다. */
     @Test
-    @Disabled("그룹 기능 임시 중단: 재활성화 시 복원")
     void validatesStartGroupInputsBeforeQuerying() {
         // 호출자의 DTO 검증 유무와 독립적인 그룹 결정 계약을 확인한다.
         EventCategoryStartGroupRepository groupRepository = Mockito.mock(EventCategoryStartGroupRepository.class);
@@ -541,7 +536,7 @@ class OfflineRegistrationImportTest {
             OfflineRegistrationImportResult result = databaseInput("participant");
             OfflineRegistrationImportResponse response = persistence.persistOfflinePaidRegistrations(eventId, result, Map.of(7, "encoded"), LocalDateTime.now());
             assertThat(response.savedCount()).isEqualTo(1);
-            assertThat(jdbc.queryForObject("select count(*) from registration r where r.event_id=? and r.start_group_id is null and r.start_group_unselected is null", Integer.class, eventId)).isEqualTo(1);
+            assertThat(jdbc.queryForObject("select count(*) from registration r join event_category_start_group g on g.id=r.start_group_id where r.event_id=? and r.start_group_unselected=1 and g.code='B'", Integer.class, eventId)).isEqualTo(1);
             assertThat(jdbc.queryForObject("select count(*) from registration where event_id=? and external_payment=1 and status='CONFIRMED'", Integer.class, eventId)).isEqualTo(1);
             assertThat(jdbc.queryForObject("select count(*) from payment p join registration r on r.id=p.registration_id where r.event_id=? and p.process_status='COMPLETED' and p.payment_key is null and p.toss_status is null", Integer.class, eventId)).isEqualTo(1);
             assertThat(jdbc.queryForObject("select count(*) from capacity where event_id=? and held_count=0 and confirmed_count=1", Integer.class, eventId)).isEqualTo(3);

@@ -1,12 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.controller;
 
-import org.junit.jupiter.api.Disabled;
-
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import kr.co.teambrain.marvelrun.user.event.query.dto.RegistrationQueryResponse;
-import kr.co.teambrain.marvelrun.user.event.query.dto.OrgRegistrationParticipantResponse;
-import kr.co.teambrain.marvelrun.user.event.query.dto.response.RegistrationOptionResponse;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.GlobalExceptionHandler;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.*;
 import kr.co.teambrain.marvelrun.user.event.query.controller.OrgRegistrationQueryController;
@@ -46,56 +41,6 @@ class RegistrationRequestBoundaryTest {
     private final RegistrationCommandService personalCreation = mock(RegistrationCommandService.class);
     private final OrgRegistrationCommandService organizationCreation = mock(OrgRegistrationCommandService.class);
     private MockMvc mvc;
-
-    /** 그룹 입력 누락 및 구버전 필드 전달 모두 개인 신청·일반 수정을 방해하지 않는다. */
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void acceptsPersonalRequestsWithoutActiveGroupFields(boolean legacy) throws Exception {
-        // 나머지 필수 입력을 갖춘 요청을 준비한다.
-        ObjectNode body = (ObjectNode) json.readTree("""
-                {"eventCategoryId":"category","selectedSouvenirList":[{"souvenirId":"souvenir","selectedSize":"M"}],
-                 "name":"테스트","phNum":"010-1234-5678","birth":"1990-01-01","gender":"M",
-                 "password":"test-password","address":"주소","guardianConsent":false,
-                 "termsEssentialAgreed":true,"termsMarketingAgreed":false,"termsMarketingChannelAgreed":false}
-                """);
-        if (legacy) { body.put("startGroupId", "obsolete").put("startGroupUnselected", false); }
-
-        // 외부 그룹값은 DTO에 들어오지 않으며 생성·일반 수정은 계속 호출된다.
-        mvc.perform(post(ROOT + "/registrations").contentType(MediaType.APPLICATION_JSON).content(body.toString()))
-                .andExpect(status().isCreated());
-        verify(personalCreation).register(eq("event"), argThat(request ->
-                request.startGroupId() == null && request.startGroupUnselected() == null));
-        body.remove(List.of("password", "termsEssentialAgreed", "termsMarketingAgreed", "termsMarketingChannelAgreed"));
-        body.set("access", personalAccess());
-        mvc.perform(patch(ROOT + "/registrations/r").contentType(MediaType.APPLICATION_JSON).content(body.toString()))
-                .andExpect(status().isOk());
-        verify(modifications).modifyPersonalRegistration(eq("event"), eq("r"), argThat(request ->
-                request.startGroupId() == null && request.startGroupUnselected() == null));
-        verifyNoInteractions(startGroups);
-    }
-
-    /** 그룹 전용 경로의 매핑은 제거되어 기존 주소로 호출할 수 없다. */
-    @Test void groupOnlyEndpointsAreNotMapped() throws Exception {
-        for (String path : List.of("/registrations/r/start-group", "/organizations/o/registrations/start-groups")) {
-            assertThat(mvc.perform(patch(ROOT + path).contentType(MediaType.APPLICATION_JSON).content("{}"))
-                    .andReturn().getHandler()).isNull();
-        }
-        verifyNoInteractions(startGroups);
-    }
-
-    /** 신청 상세·단체원·선택지 응답에서 그룹 키 자체가 직렬화되지 않는다. */
-    @Test void publicResponsesDoNotExposeGroupFields() throws Exception {
-        String stored = "{\"startGroupId\":\"old\",\"startGroupCode\":\"B\",\"startGroupUnselected\":true}";
-        for (Class<?> type : List.of(RegistrationQueryResponse.class, OrgRegistrationParticipantResponse.class)) {
-            String response = json.writeValueAsString(json.readValue(stored, type));
-            assertThat(response).doesNotContain("startGroup");
-        }
-        RegistrationOptionResponse options = new RegistrationOptionResponse(List.of(
-                new RegistrationOptionResponse.EventCategoryOption(1, "category", "5km", "일반", true,
-                        null, List.of(), List.of(new RegistrationOptionResponse.StartGroupOption("old", "B", "안내")))),
-                true, null);
-        assertThat(json.writeValueAsString(options)).doesNotContain("startGroups", "안내");
-    }
 
     /** 서버와 DB 없이 운영 컨트롤러의 요청 바인딩 및 Bean Validation을 연결한다. */
     @BeforeEach
@@ -237,7 +182,6 @@ class RegistrationRequestBoundaryTest {
 
     /** 그룹 전용 요청의 누락·조합 오류는 서비스 호출 전에 차단한다. */
     @Test
-    @Disabled("그룹 기능 임시 중단: 재활성화 시 복원")
     void rejectsInvalidStartGroupSelections() throws Exception {
         ObjectNode missing = json.createObjectNode().put("password", "test");
         reject("/registrations/r/start-group", true, missing, "startGroupUnselected");
@@ -252,7 +196,6 @@ class RegistrationRequestBoundaryTest {
 
     /** 미선택은 null ID를 허용하고 단체는 각 참가자의 선택을 그대로 전달한다. */
     @Test
-    @Disabled("그룹 기능 임시 중단: 재활성화 시 복원")
     void acceptsPersonalAndBulkOrganizationStartGroups() throws Exception {
         mvc.perform(patch(ROOT + "/registrations/r/start-group").contentType(MediaType.APPLICATION_JSON)
                 .content("""

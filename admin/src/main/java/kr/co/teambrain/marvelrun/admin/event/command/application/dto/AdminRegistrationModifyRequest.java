@@ -1,7 +1,5 @@
 package kr.co.teambrain.marvelrun.admin.event.command.application.dto;
 
-import io.swagger.v3.oas.annotations.media.Schema;
-
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Email;
@@ -40,17 +38,12 @@ public record AdminRegistrationModifyRequest(
         String guardianPhNum,
 
         String guardianRelationship,
-        // 그룹 기능 임시 중단: 내부 호환 필드는 JSON·Swagger에서 제외한다.
-        @JsonIgnore @Schema(hidden = true)
         String startGroupId,
-        // 그룹 기능 임시 중단: 내부 호환 필드는 JSON·Swagger에서 제외한다.
-        @JsonIgnore @Schema(hidden = true)
-        Boolean startGroupUnselected
+        @NotNull Boolean startGroupUnselected
 ) {
     /** 미선택이 아니면 그룹 ID를 반드시 전달한다. */
-    @JsonIgnore @Schema(hidden = true)
-    // 그룹 기능 임시 중단: 재활성화 시 조합 검증 복원.
-    // @AssertTrue(message = "그룹을 선택하거나 미선택을 체크해주세요.")
+    @JsonIgnore
+    @AssertTrue(message = "그룹을 선택하거나 미선택을 체크해주세요.")
     public boolean isStartGroupSelectionValid() {
         return startGroupUnselected == null || startGroupUnselected
                 || (startGroupId != null && !startGroupId.isBlank());

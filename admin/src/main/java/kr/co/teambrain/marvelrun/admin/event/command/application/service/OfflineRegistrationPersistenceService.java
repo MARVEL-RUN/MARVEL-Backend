@@ -46,7 +46,10 @@ public class OfflineRegistrationPersistenceService {
             throw new OfflineRegistrationImportException(result.canceledCount(), result.errors());
         }
 
-        // 그룹 기능 임시 중단: 신규 등록에서 그룹 자동 배정을 하지 않는다.
+        // 엑셀에는 그룹 입력을 추가하지 않으며 종목별 후미 그룹을 일괄 확정한다.
+        List<RegistrationStartGroupResolver.Selection> selections = startGroups.resolveRegistrationStartGroups(
+                contexts.stream().map(context -> new RegistrationStartGroupResolver.Input(
+                        context.categoryId(), null, true)).toList());
 
         // 한 참가자에 하나의 결제와 전액 배분을 만들고 PG 전용 필드는 비워둔다.
         List<CapacityHoldRequest> holds = new ArrayList<>();
@@ -56,7 +59,8 @@ public class OfflineRegistrationPersistenceService {
             Registration registration = Registration.createOfflinePaidRegistration(event,
                     categories.getReferenceById(context.categoryId()), context,
                     passwordHashes.get(context.rowNumber()));
-            // 그룹 기능 임시 중단: 그룹 값은 NULL로 저장한다.
+            RegistrationStartGroupResolver.Selection selection = selections.get(payments.size());
+            registration.applyStartGroupSelection(selection.startGroupId(), selection.unselected());
             entityManager.persist(registration);
             Payment payment = Payment.createOfflineCompletedPayment(registration, context.approvedAtUtc());
             entityManager.persist(payment);

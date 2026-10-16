@@ -1,7 +1,5 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
-import org.junit.jupiter.api.Disabled;
-
 import java.lang.reflect.RecordComponent;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -47,7 +45,6 @@ class RegistrationModificationClassifierTest {
 
     /** 단체의 그룹 및 미선택 여부만 바뀌면 비금융 수정으로 판정한다. */
     @Test
-    @Disabled("그룹 기능 임시 중단: 재활성화 시 복원")
     void classifiesOrganizationStartGroupAsPersonalInformation() throws Exception {
         OrgRegistrationModificationParticipantRequest changed = replace(member("r1"), "startGroupUnselected", true);
         assertThat(classifier.classifyOrganizationParticipant(current("r1"), changed)).isEqualTo(PERSONAL_INFORMATION);
@@ -66,6 +63,8 @@ class RegistrationModificationClassifierTest {
     /** 개인정보 필드의 변경 및 null 삭제 후보를 제공한다. */
     static Stream<Arguments> personalChanges() {
         return Stream.of(
+                Arguments.of("startGroupId", "other-group"),
+                Arguments.of("startGroupUnselected", true),
                 Arguments.of("name", "정정 이름"),
                 Arguments.of("email", "changed@example.com"),
                 Arguments.of("phNum", "010-2222-3333"),

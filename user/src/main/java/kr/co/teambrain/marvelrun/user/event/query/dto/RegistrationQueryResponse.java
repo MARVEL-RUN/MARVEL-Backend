@@ -1,9 +1,5 @@
 package kr.co.teambrain.marvelrun.user.event.query.dto;
 
-import io.swagger.v3.oas.annotations.media.Schema;
-
-import com.fasterxml.jackson.annotation.JsonIgnore;
-
 import java.math.BigDecimal;
 import java.util.List;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
@@ -32,7 +28,5 @@ public record RegistrationQueryResponse(
         String paymentId, String orderId,
         boolean externalPayment,
         RegistrationActionPolicyModels.UserPolicy userPolicy,
-        // 그룹 기능 임시 중단: 내부 호환 필드는 JSON·Swagger에서 제외한다.
-        @JsonIgnore @Schema(hidden = true)
-        String startGroupId, @JsonIgnore @Schema(hidden = true) String startGroupCode, @JsonIgnore @Schema(hidden = true) boolean startGroupUnselected
+        String startGroupId, String startGroupCode, boolean startGroupUnselected
 ) { }

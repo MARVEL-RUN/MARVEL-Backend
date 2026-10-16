@@ -25,7 +25,7 @@ public class RegistrationQueryController {
     private final RegistrationQueryService registrationQueryService;
 
     /** 그룹 코드 및 미선택 조건을 기존 신청 목록 검색에 결합한다. */
-    @Operation(summary = "신청 목록 조회", description = "대회별 신청 내역을 신청 유형·종목·상태·검색어로 검색하고 페이지 단위로 조회합니다. 신청자와 소속 단체, 참가 종목, 기념품 및 처리 상태를 제공합니다.")
+    @Operation(summary = "신청 목록 조회", description = "대회별 신청 내역을 신청 유형·종목·상태·검색어·그룹·미선택 여부로 검색하고 페이지 단위로 조회합니다. 신청자와 소속 단체, 참가 종목, 기념품, 그룹 및 처리 상태를 제공합니다.")
     @ApiResponse(responseCode = "200", description = "신청 목록과 페이지 정보")
     @GetMapping
     public ResponseEntity<Page<RegistrationListResponse>>
@@ -49,7 +49,8 @@ public class RegistrationQueryController {
             @RequestParam(name = "referenceFilterId", required = false)
             String referenceFilterId,
 
-            // 그룹 기능 임시 중단: 그룹 검색 파라미터는 외부 계약에서 제외한다.
+            @RequestParam(required = false) String startGroupCode,
+            @RequestParam(required = false) Boolean startGroupUnselected,
 
             @RequestParam(
                     defaultValue = "0"
@@ -79,7 +80,7 @@ public class RegistrationQueryController {
                 type,
                 eventCategoryId,
                 status,
-                keyword, null, null, referenceFilterId
+                keyword, startGroupCode, startGroupUnselected, referenceFilterId
         );
 
         return ResponseEntity.ok(
@@ -91,7 +92,7 @@ public class RegistrationQueryController {
     }
 
     /** 현재 그룹 선택을 포함한 신청 상세를 제공한다. */
-    @Operation(summary = "신청 상세 조회", description = "특정 신청의 인적사항, 참가 종목·기념품, 소속 단체 및 결제 정보를 상세 조회합니다. 약관 동의 내역과 사용자 관점의 수정·결제·환불 가능 여부를 함께 제공합니다.")
+    @Operation(summary = "신청 상세 조회", description = "특정 신청의 인적사항, 참가 종목·기념품·그룹, 소속 단체 및 결제 정보를 상세 조회합니다. 약관 동의 내역과 사용자 관점의 수정·결제·환불 가능 여부를 함께 제공합니다.")
     @ApiResponse(responseCode = "200", description = "신청 상세 정보")
     @GetMapping("/{registrationId}")
     public ResponseEntity<RegistrationDetailResponse> getRegistrationDetail(

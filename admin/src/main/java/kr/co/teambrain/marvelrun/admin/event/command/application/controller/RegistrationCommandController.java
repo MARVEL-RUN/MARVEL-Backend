@@ -53,7 +53,7 @@ public class RegistrationCommandController {
 
     /** 기존 신청 기본 정보 수정 경로를 유지한다. */
     @PatchMapping("/registrations/{registrationId}/basic-info")
-    @Operation(summary = "신청 기본정보 수정", description = "신청자의 인적사항·연락처·주소·보호자 정보을 수정합니다. 참가 종목이나 참가비 변경은 처리하지 않으며, 기존 기본정보 검증 규칙을 적용합니다.")
+    @Operation(summary = "신청 기본정보 및 그룹 수정", description = "신청자의 인적사항·연락처·주소·보호자 정보와 현재 참가 종목 내 그룹 선택을 수정합니다. 참가 종목이나 참가비 변경은 처리하지 않으며, 기존 기본정보 검증 규칙을 적용합니다.")
     public ResponseEntity<Void> modifyRegistrationBasicInfo(
             @PathVariable String registrationId,
             @Valid @RequestBody AdminRegistrationModifyRequest request

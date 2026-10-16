@@ -2,10 +2,6 @@ package kr.co.teambrain.marvelrun.admin.user.query.dto;
 
 import kr.co.teambrain.marvelrun.admin.discount.query.ReferenceFilterSummaryResponse;
 
-import io.swagger.v3.oas.annotations.media.Schema;
-
-import com.fasterxml.jackson.annotation.JsonIgnore;
-
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import kr.co.teambrain.marvelrun.admin.event.policy.RegistrationActionPolicyModels;
@@ -22,11 +18,7 @@ public class OrganizationMemberDto {
 
     private Long listNumber;         // 번호
     private String registrationId;
-    // 그룹 기능 임시 중단: 내부 호환 필드는 JSON·Swagger에서 제외한다.
-    @JsonIgnore @Schema(hidden = true)
     private String startGroupCode;   // 현재 저장된 그룹 코드
-    // 그룹 기능 임시 중단: 내부 호환 필드는 JSON·Swagger에서 제외한다.
-    @JsonIgnore @Schema(hidden = true)
     private boolean startGroupUnselected; // true: 미선택 후미 배정, false: 직접 선택
     private String name;             // 성명
     private String birth;            // 생년월일

@@ -365,21 +365,21 @@ class AdminRefundPreparationDatabaseTest {
         assertThat(count(total)).isZero();
     }
 
-    /** 현재 가격표가 0원인 후보에서도 사전에 지정한 참가 유지 선택을 실제 DB에 반영한다. */
+    /** 참가 유지 선택과 무관하게 0원 수정은 차단하고 신청·그룹·금융·정원 상태를 보존한다. */
     @ParameterizedTest
     @ValueSource(booleans = {true,false})
-    void zeroContractKeepsOrReleasesParticipation(boolean keep) {
+    void zeroContractModificationRejectsWithoutChangingState(boolean keep) {
+        // 0원 후보를 준비하고 수정 전 신청·원장·예약·정원·로그를 함께 보관한다.
         jdbc.update("update event_category set amount=0 where id=?",categoryB);
-        AdminRefundPrepared result = service.preparePartial(eventId,null,List.of(target(keep)),command());
-        assertThat(findRegistrationAmountByColumn("contract_amount")).isEqualByComparingTo("0");
-        assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo("70000");
-        assertThat(count(total)).isEqualTo(keep ? 1 : 0);
-        assertThat(state()).isEqualTo(keep ? "PARTIAL_REFUND_REQUIRED" : "CANCELLATION_PENDING");
-        assertThat(jdbc.queryForObject("select expires_at from reservation where id=?",Timestamp.class,reservationId)).isNull();
-        executeSuccess(result);
-        assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo("0");
-        assertThat(state()).isEqualTo(keep ? "CONFIRMED" : "CANCELED");
-        assertThat(count(total)).isEqualTo(keep ? 1 : 0);
+        Map<String, Object> before = unpaidSnapshot();
+
+        // 전체 취소와 구분되는 가격 수정이므로 환불 준비 전에 지정 오류로 거절한다.
+        assertThatThrownBy(() -> service.preparePartial(eventId,null,List.of(target(keep)),command()))
+                .isInstanceOfSatisfying(CustomException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.DISCOUNT_ZERO_AMOUNT_NOT_SUPPORTED));
+        assertThat(unpaidSnapshot()).isEqualTo(before);
+        assertThat(cancelCount()).isZero();
+        verifyNoInteractions(toss);
     }
 
     /** 로그 저장 실패가 계약·정원·환불 시도·귀속 전체를 원복시키는지 실제 트랜잭션으로 검증한다. */

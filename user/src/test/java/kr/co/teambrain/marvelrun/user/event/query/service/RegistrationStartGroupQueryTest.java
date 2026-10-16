@@ -1,7 +1,6 @@
 package kr.co.teambrain.marvelrun.user.event.query.service;
 import kr.co.teambrain.marvelrun.user.discount.query.DiscountQueryService;
 
-import org.junit.jupiter.api.Disabled;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -40,7 +39,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
 /** 선택지와 개인·단체 조회의 그룹 계약을 한곳에서 검증한다. DB 연결은 사용하지 않는다. */
-@Disabled("그룹 기능 임시 중단: 재활성화 시 복원")
 class RegistrationStartGroupQueryTest {
     private final LocalDateTime now = LocalDateTime.of(2026, 10, 14, 12, 0);
     private final EventCategoryStartGroupRepository groups = mock(EventCategoryStartGroupRepository.class);

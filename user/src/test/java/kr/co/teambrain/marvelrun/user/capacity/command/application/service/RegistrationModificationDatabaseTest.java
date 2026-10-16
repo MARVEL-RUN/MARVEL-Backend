@@ -1,7 +1,5 @@
 package kr.co.teambrain.marvelrun.user.capacity.command.application.service;
 
-import org.junit.jupiter.api.Disabled;
-
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
 
 import java.math.BigDecimal;
@@ -86,7 +84,6 @@ class RegistrationModificationDatabaseTest
 
     /** 신청 시 직접 고른 그룹은 미선택 기본값으로 덮어쓰지 않는다. */
     @Test
-    @Disabled("그룹 기능 임시 중단: 재활성화 시 복원")
     void createsPersonalRegistrationWithExplicitStartGroup() {
         String front = queryStringValue("select id from event_category_start_group where event_category_id=? and code='A'", categoryA);
         RegistrationCreateResponse created = registrations.register(eventId, new RegistrationCreateRequest(categoryA,
@@ -99,7 +96,6 @@ class RegistrationModificationDatabaseTest
 
     /** 수정 정책·접수 마감·외부결제 제한과 독립적으로 개인 그룹을 수정하고 비밀번호를 검증한다. */
     @Test
-    @Disabled("그룹 기능 임시 중단: 재활성화 시 복원")
     void modifiesPersonalStartGroupWithoutActionPolicyOrExternalPaymentChecks() {
         RegistrationCreateResponse created = createPersonalRegistration(categoryA, "S", "1990-01-01");
         String registrationId = created.registrationId();
@@ -130,7 +126,6 @@ class RegistrationModificationDatabaseTest
 
     /** 단체 비밀번호 하나로 참가자별 선택을 저장하고 누락된 인원은 그대로 둔다. */
     @Test
-    @Disabled("그룹 기능 임시 중단: 재활성화 시 복원")
     void modifiesBulkOrganizationStartGroupsAndRejectsForeignOrDuplicateMembers() {
         OrgRegistrationCreateResponse created = createOrganizationRegistration(categoryA, categoryB, categoryA);
         List<String> ids = created.registrationIds();
@@ -174,7 +169,6 @@ class RegistrationModificationDatabaseTest
 
     /** 일반 신청 수정의 그룹 변경은 주문 재생성 없이 저장되며 같은 미선택 요청은 무변경으로 처리한다. */
     @Test
-    @Disabled("그룹 기능 임시 중단: 재활성화 시 복원")
     void modifiesStartGroupThroughOrdinaryPersonalModification() {
         RegistrationCreateResponse created = createPersonalRegistration(categoryA, "S", "1990-01-01");
         String id = created.registrationId();

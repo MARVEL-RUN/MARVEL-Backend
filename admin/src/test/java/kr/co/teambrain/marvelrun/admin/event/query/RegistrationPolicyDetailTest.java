@@ -1,7 +1,6 @@
 package kr.co.teambrain.marvelrun.admin.event.query;
 import kr.co.teambrain.marvelrun.admin.discount.query.ReferenceFilterQueryService;
 
-import org.junit.jupiter.api.Disabled;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
 
@@ -28,9 +27,6 @@ import kr.co.teambrain.marvelrun.admin.event.command.repository.EventCategorySta
 import kr.co.teambrain.marvelrun.admin.event.policy.RegistrationActionPolicyModels;
 import kr.co.teambrain.marvelrun.admin.event.query.assembler.RegistrationOptionResponseAssembler;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationOptionResponse;
-import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationListResponse;
-import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationDetailResponse;
-import kr.co.teambrain.marvelrun.admin.event.command.application.dto.AdminRegistrationModifyRequest;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.EventCategorySouvenirQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.projection.RegistrationOptionProjection;
 import static org.mockito.Mockito.*;
@@ -65,29 +61,9 @@ class RegistrationPolicyDetailTest {
     private final EventCategoryStartGroupRepository groups = mock(EventCategoryStartGroupRepository.class);
     private final LocalDateTime now = LocalDateTime.of(2026, 10, 14, 12, 0);
 
-    /** 관리자 목록·상세·단체원·선택지에서 보존된 그룹값을 JSON에 노출하지 않는다. */
-    @Test void adminResponsesHideSuspendedGroupFields() throws Exception {
-        ObjectMapper mapper = new ObjectMapper();
-        List<Object> responses = List.of(
-                RegistrationListResponse.builder().startGroupCode("B").startGroupUnselected(true).build(),
-                RegistrationDetailResponse.builder().startGroupId("old").startGroupCode("B").startGroupUnselected(true).build(),
-                OrganizationMemberDto.builder().startGroupCode("B").startGroupUnselected(true).build(),
-                new RegistrationOptionResponse(List.of(new RegistrationOptionResponse.EventCategoryOption(
-                        1, "category", "5km", "일반", true, null, List.of(),
-                        List.of(new RegistrationOptionResponse.StartGroupOption("old", "B", "과거 안내")))), true, null));
-        for (Object response : responses) {
-            assertThat(mapper.writeValueAsString(response)).doesNotContain("startGroup", "과거 안내");
-        }
-        AdminRegistrationModifyRequest legacy = mapper.readValue(
-                "{\"startGroupId\":\"old\",\"startGroupUnselected\":false}", AdminRegistrationModifyRequest.class);
-        assertThat(legacy.startGroupId()).isNull();
-        assertThat(legacy.startGroupUnselected()).isNull();
-    }
-
     /** 단체원별 후미 직접 선택과 미선택을 구분하고 비활성 그룹도 한 번에 읽는다. */
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    @Disabled("그룹 기능 임시 중단: 재활성화 시 복원")
     void organizationMembersExposeGroupCodeAndSelectionWithoutGroupId(boolean empty) {
         // 단체와 참가자 조회 결과를 준비한다. DB나 외부 시스템을 사용하지 않는다.
         OrganizationQueryRepository organizations = mock(OrganizationQueryRepository.class);
@@ -181,7 +157,6 @@ class RegistrationPolicyDetailTest {
     }
     /** 중복 종목 행을 일괄 조회하고 저장 안내문·그룹 순서·기존 기념품을 보존한다. */
     @Test
-    @Disabled("그룹 기능 임시 중단: 재활성화 시 복원")
     void optionsBatchGroupsWithoutDuplicatingSouvenirsOrCalculatingDescriptions() {
         // 기념품 JOIN으로 같은 종목이 반복되는 목록을 구성한다.
         EventQueryRepository events = mock(EventQueryRepository.class);

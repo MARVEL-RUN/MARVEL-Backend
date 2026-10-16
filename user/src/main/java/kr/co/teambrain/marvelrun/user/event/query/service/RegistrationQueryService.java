@@ -92,7 +92,7 @@ public class RegistrationQueryService {
         }
         List<RegistrationActionPolicyInput> policies = actionPolicies.loadEnabledRegistrationActionPolicies(eventId, List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT));
         Map<String, String> names = souvenirNames(eventId, members);
-        Map<String, String> groupCodes = Map.of(); // 그룹 기능 임시 중단: 그룹 조회를 생략한다.
+        Map<String, String> groupCodes = findStartGroupCodes(members);
         List<RegistrationQueryData.Payment> payments = repository.personalPayments(eventId,
                 members.stream().map(RegistrationQueryData.Member::id).toList());
         List<String> ids = payments.stream().map(RegistrationQueryData.Payment::id).toList();
@@ -135,7 +135,7 @@ public class RegistrationQueryService {
             if (loadedPolicies == null) { loadedPolicies = actionPolicies.loadEnabledRegistrationActionPolicies(eventId, List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT, RegistrationActionType.REGIST)); }
             List<RegistrationActionPolicyInput> policies = loadedPolicies;
             Map<String, String> names = souvenirNames(eventId, members);
-            Map<String, String> groupCodes = Map.of(); // 그룹 기능 임시 중단: 그룹 조회를 생략한다.
+            Map<String, String> groupCodes = findStartGroupCodes(members);
             List<RegistrationQueryData.Payment> payments = repository.payments(eventId, org.id(), true);
             List<String> ids = payments.stream().map(RegistrationQueryData.Payment::id).toList();
             RegistrationPaymentQueryResolver.Result payment = paymentResolver.resolveRegistrationPaymentGuidance(members, payments,

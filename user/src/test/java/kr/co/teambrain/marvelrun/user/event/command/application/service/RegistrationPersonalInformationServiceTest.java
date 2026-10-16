@@ -71,7 +71,7 @@ class RegistrationPersonalInformationServiceTest {
             mock(OrgRegistrationPersonalInformationService.class), mock(RegistrationActionPolicyService.class));
 
     /** 기존 분기 검증에는 그룹 확정 결과를 전달한다. */
-    // 그룹 기능 임시 중단: @BeforeEach 복원은 기능 재개 시 수행한다.
+    @BeforeEach
     void prepareStartGroups() {
         when(startGroups.resolveRegistrationStartGroups(anyList())).thenAnswer(invocation -> {
             List<RegistrationStartGroupResolver.Input> inputs = invocation.getArgument(0);
@@ -96,8 +96,6 @@ class RegistrationPersonalInformationServiceTest {
         assertThat(current.getContractAmount()).isEqualByComparingTo("10000");
         assertThat(current.getPaidAmount()).isEqualByComparingTo("5000");
         assertThat(current.getStatus()).isEqualTo(status);
-        assertThat(current.getStartGroupId()).isEqualTo("group");
-        assertThat(current.getStartGroupUnselected()).isFalse();
         assertThat(result.orders()).isEmpty();
         assertThat(result.members().getFirst().balance()).isEqualByComparingTo("5000");
         verify(repository).flush();

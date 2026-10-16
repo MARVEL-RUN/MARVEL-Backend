@@ -149,7 +149,11 @@ public class RegistrationCommandService {
         }
         registration.recordAppliedDiscountPrice(discountPrice);
 
-        // 그룹 기능 임시 중단: 신규 신청의 그룹 값은 NULL로 저장한다.
+        // 종목별 선택을 검증하고 미선택은 실제 후미 UUID로 저장한다.
+        RegistrationStartGroupResolver.Selection selection = startGroups.resolveRegistrationStartGroups(List.of(
+                new RegistrationStartGroupResolver.Input(eventCategory.getId(), request.startGroupId(),
+                        request.startGroupUnselected()))).getFirst();
+        registration.applyStartGroupSelection(selection.startGroupId(), selection.unselected());
 
         Registration savedRegistration =
                 registrationCommandRepository.save(registration);

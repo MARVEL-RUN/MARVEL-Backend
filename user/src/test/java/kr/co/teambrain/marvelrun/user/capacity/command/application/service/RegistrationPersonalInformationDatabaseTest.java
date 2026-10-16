@@ -101,10 +101,10 @@ class RegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupport
         List<RegistrationQueryResponse> response = queries.findPersonalRegistrationDetails(eventId, access);
         assertThat(response).hasSize(1);
         assertThat(response.getFirst().externalPayment()).isEqualTo(external);
-        // 그룹이 없는 신규 신청도 실제 Tuple 조회와 상세 구성이 가능해야 한다.
+        // 실제 Tuple 조회에서 그룹 ID와 미선택 여부가 누락되지 않는지 확인한다.
         assertThat(response.getFirst().startGroupId()).isEqualTo(before.get("start_group_id"));
-        assertThat(response.getFirst().startGroupCode()).isNull(); // 그룹 기능 임시 중단
-        assertThat(before.get("start_group_id")).isNull(); // 신규 신청은 그룹을 배정하지 않는다.
+        assertThat(response.getFirst().startGroupCode()).isEqualTo("B");
+        assertThat(response.getFirst().startGroupUnselected()).isTrue();
         assertThat(response.getFirst().registrationStatus().name()).isEqualTo("CONFIRMED");
         assertThat(response.getFirst().paymentStatus().name()).isEqualTo("COMPLETED");
         assertThat(response.getFirst().paymentAction()).isEqualTo(RegistrationPaymentAction.NONE);
