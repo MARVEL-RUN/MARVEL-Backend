@@ -146,7 +146,7 @@ public class RegistrationCommandService {
                         now
                 );
 
-        // 자격과 실제 가격 개정은 독립적으로 보존한다.
+        // 비대상 종목도 링크 자격을 보존하며 실제 적용 내역은 별도 계산 기록에 남긴다.
         if (discountLink != null) {
             registration.assignDiscountQualification(discountLink.getId(), discountLink.getReferenceFilterId());
         }

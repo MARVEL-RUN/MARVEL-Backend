@@ -289,6 +289,7 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
     @Column(name = "discount_link_id", length = 40)
     protected String discountLinkId;
 
+    // 실제 종목 할인 여부와 별개로 취득한 링크의 신청 분류를 보존한다.
     @Column(name = "reference_filter_id", length = 40)
     protected String referenceFilterId;
 

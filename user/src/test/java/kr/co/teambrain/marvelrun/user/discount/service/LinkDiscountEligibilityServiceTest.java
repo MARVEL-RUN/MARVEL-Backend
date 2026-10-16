@@ -23,16 +23,21 @@ class LinkDiscountEligibilityServiceTest {
     private final LinkDiscountEligibilityService service = new LinkDiscountEligibilityService(links, policies, resolver);
     private final LocalDateTime start = LocalDateTime.of(2026, 10, 1, 0, 0);
     private final DiscountLink link = DiscountLink.builder().id("link").policyId("policy").code("Crew")
-            .referenceFilterId("filter").acquisitionStartAt(start).acquisitionEndAt(start.plusDays(1)).build();
+        .referenceFilterId("filter").acquisitionStartAt(start).acquisitionEndAt(start.plusDays(1)).build();
     private final DiscountModels.Policy policy = new DiscountModels.Policy("policy", "event", 1,
-            DiscountModels.Stage.EXTERNAL, DiscountModels.Method.PERCENT, new BigDecimal("50"), null,
-            DiscountModels.ApplicationType.ORGANIZATION, DiscountModels.CategoryScope.SELECTED, Set.of("eligible"), 5, null, null);
+        DiscountModels.Stage.EXTERNAL, DiscountModels.Method.PERCENT, new BigDecimal("50"), null,
+        DiscountModels.ApplicationType.ORGANIZATION,
+        DiscountModels.CategoryScope.SELECTED,
+        Set.of("eligible"),
+        5,
+        null,
+        null);
 
     /** 코드 없는 요청에 필수 링크 검증을 강요하지 않는다. */
     @Test
     void absentCodeUsesNormalRegistration() {
-        assertThat(service.acquireRegistrationLink(null,"event",true,start,List.of())).isNull();
-        assertThat(service.acquireRegistrationLink("  ","event",true,start,List.of())).isNull();
+        assertThat(service.acquireRegistrationLink(null, "event", true, start, List.of())).isNull();
+        assertThat(service.acquireRegistrationLink("  ", "event", true, start, List.of())).isNull();
         verifyNoInteractions(links, policies, resolver);
     }
 
@@ -40,11 +45,11 @@ class LinkDiscountEligibilityServiceTest {
     @Test
     void startsInclusiveAndEndsExclusive() {
         prepareLink();
-        assertThat(service.acquireRegistrationLink(" Crew ","event",true,start,List.of(policy))).isSameAs(link);
-        assertThatThrownBy(() -> service.acquireRegistrationLink("Crew","event",true,start.plusDays(1),List.of(policy)))
-                .isInstanceOf(CustomException.class);
-        assertThatThrownBy(() -> service.acquireRegistrationLink("Crew","event",false,start,List.of(policy)))
-                .isInstanceOf(CustomException.class);
+        assertThat(service.acquireRegistrationLink(" Crew ", "event", true, start, List.of(policy))).isSameAs(link);
+        assertThatThrownBy(() -> service.acquireRegistrationLink("Crew", "event", true, start.plusDays(1), List.of(policy)))
+            .isInstanceOf(CustomException.class);
+        assertThatThrownBy(() -> service.acquireRegistrationLink("Crew", "event", false, start, List.of(policy)))
+            .isInstanceOf(CustomException.class);
     }
 
     /** 기간 종료 후 새 구성원만 미취득 처리하며 기존 저장 링크를 삭제하지 않는다. */
@@ -52,22 +57,22 @@ class LinkDiscountEligibilityServiceTest {
     void expiredGroupDoesNotGrantNewQualification() {
         prepareLink();
         when(resolver.resolveStoredLink("link")).thenReturn(link);
-        assertThat(service.inheritOrganizationLink("link","event",start,List.of(policy))).isSameAs(link);
-        assertThat(service.inheritOrganizationLink("link","event",start.plusDays(1),List.of(policy))).isNull();
+        assertThat(service.inheritOrganizationLink("link", "event", start, List.of(policy))).isSameAs(link);
+        assertThat(service.inheritOrganizationLink("link", "event", start.plusDays(1), List.of(policy))).isNull();
         assertThat(link.getReferenceFilterId()).isEqualTo("filter");
     }
 
     /** 잘못된 코드가 일반 신청으로 조용히 전환되지 않는다. */
     @Test
     void unknownCodeFails() {
-        assertThatThrownBy(() -> service.acquireRegistrationLink("unknown","event",true,start,List.of()))
-                .isInstanceOf(CustomException.class);
+        assertThatThrownBy(() -> service.acquireRegistrationLink("unknown", "event", true, start, List.of()))
+            .isInstanceOf(CustomException.class);
     }
 
     /** 검증 완료 정책 대역을 준비한다. */
     private void prepareLink() {
         when(links.findByCode("Crew")).thenReturn(Optional.of(link));
         when(policies.findById("policy")).thenReturn(Optional.of(DiscountPolicy.builder().eventId("event").build()));
-        when(resolver.resolveLinkPolicy(link,"event",List.of(policy))).thenReturn(policy);
+        when(resolver.resolveLinkPolicy(link, "event", List.of(policy))).thenReturn(policy);
     }
 }

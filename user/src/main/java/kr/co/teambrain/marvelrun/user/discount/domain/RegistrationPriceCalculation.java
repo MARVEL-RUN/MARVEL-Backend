@@ -14,8 +14,7 @@ import lombok.experimental.SuperBuilder;
 @SuperBuilder
 @NoArgsConstructor
 @Table(name = "registration_price_calculation", indexes = {
-        @Index(name = "idx_price_calculation_registration_created", columnList = "registration_id,created_at")
+    @Index(name = "idx_price_calculation_registration_created", columnList = "registration_id,created_at")
 })
 public class RegistrationPriceCalculation extends RegistrationPriceCalculationBase {
 }
-

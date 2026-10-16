@@ -20,15 +20,16 @@ import static org.mockito.Mockito.*;
 class RegistrationPriceCalculationRecorderTest {
     private final RegistrationPriceCalculationRepository calculations = mock(RegistrationPriceCalculationRepository.class);
     private final EntityManager entityManager = mock(EntityManager.class);
-    private final RegistrationPriceCalculationRecorder recorder = new RegistrationPriceCalculationRecorder(calculations, entityManager);
+    private final RegistrationPriceCalculationRecorder recorder = new RegistrationPriceCalculationRecorder(calculations,
+        entityManager);
 
     /** 할인 없는 계산도 빈 적용 목록으로 기록하고 기존 참조는 저장 후 교체한다. */
     @Test
     void recordsUndiscountedPriceBeforeReplacingCurrentReference() {
         Registration registration = Registration.builder().id("registration")
-                .contractAmount(new BigDecimal("70000")).currentPriceCalculationId("previous").build();
+            .contractAmount(new BigDecimal("70000")).currentPriceCalculationId("previous").build();
         DiscountModels.PriceResult price = new DiscountPriceCalculator()
-                .calculateDiscountedPrice(new BigDecimal("70000"), null, null);
+            .calculateDiscountedPrice(new BigDecimal("70000"), null, null);
         when(entityManager.contains(registration)).thenReturn(true);
         when(calculations.saveAllAndFlush(anyList())).thenAnswer(invocation -> {
             List<RegistrationPriceCalculation> records = invocation.getArgument(0);
@@ -41,11 +42,11 @@ class RegistrationPriceCalculationRecorderTest {
             assertThat(record.getSnapshot().appliedDiscounts()).isEmpty();
             assertThat(record.getCalculationReason()).isEqualTo(RegistrationPriceCalculationSnapshot.Reason.REGISTRATION_MODIFIED);
             return List.of(RegistrationPriceCalculation.builder().id("new-calculation")
-                    .registrationId(record.getRegistrationId()).build());
+                .registrationId(record.getRegistrationId()).build());
         });
 
         recorder.recordRegistrationPriceCalculation(registration, price,
-                RegistrationPriceCalculationSnapshot.Reason.REGISTRATION_MODIFIED);
+            RegistrationPriceCalculationSnapshot.Reason.REGISTRATION_MODIFIED);
 
         assertThat(registration.getCurrentPriceCalculationId()).isEqualTo("new-calculation");
         InOrder order = inOrder(entityManager, calculations);
@@ -58,13 +59,13 @@ class RegistrationPriceCalculationRecorderTest {
     @Test
     void rejectsPriceThatWasNotAppliedToRegistration() {
         Registration registration = Registration.builder().id("registration")
-                .contractAmount(BigDecimal.TEN).currentPriceCalculationId("previous").build();
+            .contractAmount(BigDecimal.TEN).currentPriceCalculationId("previous").build();
         when(entityManager.contains(registration)).thenReturn(true);
         DiscountModels.PriceResult price = new DiscountPriceCalculator()
-                .calculateDiscountedPrice(new BigDecimal("70000"), null, null);
+            .calculateDiscountedPrice(new BigDecimal("70000"), null, null);
 
         assertThatThrownBy(() -> recorder.recordRegistrationPriceCalculation(registration, price,
-                RegistrationPriceCalculationSnapshot.Reason.REGISTRATION_MODIFIED)).isInstanceOf(CustomException.class);
+            RegistrationPriceCalculationSnapshot.Reason.REGISTRATION_MODIFIED)).isInstanceOf(CustomException.class);
 
         assertThat(registration.getCurrentPriceCalculationId()).isEqualTo("previous");
         verifyNoInteractions(calculations);
@@ -79,9 +80,8 @@ class RegistrationPriceCalculationRecorderTest {
         DiscountModels.PriceResult price = new DiscountPriceCalculator().calculateDiscountedPrice(BigDecimal.TEN, null, null);
         RegistrationPriceCalculationRecorder.Input input = new RegistrationPriceCalculationRecorder.Input(registration, price);
         assertThatThrownBy(() -> recorder.recordRegistrationPriceCalculations(List.of(input, input),
-                RegistrationPriceCalculationSnapshot.Reason.REGISTRATION_CREATED)).isInstanceOf(CustomException.class);
+            RegistrationPriceCalculationSnapshot.Reason.REGISTRATION_CREATED)).isInstanceOf(CustomException.class);
         verifyNoInteractions(calculations);
         verify(entityManager, never()).flush();
     }
 }
-

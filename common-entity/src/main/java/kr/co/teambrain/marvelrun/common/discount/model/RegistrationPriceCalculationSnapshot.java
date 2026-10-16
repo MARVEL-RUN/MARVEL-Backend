@@ -19,4 +19,3 @@ public record RegistrationPriceCalculationSnapshot(
         ADMIN_ADJUSTED
     }
 }
-

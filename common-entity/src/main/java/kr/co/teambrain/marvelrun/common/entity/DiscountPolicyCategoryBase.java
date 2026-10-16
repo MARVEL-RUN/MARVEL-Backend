@@ -8,7 +8,8 @@ import jakarta.persistence.MappedSuperclass;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
-/** 할인 구성의 DiscountPolicyCategory 저장 필드를 ID 참조 방식으로 공유한다. */
+
+/** 선택 종목 정책의 대상 종목을 연결한다. 대회 전체 적용 정책에는 연결 행을 만들지 않는다. */
 @Getter
 @SuperBuilder
 @NoArgsConstructor
@@ -19,8 +20,10 @@ public abstract class DiscountPolicyCategoryBase {
     @Column(nullable = false, length = 40)
     protected String id;
 
+    // 정책의 SELECTED 범위에만 사용하며 종목 소속 대회는 서비스가 검증한다.
     @Column(name = "policy_id", nullable = false, length = 40)
     protected String policyId;
+
     @Column(name = "event_category_id", nullable = false, length = 40)
     protected String eventCategoryId;
 }

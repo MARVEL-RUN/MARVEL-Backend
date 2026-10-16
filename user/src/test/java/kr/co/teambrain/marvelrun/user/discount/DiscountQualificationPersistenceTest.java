@@ -12,7 +12,7 @@ class DiscountQualificationPersistenceTest {
     @Test
     void qualificationSurvivesNonTargetAndCancellation() {
         Registration registration = Registration.builder().contractAmount(new BigDecimal("35000"))
-                .paidAmount(new BigDecimal("35000")).status(RegistrationStatus.CONFIRMED).build();
+            .paidAmount(new BigDecimal("35000")).status(RegistrationStatus.CONFIRMED).build();
         registration.assignDiscountQualification("link", "filter");
         registration.assignCurrentPriceCalculation("non-target-calculation");
         assertThat(registration.getDiscountLinkId()).isEqualTo("link");

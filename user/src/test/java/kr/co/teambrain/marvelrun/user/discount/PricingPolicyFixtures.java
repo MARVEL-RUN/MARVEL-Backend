@@ -11,7 +11,10 @@ import static org.mockito.Mockito.when;
 
 /** 기존 어린이 정책 이관 동등성 테스트에 사용할 명시적 DB 조회 대역이다. */
 public final class PricingPolicyFixtures {
-    private PricingPolicyFixtures() { }
+    /** 정적 정책 대역 제공만 허용한다. */
+    private PricingPolicyFixtures() {
+    }
+
     /** 운영 코드의 하드코딩과 달리 테스트 입력에서 기존 두 정책을 명시한다. */
     public static DiscountPolicyResolver resolver() {
         DiscountPolicyResolver resolver = mock(DiscountPolicyResolver.class);
@@ -21,8 +24,8 @@ public final class PricingPolicyFixtures {
                 return List.of();
             }
             return List.of(new DiscountModels.Policy("child-policy", eventId, 1, DiscountModels.Stage.INTERNAL,
-                    DiscountModels.Method.FIXED_PRICE, null, new BigDecimal("40000"), DiscountModels.ApplicationType.BOTH,
-                    DiscountModels.CategoryScope.ALL, Set.of(), null, 0, 13));
+                DiscountModels.Method.FIXED_PRICE, null, new BigDecimal("40000"), DiscountModels.ApplicationType.BOTH,
+                DiscountModels.CategoryScope.ALL, Set.of(), null, 0, 13));
         });
         return resolver;
     }

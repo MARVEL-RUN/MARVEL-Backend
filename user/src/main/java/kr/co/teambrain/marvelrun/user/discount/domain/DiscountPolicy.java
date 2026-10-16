@@ -8,7 +8,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
 
-/** user 모듈에서 할인 구성의 DiscountPolicy 행을 읽는다. */
+/** 대회별 할인 값과 적용 범위를 조회하는 정책 엔티티다. */
 @Entity
 @Getter
 @SuperBuilder

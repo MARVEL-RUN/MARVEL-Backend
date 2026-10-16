@@ -30,9 +30,12 @@ public class OrganizationLifecycleService {
         if (organization == null || organization.isSoftDeleted()) {
             return;
         }
+        // 활성 참가자·미완료 취소·잔여 납부액 중 하나라도 있으면 계정을 보존한다.
         List<Registration> members = registrations.findAllByOrganization_Id(organizationId);
         if (members.isEmpty() || members.stream().anyMatch(member -> !member.isSoftDeleted()
-                || (member.getStatus() != RegistrationStatus.CANCELED && member.getStatus() != RegistrationStatus.EXPIRED) || member.getPaidAmount() == null
+                || (member.getStatus() != RegistrationStatus.CANCELED
+                    && member.getStatus() != RegistrationStatus.EXPIRED)
+                || member.getPaidAmount() == null
                 || member.getPaidAmount().signum() != 0)) {
             return;
         }
@@ -49,6 +52,7 @@ public class OrganizationLifecycleService {
                 .setParameter("organizationId", organizationId)
                 .setParameter("pending", List.of(PaymentCancelStatus.PROCESSING, PaymentCancelStatus.UNKNOWN))
                 .getSingleResult();
+        // 진행 중이거나 결과 불명인 환불이 없을 때만 소프트삭제한다.
         if (pending == 0) {
             organization.markOrganizationSoftDeleted();
         }

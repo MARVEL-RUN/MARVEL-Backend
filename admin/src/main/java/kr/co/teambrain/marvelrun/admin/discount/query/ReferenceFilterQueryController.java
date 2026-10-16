@@ -22,11 +22,11 @@ public class ReferenceFilterQueryController {
     /** 대회 범위와 선택적인 우선순위·코드 조건으로 선택지를 조회한다. */
     @GetMapping("/v1/admin/events/{eventId}/reference-filters")
     public ResponseEntity<Page<ReferenceFilterSummaryResponse>> getEventReferenceFilters(
-            @PathVariable("eventId") String eventId,
-            @RequestParam(name = "maxPriority", required = false) @Min(0) Integer maxPriority,
-            @RequestParam(name = "keyword", required = false) @Size(max = 50) String keyword,
-            @RequestParam(name = "page", defaultValue = "0") @Min(0) int page,
-            @RequestParam(name = "size", defaultValue = "50") @Min(1) @Max(100) int size) {
+        @PathVariable("eventId") String eventId,
+        @RequestParam(name = "maxPriority", required = false) @Min(0) Integer maxPriority,
+        @RequestParam(name = "keyword", required = false) @Size(max = 50) String keyword,
+        @RequestParam(name = "page", defaultValue = "0") @Min(0) int page,
+        @RequestParam(name = "size", defaultValue = "50") @Min(1) @Max(100) int size) {
         return ResponseEntity.ok(filters.getEventReferenceFilters(eventId, maxPriority, keyword, page, size));
     }
 }

@@ -23,25 +23,29 @@ class OrganizationDiscountGuardTest {
     /** 일반 인원과 추가결제·부분환불 인원을 포함하되 미결제 신규 대체는 거부한다. */
     @Test
     void countsConsumedMembersRegardlessOfLinkAndFinancialState() {
+        // 최소 5명 정책과 금액 정산 상태가 다른 확정 참가자들을 준비한다.
         DiscountPolicyResolver policies = mock(DiscountPolicyResolver.class);
         ReservationCommandRepository reservations = mock(ReservationCommandRepository.class);
-        OrganizationDiscountGuard guard = new OrganizationDiscountGuard(policies,reservations);
+        OrganizationDiscountGuard guard = new OrganizationDiscountGuard(policies, reservations);
         Organization organization = Organization.builder().id("org").event(Event.builder().id("event").build()).discountLinkId("link").build();
         DiscountLink link = DiscountLink.builder().id("link").build();
-        DiscountModels.Policy policy = new DiscountModels.Policy("policy","event",1,DiscountModels.Stage.EXTERNAL,
-                DiscountModels.Method.PERCENT,new BigDecimal("50"),null,DiscountModels.ApplicationType.ORGANIZATION,
-                DiscountModels.CategoryScope.ALL,Set.of(),5,null,null);
+        DiscountModels.Policy policy = new DiscountModels.Policy("policy", "event", 1, DiscountModels.Stage.EXTERNAL,
+            DiscountModels.Method.PERCENT, new BigDecimal("50"), null, DiscountModels.ApplicationType.ORGANIZATION,
+            DiscountModels.CategoryScope.ALL, Set.of(), 5, null, null);
         when(policies.resolveStoredLink("link")).thenReturn(link);
         when(policies.resolveEventPolicies("event")).thenReturn(List.of(policy));
-        when(policies.resolveLinkPolicy(link,"event",List.of(policy))).thenReturn(policy);
-        List<Registration> members = IntStream.range(0,5).<Registration>mapToObj(index -> Registration.builder().id("r"+index)
-                .status(index == 0 ? RegistrationStatus.ADDITIONAL_PAYMENT_REQUIRED : RegistrationStatus.PARTIAL_REFUND_REQUIRED).build()).toList();
+        when(policies.resolveLinkPolicy(link, "event", List.of(policy))).thenReturn(policy);
+        List<Registration> members = IntStream.range(0, 5).<Registration>mapToObj(index -> Registration.builder().id("r"+index)
+            .status(index == 0 ? RegistrationStatus.ADDITIONAL_PAYMENT_REQUIRED : RegistrationStatus.PARTIAL_REFUND_REQUIRED).build()).toList();
         when(reservations.findAllByRegistrationIds(members.stream().map(Registration::getId).toList()))
-                .thenReturn(members.stream().<Reservation>map(member -> Reservation.builder().registration(member).status(ReservationStatus.CONSUMED).build()).toList());
-        assertThatCode(() -> guard.validateOrganizationMemberChange(organization,members,Set.of("r0","r1","r2","r3","r4"),0))
-                .doesNotThrowAnyException();
-        assertThatThrownBy(() -> guard.validateOrganizationMemberChange(organization,members,Set.of("r0","r1","r2","r3"),1))
-                .isInstanceOf(CustomException.class);
-        assertThatCode(() -> guard.validateOrganizationMemberChange(organization,members,Set.of(),0)).doesNotThrowAnyException();
+            .thenReturn(members.stream().<Reservation>map(member -> Reservation.builder().registration(member).status(ReservationStatus.CONSUMED).build()).toList());
+        // 확정 5명 유지는 허용하되 확정원 제거를 미결제 신규 인원으로 대체할 수 없다.
+        assertThatCode(() -> guard.validateOrganizationMemberChange(organization, members, Set.of("r0", "r1", "r2", "r3", "r4"), 0))
+            .doesNotThrowAnyException();
+        assertThatThrownBy(() -> guard.validateOrganizationMemberChange(organization, members, Set.of("r0", "r1", "r2", "r3"), 1))
+            .isInstanceOf(CustomException.class);
+
+        // 단체 전체 취소에는 최소 인원 검증을 적용하지 않는다.
+        assertThatCode(() -> guard.validateOrganizationMemberChange(organization, members, Set.of(), 0)).doesNotThrowAnyException();
     }
 }

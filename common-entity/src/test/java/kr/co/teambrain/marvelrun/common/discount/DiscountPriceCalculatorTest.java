@@ -28,16 +28,16 @@ class DiscountPriceCalculatorTest {
         assertEquals(new BigDecimal("50"), price.finalAmount());
         assertEquals(0, price.roundingAdjustmentAmount().compareTo(new BigDecimal("0.5")));
         assertEquals(DiscountModels.Failure.ZERO_AMOUNT,
-                calculator.calculateDiscountedPrice(BigDecimal.ONE, null, rate("50")).failure());
+            calculator.calculateDiscountedPrice(BigDecimal.ONE, null, rate("50")).failure());
     }
 
     /** 100%와 저장 정밀도를 초과하는 비율은 설정 오류다. */
     @Test
     void rejectsInvalidRates() {
         assertEquals(DiscountModels.Failure.CONFIGURATION,
-                calculator.calculateDiscountedPrice(new BigDecimal("70000"), null, rate("100")).failure());
+            calculator.calculateDiscountedPrice(new BigDecimal("70000"), null, rate("100")).failure());
         assertEquals(DiscountModels.Failure.CONFIGURATION,
-                calculator.calculateDiscountedPrice(new BigDecimal("70000"), null, rate("10.001")).failure());
+            calculator.calculateDiscountedPrice(new BigDecimal("70000"), null, rate("10.001")).failure());
     }
 
     /** 고정 참가비는 기본가와 min을 취하지 않는 기존 기준을 보존한다. */
@@ -65,12 +65,28 @@ class DiscountPriceCalculatorTest {
         assertEquals(0, result.appliedDiscounts().getFirst().amountAfter().compareTo(new BigDecimal("88.545366")));
     }
 
+    /** 기존 어린이 고정 참가비와 연령 범위의 정책 대역을 만든다. */
     private DiscountModels.Policy child() {
         return new DiscountModels.Policy("child", "event", 1, DiscountModels.Stage.INTERNAL, DiscountModels.Method.FIXED_PRICE,
-                null, new BigDecimal("40000"), DiscountModels.ApplicationType.BOTH, DiscountModels.CategoryScope.ALL, Set.of(), null, 0, 13);
+            null,
+            new BigDecimal("40000"),
+            DiscountModels.ApplicationType.BOTH,
+            DiscountModels.CategoryScope.ALL,
+            Set.of(),
+            null,
+            0,
+            13);
     }
+    /** 경계값 검증에 사용할 외적 할인율 정책을 만든다. */
     private DiscountModels.Policy rate(String value) {
         return new DiscountModels.Policy("link", "event", 2, DiscountModels.Stage.EXTERNAL, DiscountModels.Method.PERCENT,
-                new BigDecimal(value), null, DiscountModels.ApplicationType.ORGANIZATION, DiscountModels.CategoryScope.ALL, Set.of(), 5, null, null);
+            new BigDecimal(value),
+            null,
+            DiscountModels.ApplicationType.ORGANIZATION,
+            DiscountModels.CategoryScope.ALL,
+            Set.of(),
+            5,
+            null,
+            null);
     }
 }

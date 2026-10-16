@@ -167,13 +167,17 @@ public class OrgRegistrationCommandService {
         Organization savedOrganization =
                 organizationCommandRepository.save(organization);
 
+        // 참가자 생성과 계산 근거 수집을 묶고 저장은 전체 신청 생성 이후 수행한다.
         List<RegistrationPriceCalculationRecorder.Input> priceRecords = new ArrayList<>();
         List<Registration> registrations =
                 createRegistrations(
                         savedOrganization,
                         context,
                         request,
-                        now, discountLink, discountSnapshot, priceRecords
+                        now,
+                        discountLink,
+                        discountSnapshot,
+                        priceRecords
                 );
 
         List<Registration> savedRegistrations =
@@ -554,6 +558,7 @@ public class OrgRegistrationCommandService {
             if (discountLink != null) {
                 registration.assignDiscountQualification(discountLink.getId(), discountLink.getReferenceFilterId());
             }
+            // 참가자별 즉시 저장 대신 단체 단위로 저장할 계산 결과를 모은다.
             priceRecords.add(new RegistrationPriceCalculationRecorder.Input(registration, discountPrice));
 
             RegistrationStartGroupResolver.Selection selection = selections.get(registrations.size());

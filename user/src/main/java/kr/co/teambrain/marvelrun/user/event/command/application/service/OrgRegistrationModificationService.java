@@ -186,6 +186,7 @@ public class OrgRegistrationModificationService {
                 now
         );
 
+        // 기존원 중 실제 재계산 결과를 반영하는 인원만 새 근거를 기록한다.
         List<RegistrationPriceCalculationRecorder.Input> priceRecords = new ArrayList<>();
         for (OrgRegistrationParticipantPricing item : existing) {
             OrgRegistrationModificationCandidateContext.ParticipantCandidate participant = item.candidate();
@@ -195,7 +196,9 @@ public class OrgRegistrationModificationService {
             if (classifier.classifyOrganizationParticipant(registration, participant.request())
                     != RegistrationModificationClassifier.Change.NONE) {
                 if (item.price().discountPrice() != null) {
-                    priceRecords.add(new RegistrationPriceCalculationRecorder.Input(registration, item.price().discountPrice()));
+                    priceRecords.add(new RegistrationPriceCalculationRecorder.Input(
+                            registration, item.price().discountPrice()
+                    ));
                 }
                 registration.applyOrganizationModification(
                     participant.eventCategory(),
@@ -326,7 +329,9 @@ public class OrgRegistrationModificationService {
                 registration.assignDiscountQualification(item.price().acquiredLinkId(), item.price().acquiredFilterId());
             }
             if (item.price().discountPrice() != null) {
-                newPriceRecords.add(new RegistrationPriceCalculationRecorder.Input(registration, item.price().discountPrice()));
+                newPriceRecords.add(new RegistrationPriceCalculationRecorder.Input(
+                        registration, item.price().discountPrice()
+                ));
             }
             boolean child =
                     CapacityRequirementInput.fromCandidate(

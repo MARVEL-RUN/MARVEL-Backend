@@ -66,6 +66,7 @@ public class RegistrationModificationPricingService {
         List<OrgRegistrationParticipantPricing> results =
                 new ArrayList<>(candidate.registrations().size());
 
+        // 정책은 단체 전체에 재사용하고 취득 기간은 신규 추가 인원의 링크 승계에만 적용한다.
         List<DiscountModels.Policy> snapshot = discountPolicies.resolveEventPolicies(candidate.event().getId());
         DiscountLink inheritedLink = discountEligibility.inheritOrganizationLink(
                 candidate.organization().getDiscountLinkId(), candidate.event().getId(), candidate.now(), snapshot);
@@ -112,7 +113,10 @@ public class RegistrationModificationPricingService {
             Event event,
             Registration currentRegistration,
             EventCategory candidateCategory,
-            String candidateBirth, boolean organization, DiscountLink inheritedLink, List<DiscountModels.Policy> snapshot
+            String candidateBirth,
+            boolean organization,
+            DiscountLink inheritedLink,
+            List<DiscountModels.Policy> snapshot
     ) {
         BigDecimal oldContractAmount =
                 currentRegistration == null
@@ -122,6 +126,7 @@ public class RegistrationModificationPricingService {
                         "기존 Registration의 contractAmount가 누락되었습니다."
                 );
 
+        // 기존원은 저장된 자격, 신규원은 취득 기간을 통과한 단체 승계 자격을 사용한다.
         DiscountLink link = currentRegistration == null ? inheritedLink
                 : currentRegistration.getDiscountLinkId() == null ? null
                 : discountPolicies.resolveStoredLink(currentRegistration.getDiscountLinkId());

@@ -28,14 +28,16 @@ import static org.assertj.core.api.Assertions.*;
 /** 승인된 테스트 DB의 신규 DDL에서 정책·링크 참조를 검증하며 각 테스트는 롤백한다. */
 @Tag("policy-db")
 @DataJpaTest(properties = {
-        "spring.datasource.url=${MARVELRUN_TEST_DB_URL}",
-        "spring.datasource.username=${MARVELRUN_TEST_DB_USERNAME}",
-        "spring.datasource.password=${MARVELRUN_TEST_DB_PASSWORD}",
-        "spring.jpa.hibernate.ddl-auto=none", "spring.sql.init.mode=never",
-        "spring.flyway.enabled=false", "spring.liquibase.enabled=false"
+    "spring.datasource.url=${MARVELRUN_TEST_DB_URL}",
+    "spring.datasource.username=${MARVELRUN_TEST_DB_USERNAME}",
+    "spring.datasource.password=${MARVELRUN_TEST_DB_PASSWORD}",
+    "spring.jpa.hibernate.ddl-auto=none", "spring.sql.init.mode=never",
+    "spring.flyway.enabled=false", "spring.liquibase.enabled=false"
 })
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({DiscountPolicyResolver.class, LinkDiscountEligibilityService.class})
+@Import({
+    DiscountPolicyResolver.class, LinkDiscountEligibilityService.class
+})
 class DiscountPolicyDatabaseTest {
     @Autowired private DiscountPolicyRepository policies;
     @Autowired private DiscountPolicyCategoryRepository targets;
@@ -55,9 +57,9 @@ class DiscountPolicyDatabaseTest {
         assertThat(first.getPolicyId()).isEqualTo(second.getPolicyId());
         assertThat(first.getReferenceFilterId()).isNotEqualTo(second.getReferenceFilterId());
         assertThat(eligibility.acquireRegistrationLink(first.getCode(), "test-marvelrun", true, start,
-                resolver.resolveEventPolicies("test-marvelrun")).getId()).isEqualTo(first.getId());
+            resolver.resolveEventPolicies("test-marvelrun")).getId()).isEqualTo(first.getId());
         assertThat(eligibility.inheritOrganizationLink(first.getId(), "test-marvelrun", start.plusDays(1),
-                resolver.resolveEventPolicies("test-marvelrun"))).isNull();
+            resolver.resolveEventPolicies("test-marvelrun"))).isNull();
         assertThat(links.findById(first.getId())).isPresent();
     }
 
@@ -66,7 +68,7 @@ class DiscountPolicyDatabaseTest {
     void rejectsAmbiguousAllAndSelectedConfiguration() {
         DiscountPolicy policy = policies.saveAndFlush(policy());
         EventCategory category = categories.findByEvent_Id("test-marvelrun").stream().findFirst()
-                .orElseThrow(() -> new AssertionError("test-marvelrun 종목 준비가 필요합니다."));
+            .orElseThrow(() -> new AssertionError("test-marvelrun 종목 준비가 필요합니다."));
         targets.saveAndFlush(DiscountPolicyCategory.builder().policyId(policy.getId()).eventCategoryId(category.getId()).build());
         assertThatThrownBy(() -> resolver.resolveEventPolicies("test-marvelrun")).isInstanceOf(CustomException.class);
     }
@@ -74,16 +76,16 @@ class DiscountPolicyDatabaseTest {
     /** 테스트마다 UUID 자동 생성 정책을 저장한다. */
     private DiscountPolicy policy() {
         return DiscountPolicy.builder().eventId("test-marvelrun").name("통합 검증용 할인")
-                .stage(DiscountModels.Stage.EXTERNAL).calculationMethod(DiscountModels.Method.PERCENT)
-                .ratePercent(new BigDecimal("50")).applicationType(DiscountModels.ApplicationType.ORGANIZATION)
-                .categoryScope(DiscountModels.CategoryScope.ALL).minimumGroupSize(5).build();
+            .stage(DiscountModels.Stage.EXTERNAL).calculationMethod(DiscountModels.Method.PERCENT)
+            .ratePercent(new BigDecimal("50")).applicationType(DiscountModels.ApplicationType.ORGANIZATION)
+            .categoryScope(DiscountModels.CategoryScope.ALL).minimumGroupSize(5).build();
     }
 
     /** 실제 정책·필터 FK로 연결한 링크를 저장한다. */
     private DiscountLink persistLink(DiscountPolicy policy, LocalDateTime start) {
         ReferenceFilter filter = filters.saveAndFlush(ReferenceFilter.builder().eventId("test-marvelrun")
-                .code("TEST_" + UUID.randomUUID().toString().replace("-", "")).displayName("검증 필터").build());
+            .code("TEST_" + UUID.randomUUID().toString().replace("-", "")).displayName("검증 필터").build());
         return links.saveAndFlush(DiscountLink.builder().policyId(policy.getId()).referenceFilterId(filter.getId())
-                .code(UUID.randomUUID().toString()).acquisitionStartAt(start).acquisitionEndAt(start.plusDays(1)).build());
+            .code(UUID.randomUUID().toString()).acquisitionStartAt(start).acquisitionEndAt(start.plusDays(1)).build());
     }
 }

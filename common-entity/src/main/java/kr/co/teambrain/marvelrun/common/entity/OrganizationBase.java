@@ -10,6 +10,7 @@ import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDateTime;
 
+/** 단체 계정과 대회 소속을 공유하고 취소 후에도 할인·금융 연결을 보존한다. */
 @Getter
 @SuperBuilder
 @NoArgsConstructor
@@ -74,9 +75,12 @@ public abstract class OrganizationBase<E extends EventBase> {
         this.discountLinkId = linkId;
         this.referenceFilterId = filterId;
     }
+
+    // 삭제 표시는 계정 재사용 판정에 사용하며 기존 행과 이력은 유지한다.
     @Builder.Default
     @Column(name = "is_del", nullable = false)
     protected boolean softDeleted = false;
+
     @Column(name = "active_unique_info", columnDefinition = "tinyint GENERATED ALWAYS AS (CASE WHEN is_del = 0 THEN 1 ELSE NULL END) VIRTUAL",
             insertable = false, updatable = false)
     protected Byte activeUniqueInfo;

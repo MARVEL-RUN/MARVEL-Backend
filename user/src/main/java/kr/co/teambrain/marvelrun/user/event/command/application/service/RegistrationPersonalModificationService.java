@@ -191,7 +191,7 @@ public class RegistrationPersonalModificationService {
                 price.newContractAmount()
         );
 
-        // 실제 후보 반영 후에만 새 계산 근거를 연결한다.
+        // 후보 계약금액 반영 후 새 계산 근거를 연결하며 후속 실패 시 함께 롤백한다.
         if (price.discountPrice() != null) {
             priceCalculations.recordRegistrationPriceCalculation(registration, price.discountPrice(),
                     RegistrationPriceCalculationSnapshot.Reason.REGISTRATION_MODIFIED);

@@ -56,4 +56,3 @@ public abstract class RegistrationPriceCalculationBase {
     @Column(name = "created_at", nullable = false, updatable = false)
     protected LocalDateTime createdAt;
 }
-

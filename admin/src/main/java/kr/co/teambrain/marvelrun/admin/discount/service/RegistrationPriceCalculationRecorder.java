@@ -27,11 +27,15 @@ public class RegistrationPriceCalculationRecorder {
     private final EntityManager entityManager;
 
     /** 저장할 신청과 이미 판정이 끝난 계산 결과를 대응시킨다. */
-    public record Input(Registration registration, DiscountModels.PriceResult price) { }
+    public record Input(
+            Registration registration,
+            DiscountModels.PriceResult price
+    ) {
+    }
 
     /** 개인 신청 한 건도 단체와 동일한 저장·소유 검증을 거친다. */
     public void recordRegistrationPriceCalculation(Registration registration, DiscountModels.PriceResult price,
-            RegistrationPriceCalculationSnapshot.Reason reason) {
+        RegistrationPriceCalculationSnapshot.Reason reason) {
         recordRegistrationPriceCalculations(List.of(new Input(registration, price)), reason);
     }
 
@@ -48,23 +52,23 @@ public class RegistrationPriceCalculationRecorder {
             Registration registration = input.registration();
             DiscountModels.PriceResult price = input.price();
             if (reason == null || registration == null || registration.getId() == null
-                    || !entityManager.contains(registration) || !ids.add(registration.getId())
-                    || price == null || price.failure() != DiscountModels.Failure.NONE
-                    || price.baseAmount() == null || price.baseAmount().signum() < 0
-                    || price.finalAmount() == null || price.finalAmount().signum() <= 0
-                    || price.roundingAdjustmentAmount() == null || price.appliedDiscounts() == null
-                    || registration.getContractAmount() == null
-                    || registration.getContractAmount().compareTo(price.finalAmount()) != 0) {
+                || !entityManager.contains(registration) || !ids.add(registration.getId())
+                || price == null || price.failure() != DiscountModels.Failure.NONE
+                || price.baseAmount() == null || price.baseAmount().signum() < 0
+                || price.finalAmount() == null || price.finalAmount().signum() <= 0
+                || price.roundingAdjustmentAmount() == null || price.appliedDiscounts() == null
+                || registration.getContractAmount() == null
+                || registration.getContractAmount().compareTo(price.finalAmount()) != 0) {
                 throw new CustomException(ErrorCode.DISCOUNT_CONFIGURATION_ERROR);
             }
             records.add(RegistrationPriceCalculation.builder()
-                    .registrationId(registration.getId())
-                    .baseAmount(price.baseAmount())
-                    .finalAmount(price.finalAmount())
-                    .roundingAdjustmentAmount(price.roundingAdjustmentAmount())
-                    .calculationReason(reason)
-                    .snapshot(new RegistrationPriceCalculationSnapshot(1, price.appliedDiscounts()))
-                    .build());
+                .registrationId(registration.getId())
+                .baseAmount(price.baseAmount())
+                .finalAmount(price.finalAmount())
+                .roundingAdjustmentAmount(price.roundingAdjustmentAmount())
+                .calculationReason(reason)
+                .snapshot(new RegistrationPriceCalculationSnapshot(1, price.appliedDiscounts()))
+                .build());
         }
 
         // 신규 신청 FK를 먼저 만족시키고 계산 행이 존재한 뒤 현재 참조를 연결한다.
@@ -80,4 +84,3 @@ public class RegistrationPriceCalculationRecorder {
         }
     }
 }
-

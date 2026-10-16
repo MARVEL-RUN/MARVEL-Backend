@@ -14,11 +14,11 @@ public final class DiscountPriceCalculator {
 
     /** 판정이 완료된 단계별 정책을 적용하고 금액과 실제 적용 개정을 반환한다. */
     public DiscountModels.PriceResult calculateDiscountedPrice(
-            BigDecimal baseAmount, DiscountModels.Policy internal, DiscountModels.Policy external) {
+        BigDecimal baseAmount, DiscountModels.Policy internal, DiscountModels.Policy external) {
         // 잘못된 설정으로 일부 할인만 적용하지 않는다.
         if (baseAmount == null || baseAmount.signum() < 0 || baseAmount.compareTo(MAX_AMOUNT) > 0
-                || (internal != null && !validPolicy(internal, DiscountModels.Stage.INTERNAL))
-                || (external != null && !validPolicy(external, DiscountModels.Stage.EXTERNAL))) {
+            || (internal != null && !validPolicy(internal, DiscountModels.Stage.INTERNAL))
+            || (external != null && !validPolicy(external, DiscountModels.Stage.EXTERNAL))) {
             return failure(DiscountModels.Failure.CONFIGURATION);
         }
 
@@ -43,7 +43,7 @@ public final class DiscountPriceCalculator {
             return failure(DiscountModels.Failure.CONFIGURATION);
         }
         return new DiscountModels.PriceResult(DiscountModels.Failure.NONE, baseAmount, rounded,
-                amount.subtract(rounded), List.copyOf(applied));
+            amount.subtract(rounded), List.copyOf(applied));
     }
 
     /** 이번에 지원하는 단계와 계산 방식 및 저장 범위를 검증한다. */
@@ -53,19 +53,19 @@ public final class DiscountPriceCalculator {
         }
         if (expected == DiscountModels.Stage.INTERNAL) {
             return policy.method() == DiscountModels.Method.FIXED_PRICE && policy.ratePercent() == null
-                    && policy.fixedAmount() != null && policy.fixedAmount().signum() > 0
-                    && policy.fixedAmount().compareTo(MAX_AMOUNT) <= 0;
+                && policy.fixedAmount() != null && policy.fixedAmount().signum() > 0
+                && policy.fixedAmount().compareTo(MAX_AMOUNT) <= 0;
         }
         return policy.method() == DiscountModels.Method.PERCENT && policy.fixedAmount() == null
-                && policy.ratePercent() != null && policy.ratePercent().signum() > 0
-                && policy.ratePercent().compareTo(HUNDRED) < 0
-                && policy.ratePercent().stripTrailingZeros().scale() <= 2;
+            && policy.ratePercent() != null && policy.ratePercent().signum() > 0
+            && policy.ratePercent().compareTo(HUNDRED) < 0
+            && policy.ratePercent().stripTrailingZeros().scale() <= 2;
     }
 
     /** 단계를 표시할 수 있도록 계산 입력과 결과를 함께 보존한다. */
     private DiscountModels.AppliedDiscount describe(DiscountModels.Policy policy, BigDecimal before, BigDecimal after) {
         return new DiscountModels.AppliedDiscount(policy.id(), policy.revision(), policy.stage(), policy.method(),
-                policy.ratePercent(), policy.fixedAmount(), before, after, before.subtract(after));
+            policy.ratePercent(), policy.fixedAmount(), before, after, before.subtract(after));
     }
 
     /** 실패 시 가격으로 오인할 수 있는 부분 계산 결과를 반환하지 않는다. */

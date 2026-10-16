@@ -8,7 +8,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
 
-/** admin 모듈에서 할인 구성의 DiscountLink 행을 읽는다. */
+/** 신청의 영구 자격에 연결되는 공개 링크와 신규 취득 기간을 조회한다. */
 @Entity
 @Getter
 @SuperBuilder

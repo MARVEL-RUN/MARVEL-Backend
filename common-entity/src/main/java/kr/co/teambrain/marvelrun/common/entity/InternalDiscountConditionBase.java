@@ -8,6 +8,7 @@ import jakarta.persistence.MappedSuperclass;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
+
 /** 서비스 내부 할인 조건을 정책 ID로 연결한다. 현재 지원 조건은 대회일 기준 연령 범위다. */
 @Getter
 @SuperBuilder
@@ -26,6 +27,7 @@ public abstract class InternalDiscountConditionBase {
     // 하한은 포함하고 상한은 제외한다. 미래 조건을 미리 범용화하지 않는다.
     @Column(name = "min_age_inclusive", nullable = false)
     protected int minAgeInclusive;
+
     @Column(name = "max_age_exclusive", nullable = false)
     protected int maxAgeExclusive;
 }

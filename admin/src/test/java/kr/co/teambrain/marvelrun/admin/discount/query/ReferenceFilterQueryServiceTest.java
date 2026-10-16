@@ -23,20 +23,20 @@ class ReferenceFilterQueryServiceTest {
     @Test
     void preservesDisplayOrderingAndPage() {
         ReferenceFilter filter = ReferenceFilter.builder().id("filter").eventId("event").code("INJE")
-                .displayName("인제군민").priority(10).sortOrder(20).build();
-        when(repository.findAll(any(Specification.class),any(Pageable.class))).thenReturn(new PageImpl<>(List.of(filter)));
-        Page<ReferenceFilterSummaryResponse> result = service.getEventReferenceFilters("event",10,"INJE",0,50);
+            .displayName("인제군민").priority(10).sortOrder(20).build();
+        when(repository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(new PageImpl<>(List.of(filter)));
+        Page<ReferenceFilterSummaryResponse> result = service.getEventReferenceFilters("event", 10, "INJE", 0, 50);
         assertThat(result.getContent().getFirst().code()).isEqualTo("INJE");
         ArgumentCaptor<Pageable> page = ArgumentCaptor.forClass(Pageable.class);
-        verify(repository).findAll(any(Specification.class),page.capture());
+        verify(repository).findAll(any(Specification.class), page.capture());
         assertThat(page.getValue().getPageSize()).isEqualTo(50);
-        assertThat(page.getValue().getSort()).extracting(order -> order.getProperty()).containsExactly("sortOrder","code","id");
+        assertThat(page.getValue().getSort()).extracting(order -> order.getProperty()).containsExactly("sortOrder", "code", "id");
     }
 
     /** 미부여 인원과 중복 필터 ID를 제거하고 일괄 조회한다. */
     @Test
     void batchesOnlyAssignedFilterIds() {
-        service.loadReferenceFilterSummaries(Arrays.asList(null,"filter","filter"));
+        service.loadReferenceFilterSummaries(Arrays.asList(null, "filter", "filter"));
         verify(repository).findAllById(List.of("filter"));
     }
 }

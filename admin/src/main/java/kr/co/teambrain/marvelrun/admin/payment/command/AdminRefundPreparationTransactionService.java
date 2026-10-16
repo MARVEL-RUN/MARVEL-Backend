@@ -127,7 +127,10 @@ public class AdminRefundPreparationTransactionService {
             if (checked.size() != registrations.size()) { throw invalid(); }
             for (int i = 0; i < registrations.size(); i++) { checkedById.put(registrations.get(i).getId(), checked.get(i)); }
         }
-        List<DiscountModels.Policy> discountSnapshot = targets == null ? List.of() : discountPolicies.resolveEventPolicies(eventId);
+        // 전체 취소는 가격을 다시 계산하지 않고 가격 변경 대상만 당시 정책을 읽는다.
+        List<DiscountModels.Policy> discountSnapshot = targets == null
+                ? List.of()
+                : discountPolicies.resolveEventPolicies(eventId);
         Map<String, DiscountModels.PriceResult> discountPrices = new HashMap<>();
         List<Candidate> candidates = new ArrayList<>();
         for (Registration registration : registrations) {
@@ -227,8 +230,12 @@ public class AdminRefundPreparationTransactionService {
             String previousBirth = registration.getBirth();
             String previousCategory = registration.getEventCategory().getId();
             if (targets != null) {
-                priceRecords.add(new RegistrationPriceCalculationRecorder.Input(registration, discountPrices.get(registration.getId())));
-                registration.applyAdminAdjustmentCandidate(candidate.category(), candidate.souvenirs(), candidate.birth(), candidate.amount());
+                priceRecords.add(new RegistrationPriceCalculationRecorder.Input(
+                        registration, discountPrices.get(registration.getId())
+                ));
+                registration.applyAdminAdjustmentCandidate(
+                        candidate.category(), candidate.souvenirs(), candidate.birth(), candidate.amount()
+                );
             }
             if (candidate.cancel()) { registration.cancelParticipation(); }
             Reservation reservation = byRegistration.get(registration.getId());
@@ -242,6 +249,8 @@ public class AdminRefundPreparationTransactionService {
         // 전체 취소는 기존 계산 참조를 보존하고 실제 가격 변경에만 근거를 추가한다.
         priceCalculations.recordRegistrationPriceCalculations(priceRecords,
                 RegistrationPriceCalculationSnapshot.Reason.ADMIN_ADJUSTED);
+
+        // 계산 기록 연결을 마친 뒤 기존 환불 시도와 금융 로그를 준비한다.
         String correlationId = UUID.randomUUID().toString();
         List<AdminRefundPrepared.Refund> refunds = new ArrayList<>();
         for (RefundPreparationPlan plan : plans) {

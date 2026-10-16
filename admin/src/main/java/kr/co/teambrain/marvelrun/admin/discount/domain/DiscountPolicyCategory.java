@@ -8,11 +8,16 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
 
-/** admin 모듈에서 할인 구성의 DiscountPolicyCategory 행을 읽는다. */
+/** 선택 종목 정책과 대상 종목 사이의 연결을 조회한다. */
 @Entity
 @Getter
 @SuperBuilder
 @NoArgsConstructor
-@Table(name = "discount_policy_category", uniqueConstraints = @UniqueConstraint(name = "uk_discount_policy_category", columnNames = {"policy_id", "event_category_id"}))
+@Table(name = "discount_policy_category",
+    uniqueConstraints = @UniqueConstraint(name = "uk_discount_policy_category",
+    columnNames = {
+    "policy_id",
+    "event_category_id"
+}))
 public class DiscountPolicyCategory extends DiscountPolicyCategoryBase {
 }

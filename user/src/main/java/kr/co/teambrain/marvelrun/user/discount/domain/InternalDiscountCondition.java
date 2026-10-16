@@ -8,7 +8,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
 
-/** user 모듈에서 할인 구성의 InternalDiscountCondition 행을 읽는다. */
+/** 서비스 내부 할인 정책에 연결된 현재 연령 조건을 조회한다. */
 @Entity
 @Getter
 @SuperBuilder
