@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import kr.co.teambrain.marvelrun.common.discount.model.RegistrationPriceCalculationSnapshot;
+import kr.co.teambrain.marvelrun.user.discount.service.RegistrationPriceCalculationRecorder;
 import kr.co.teambrain.marvelrun.user.discount.service.OrganizationDiscountGuard;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -48,6 +50,7 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 @Transactional(propagation = Propagation.MANDATORY)
 public class OrgRegistrationModificationService {
+    private final RegistrationPriceCalculationRecorder priceCalculations;
     private final ReservationHistoryRecorder historyRecorder;
     private final OrganizationDiscountGuard discountGuard;
 
@@ -183,6 +186,7 @@ public class OrgRegistrationModificationService {
                 now
         );
 
+        List<RegistrationPriceCalculationRecorder.Input> priceRecords = new ArrayList<>();
         for (OrgRegistrationParticipantPricing item : existing) {
             OrgRegistrationModificationCandidateContext.ParticipantCandidate participant = item.candidate();
             Registration registration = participant.currentRegistration();
@@ -191,7 +195,7 @@ public class OrgRegistrationModificationService {
             if (classifier.classifyOrganizationParticipant(registration, participant.request())
                     != RegistrationModificationClassifier.Change.NONE) {
                 if (item.price().discountPrice() != null) {
-                    registration.recordAppliedDiscountPrice(item.price().discountPrice());
+                    priceRecords.add(new RegistrationPriceCalculationRecorder.Input(registration, item.price().discountPrice()));
                 }
                 registration.applyOrganizationModification(
                     participant.eventCategory(),
@@ -244,6 +248,9 @@ public class OrgRegistrationModificationService {
             candidate.event().closeRegistrationForCapacity();
         }
 
+        // 변경 없는 인원은 제외하고 실제 재계산한 기존 인원의 근거만 기록한다.
+        priceCalculations.recordRegistrationPriceCalculations(priceRecords,
+                RegistrationPriceCalculationSnapshot.Reason.REGISTRATION_MODIFIED);
         registrationRepository.flush();
 
         return new OrgRegistrationModificationResult(
@@ -276,6 +283,7 @@ public class OrgRegistrationModificationService {
         boolean termsChannel = Boolean.TRUE.equals(reference.getTermsMarketingChannelAgreed());
 
         List<CapacityHoldRequest> holdRequests = new ArrayList<>();
+        List<RegistrationPriceCalculationRecorder.Input> newPriceRecords = new ArrayList<>();
 
         for (OrgRegistrationParticipantPricing item : added) {
             OrgRegistrationModificationCandidateContext.ParticipantCandidate participant
@@ -318,7 +326,7 @@ public class OrgRegistrationModificationService {
                 registration.assignDiscountQualification(item.price().acquiredLinkId(), item.price().acquiredFilterId());
             }
             if (item.price().discountPrice() != null) {
-                registration.recordAppliedDiscountPrice(item.price().discountPrice());
+                newPriceRecords.add(new RegistrationPriceCalculationRecorder.Input(registration, item.price().discountPrice()));
             }
             boolean child =
                     CapacityRequirementInput.fromCandidate(
@@ -347,6 +355,10 @@ public class OrgRegistrationModificationService {
                 holdRequests,
                 now
         );
+
+        // 신규 인원은 정원 확보까지 통과한 뒤 생성 계산 근거를 일괄 기록한다.
+        priceCalculations.recordRegistrationPriceCalculations(newPriceRecords,
+                RegistrationPriceCalculationSnapshot.Reason.REGISTRATION_CREATED);
     }
 
     /**

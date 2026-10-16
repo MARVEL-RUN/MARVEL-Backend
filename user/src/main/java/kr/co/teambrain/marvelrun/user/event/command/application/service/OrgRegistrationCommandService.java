@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import kr.co.teambrain.marvelrun.common.discount.model.RegistrationPriceCalculationSnapshot;
+import kr.co.teambrain.marvelrun.user.discount.service.RegistrationPriceCalculationRecorder;
 import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
 import kr.co.teambrain.marvelrun.user.discount.domain.DiscountLink;
 import kr.co.teambrain.marvelrun.user.discount.service.DiscountPolicyResolver;
@@ -58,6 +60,7 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class OrgRegistrationCommandService {
+    private final RegistrationPriceCalculationRecorder priceCalculations;
     private final DiscountPolicyResolver discountPolicies;
     private final LinkDiscountEligibilityService discountEligibility;
     private final RegistrationStartGroupResolver startGroups;
@@ -164,16 +167,21 @@ public class OrgRegistrationCommandService {
         Organization savedOrganization =
                 organizationCommandRepository.save(organization);
 
+        List<RegistrationPriceCalculationRecorder.Input> priceRecords = new ArrayList<>();
         List<Registration> registrations =
                 createRegistrations(
                         savedOrganization,
                         context,
                         request,
-                        now, discountLink, discountSnapshot
+                        now, discountLink, discountSnapshot, priceRecords
                 );
 
         List<Registration> savedRegistrations =
                 registrationCommandRepository.saveAll(registrations);
+
+        // 신규 신청 전체를 저장한 뒤 참가자별 계산 기록을 일괄 연결한다.
+        priceCalculations.recordRegistrationPriceCalculations(priceRecords,
+                RegistrationPriceCalculationSnapshot.Reason.REGISTRATION_CREATED);
 
         registrationCapacityService.holdAndCloseIfFull(
                 event,
@@ -481,6 +489,7 @@ public class OrgRegistrationCommandService {
      *
      * 각 참가자의 contractAmount는 개인 신청과 동일한
      * RegistrationPricingService를 통해 서버에서 계산한다.
+     * 계산 결과는 priceRecords에 모아 신청 저장 이후 일괄 기록한다.
      *
      * 구성원별 고정 비밀번호 해시를 생성해 팩터리에 전달한다.
      * 주소 등 단체 전용 차이는 Registration.createForOrgPaymentMvp() 내부에서 처리한다.
@@ -491,7 +500,8 @@ public class OrgRegistrationCommandService {
             OrgRegistrationCreateRequest request,
             LocalDateTime now,
             DiscountLink discountLink,
-            List<DiscountModels.Policy> discountSnapshot
+            List<DiscountModels.Policy> discountSnapshot,
+            List<RegistrationPriceCalculationRecorder.Input> priceRecords
     ) {
         // 참가자 전체의 종목별 그룹을 한 번에 조회하여 요청 순서대로 적용한다.
         List<RegistrationStartGroupResolver.Selection> selections = startGroups.resolveRegistrationStartGroups(
@@ -544,7 +554,7 @@ public class OrgRegistrationCommandService {
             if (discountLink != null) {
                 registration.assignDiscountQualification(discountLink.getId(), discountLink.getReferenceFilterId());
             }
-            registration.recordAppliedDiscountPrice(discountPrice);
+            priceRecords.add(new RegistrationPriceCalculationRecorder.Input(registration, discountPrice));
 
             RegistrationStartGroupResolver.Selection selection = selections.get(registrations.size());
             registration.applyStartGroupSelection(selection.startGroupId(), selection.unselected());

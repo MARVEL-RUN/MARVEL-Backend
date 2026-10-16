@@ -3,6 +3,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.service.Organiza
 import kr.co.teambrain.marvelrun.user.discount.service.LinkDiscountEligibilityService;
 import kr.co.teambrain.marvelrun.user.discount.service.OrganizationDiscountGuard;
 import kr.co.teambrain.marvelrun.user.discount.service.DiscountPolicyResolver;
+import kr.co.teambrain.marvelrun.user.discount.service.RegistrationPriceCalculationRecorder;
 
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
@@ -91,7 +92,7 @@ import static org.mockito.Mockito.*;
         OrganizationLifecycleService.class,
         LinkDiscountEligibilityService.class,
         OrganizationDiscountGuard.class,
-        DiscountPolicyResolver.class,
+        DiscountPolicyResolver.class, RegistrationPriceCalculationRecorder.class,
         ReservationHistoryRecorder.class,
         RegistrationActionPolicyService.class,
         BCryptPasswordEncoder.class,

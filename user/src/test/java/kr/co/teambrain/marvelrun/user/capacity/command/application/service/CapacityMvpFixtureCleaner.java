@@ -120,6 +120,9 @@ final class CapacityMvpFixtureCleaner {
                         """
                         DELETE FROM cash_receipt WHERE event_id = :eventId
                         """),
+                // 계산 기록의 상호 FK를 해제한 뒤 테스트 대회 데이터만 정리한다.
+                new Deletion("registration_price_calculation", "UPDATE registration SET current_price_calculation_id=NULL WHERE event_id=:eventId"),
+                new Deletion("registration_price_calculation", "DELETE c FROM registration_price_calculation c JOIN registration r ON r.id=c.registration_id WHERE r.event_id=:eventId"),
                 new Deletion("registration",
                         """
                         DELETE FROM registration WHERE event_id = :eventId
@@ -155,7 +158,7 @@ final class CapacityMvpFixtureCleaner {
                         """),
                 new Deletion("discount_link", "DELETE FROM discount_link WHERE policy_id IN (SELECT id FROM discount_policy WHERE event_id=:eventId)"),
                 new Deletion("discount_policy_category", "DELETE FROM discount_policy_category WHERE policy_id IN (SELECT id FROM discount_policy WHERE event_id=:eventId)"),
-                new Deletion("discount_age_condition", "DELETE FROM discount_age_condition WHERE policy_id IN (SELECT id FROM discount_policy WHERE event_id=:eventId)"),
+                new Deletion("internal_discount_condition", "DELETE FROM internal_discount_condition WHERE policy_id IN (SELECT id FROM discount_policy WHERE event_id=:eventId)"),
                 new Deletion("discount_policy", "DELETE FROM discount_policy WHERE event_id=:eventId"),
                 new Deletion("reference_filter", "DELETE FROM reference_filter WHERE event_id=:eventId"),
                 new Deletion("event_category_start_group",

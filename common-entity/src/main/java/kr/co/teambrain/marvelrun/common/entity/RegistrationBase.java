@@ -1,7 +1,5 @@
 package kr.co.teambrain.marvelrun.common.entity;
 
-import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
-
 import jakarta.persistence.*;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.AddressBase;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
@@ -299,25 +297,13 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
         this.discountLinkId = linkId;
         this.referenceFilterId = filterId;
     }
-    @Column(name = "internal_price_policy_id", length = 40)
-    protected String internalPricePolicyId;
-    @Column(name = "internal_price_policy_revision")
-    protected Long internalPricePolicyRevision;
-    @Column(name = "link_price_policy_revision")
-    protected Long linkPricePolicyRevision;
 
-    /** 실제 재계산을 수행한 경우에만 현재 가격의 정책 개정을 교체한다. */
-    public void recordAppliedDiscountPrice(DiscountModels.PriceResult result) {
-        this.internalPricePolicyId = null;
-        this.internalPricePolicyRevision = null;
-        this.linkPricePolicyRevision = null;
-        for (DiscountModels.AppliedDiscount applied : result.appliedDiscounts()) {
-            if (applied.stage() == DiscountModels.Stage.INTERNAL) {
-                this.internalPricePolicyId = applied.policyId();
-                this.internalPricePolicyRevision = applied.revision();
-            } else {
-                this.linkPricePolicyRevision = applied.revision();
-            }
-        }
+    /** 현재 계약금액의 계산 근거이며 전체 취소 후에도 마지막 기록을 보존한다. */
+    @Column(name = "current_price_calculation_id", length = 40)
+    protected String currentPriceCalculationId;
+
+    /** 동일 트랜잭션에서 저장된 이 신청 소유 계산 기록을 연결한다. */
+    public void assignCurrentPriceCalculation(String calculationId) {
+        this.currentPriceCalculationId = calculationId;
     }
 }

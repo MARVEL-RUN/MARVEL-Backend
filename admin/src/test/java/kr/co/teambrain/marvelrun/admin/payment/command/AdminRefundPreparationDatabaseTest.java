@@ -3,6 +3,7 @@ import kr.co.teambrain.marvelrun.admin.discount.query.ReferenceFilterQueryServic
 import kr.co.teambrain.marvelrun.admin.user.command.application.service.OrganizationLifecycleService;
 import kr.co.teambrain.marvelrun.admin.discount.service.OrganizationDiscountGuard;
 import kr.co.teambrain.marvelrun.admin.discount.service.DiscountPolicyResolver;
+import kr.co.teambrain.marvelrun.admin.discount.service.RegistrationPriceCalculationRecorder;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
 
@@ -123,7 +124,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         ReferenceFilterQueryService.class,
         OrganizationLifecycleService.class,
         OrganizationDiscountGuard.class,
-        DiscountPolicyResolver.class,RegistrationStartGroupResolver.class,ReservationHistoryRecorder.class,RegistrationQueryService.class, AdminUnpaidRegistrationCancellationService.class, RegistrationCommandService.class, AdminRefundEvidenceStore.class, AdminRefundEvidenceService.class, AdminRefundEvidenceMatcher.class, AdminPaymentQueryRepository.class, AdminRefundPreparationService.class, AdminRefundPreparationTransactionService.class, AdminRefundPreparationStore.class,
+        DiscountPolicyResolver.class, RegistrationPriceCalculationRecorder.class,RegistrationStartGroupResolver.class,ReservationHistoryRecorder.class,RegistrationQueryService.class, AdminUnpaidRegistrationCancellationService.class, RegistrationCommandService.class, AdminRefundEvidenceStore.class, AdminRefundEvidenceService.class, AdminRefundEvidenceMatcher.class, AdminPaymentQueryRepository.class, AdminRefundPreparationService.class, AdminRefundPreparationTransactionService.class, AdminRefundPreparationStore.class,
         RegistrationActionPolicyReader.class,
         AdminRefundAccessService.class, AdminRefundLockRepository.class, AdminRefundTime.class,
         RegistrationPolicyCandidateValidator.class, RegistrationPolicyValidator.class, RegistrationPolicyLoader.class,
@@ -318,7 +319,13 @@ class AdminRefundPreparationDatabaseTest {
     /** 같은 트랜잭션에 계약·예약 상세·카운터·시도·귀속·로그가 함께 저장된다. */
     @Test
     void partialRefundMovesConfirmedResourcesAndCreatesLedger() {
+        // 과거 신청의 미기록 상태는 추정 복원하지 않고 첫 실제 수정부터 기록한다.
+        assertThat(jdbc.queryForObject("select current_price_calculation_id from registration where id=?", String.class, registrationId)).isNull();
         AdminRefundPrepared result = service.preparePartial(eventId,null,List.of(birthTarget()),command());
+        String calculationId = jdbc.queryForObject("select current_price_calculation_id from registration where id=?", String.class, registrationId);
+        assertThat(calculationId).isNotNull();
+        assertThat(jdbc.queryForObject("select calculation_reason from registration_price_calculation where id=?", String.class, calculationId)).isEqualTo("ADMIN_ADJUSTED");
+        Map<String, Object> calculation = jdbc.queryForMap("select * from registration_price_calculation where id=?", calculationId);
         assertThat(jdbc.queryForObject("select birth from registration where id=?",String.class,registrationId)).isEqualTo("1991-01-01");
         assertThat(jdbc.queryForObject("select ph_num from registration where id=?",String.class,registrationId)).isEqualTo("010-0000-0000");
         assertThat(result.refunds()).hasSize(1);
@@ -345,6 +352,8 @@ class AdminRefundPreparationDatabaseTest {
         AdminRefundPrepared remaining = service.prepareFull(eventId,null,List.of(registrationId),command());
         assertThat(remaining.refunds().getFirst().amount()).isEqualByComparingTo("40000");
         executeSuccess(remaining);
+        assertThat(jdbc.queryForObject("select current_price_calculation_id from registration where id=?", String.class, registrationId)).isEqualTo(calculationId);
+        assertThat(jdbc.queryForMap("select * from registration_price_calculation where id=?", calculationId)).isEqualTo(calculation);
         assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo("0");
         assertThat(state()).isEqualTo("CANCELED");
     }
@@ -385,6 +394,7 @@ class AdminRefundPreparationDatabaseTest {
     /** 로그 저장 실패가 계약·정원·환불 시도·귀속 전체를 원복시키는지 실제 트랜잭션으로 검증한다. */
     @Test
     void failureAfterWritesRollsBackWholePreparation() {
+        Map<String, Object> before = unpaidSnapshot();
         // 실패 설정 시에만 프록시 내부 spy에 접근하며, 실제 준비 실행은 서비스 프록시를 통한다.
         AdminRefundPreparationStore storeSpy = AopTestUtils.getUltimateTargetObject(store);
         assertThat(mockingDetails(storeSpy).isSpy()).isTrue();
@@ -399,6 +409,7 @@ class AdminRefundPreparationDatabaseTest {
         assertThat(cancelCount()).isZero();
         assertThat(jdbc.queryForObject("select count(*) from payment_process_log where payment_id=?",Integer.class,paymentId)).isZero();
         assertThat(jdbc.queryForObject("select version from registration where id=?",Long.class,registrationId)).isZero();
+        assertThat(unpaidSnapshot()).isEqualTo(before);
     }
 
     /** 단체 일부·전체 취소에서 선택하지 않은 인원의 계약과 원귀속을 사용하지 않는다. */
@@ -639,6 +650,8 @@ class AdminRefundPreparationDatabaseTest {
             }
             jdbc.update("delete i from reservation_item i join reservation v on v.id=i.reservation_id join registration r on r.id=v.registration_id where r.event_id=?",eventId);
             jdbc.update("delete v from reservation v join registration r on r.id=v.registration_id where r.event_id=?",eventId);
+            jdbc.update("update registration set current_price_calculation_id=null where event_id=?",eventId);
+            jdbc.update("delete c from registration_price_calculation c join registration r on r.id=c.registration_id where r.event_id=?",eventId);
             jdbc.update("delete from registration where event_id=?",eventId);
             jdbc.update("delete cc from capacity_category cc join capacity c on c.id=cc.capacity_id where c.event_id=?",eventId);
             jdbc.update("delete from capacity where event_id=?",eventId);
@@ -1775,6 +1788,7 @@ class AdminRefundPreparationDatabaseTest {
     /** 금융/신청/예약/카운터와 로그를 DB 현재값으로 비교한다. */
     private Map<String, Object> unpaidSnapshot() {
         Map<String, Object> result = new LinkedHashMap<>();
+        result.put("calculations", jdbc.queryForList("select c.* from registration_price_calculation c join registration r on r.id=c.registration_id where r.event_id=? order by c.id", eventId));
         result.put("registration", jdbc.queryForList("select * from registration where event_id=? order by id", eventId));
         result.put("payment", jdbc.queryForList("select * from payment where id=?", paymentId));
         result.put("allocation", jdbc.queryForList("select * from payment_allocation where payment_id=? order by id", paymentId));

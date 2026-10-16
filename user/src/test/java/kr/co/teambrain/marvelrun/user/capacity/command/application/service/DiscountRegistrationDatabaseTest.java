@@ -11,6 +11,9 @@ import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inne
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.OrgRegistrationCreateResponse;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.RegistrationCreateResponse;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import kr.co.teambrain.marvelrun.user.discount.domain.RegistrationPriceCalculation;
+import kr.co.teambrain.marvelrun.user.discount.repository.RegistrationPriceCalculationRepository;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -21,6 +24,18 @@ import static org.assertj.core.api.Assertions.*;
 
 /** 실제 생성·주문·정원 트랜잭션에 링크 자격과 가격 결과를 연결하여 검증한다. */
 class DiscountRegistrationDatabaseTest extends CapacityMvpTestSupport {
+    @Autowired
+    private RegistrationPriceCalculationRepository calculations;
+
+    /** 일반 신청에도 기본가와 빈 적용 목록을 기록하며 미결제 상태부터 현재 참조가 존재한다. */
+    @Test
+    void ordinaryPendingRegistrationHasEmptyDiscountCalculation() {
+        RegistrationCreateResponse result = registrations.register(eventId, request(null));
+        assertThat(queryIntegerValue("select count(*) from registration r join registration_price_calculation c on c.id=r.current_price_calculation_id where r.id=? and c.registration_id=r.id and c.final_amount=r.contract_amount and JSON_LENGTH(c.snapshot,'$.appliedDiscounts')=0", result.registrationId())).isEqualTo(1);
+        assertThat(queryStringValue("select status from registration where id=?", result.registrationId())).isEqualTo("PAYMENT_PENDING");
+        assertThat(queryStringValue("select discount_link_id from registration where id=?", result.registrationId())).isNull();
+    }
+
     /** 최소 인원 미달은 단체·신청·결제를 남기지 않고 정상 5명은 같은 자격을 취득한다. */
     @Test
     void minimumFiveIsAtomicAtCreation() {
@@ -32,6 +47,7 @@ class DiscountRegistrationDatabaseTest extends CapacityMvpTestSupport {
         limit(total,50); limit(categoryACapacity,50); limit(shirtS,50);
         OrgRegistrationCreateResponse created = organizations.register(eventId,groupRequest(code,5));
         assertThat(created.registrationIds()).hasSize(5);
+        assertThat(queryIntegerValue("select count(*) from registration_price_calculation c join registration r on r.id=c.registration_id where r.event_id=?",eventId)).isEqualTo(5);
         assertThat(queryIntegerValue("select count(*) from registration where event_id=? and discount_link_id is not null and reference_filter_id is not null",eventId)).isEqualTo(5);
     }
 
@@ -54,7 +70,15 @@ class DiscountRegistrationDatabaseTest extends CapacityMvpTestSupport {
                 .isEqualByComparingTo(expected);
         assertThat(queryStringValue("select discount_link_id from registration where id=?", result.registrationId())).isNotNull();
         assertThat(queryStringValue("select reference_filter_id from registration where id=?", result.registrationId())).isNotNull();
-        assertThat(queryIntegerValue("select link_price_policy_revision from registration where id=?", result.registrationId())).isEqualTo(1);
+        assertThat(queryIntegerValue("select JSON_EXTRACT(c.snapshot, '$.appliedDiscounts[0].revision') from registration r join registration_price_calculation c on c.id=r.current_price_calculation_id where r.id=?", result.registrationId())).isEqualTo(1);
+        // JSON을 명시적 record로 다시 읽어 실제 저장·복원 계약도 검증한다.
+        RegistrationPriceCalculation calculation = calculations.findById(
+                queryStringValue("select current_price_calculation_id from registration where id=?", result.registrationId())).orElseThrow();
+        assertThat(calculation.getBaseAmount()).isEqualByComparingTo(base);
+        assertThat(calculation.getFinalAmount()).isEqualByComparingTo(expected);
+        assertThat(calculation.getSnapshot().schemaVersion()).isEqualTo(1);
+        assertThat(calculation.getSnapshot().appliedDiscounts()).hasSize(1);
+        assertThat(calculation.getSnapshot().appliedDiscounts().getFirst().ratePercent()).isEqualByComparingTo("50");
         assertThat(jdbc.queryForObject("select amount from payment where registration_id=?", BigDecimal.class, result.registrationId()))
                 .isEqualByComparingTo(expected);
     }
@@ -66,7 +90,7 @@ class DiscountRegistrationDatabaseTest extends CapacityMvpTestSupport {
         RegistrationCreateResponse result = registrations.register(eventId, request(code));
         assertThat(queryStringValue("select discount_link_id from registration where id=?", result.registrationId())).isNotNull();
         assertThat(queryStringValue("select reference_filter_id from registration where id=?", result.registrationId())).isNotNull();
-        assertThat(jdbc.queryForObject("select link_price_policy_revision from registration where id=?", Long.class, result.registrationId())).isNull();
+        assertThat(queryIntegerValue("select JSON_LENGTH(c.snapshot, '$.appliedDiscounts') from registration r join registration_price_calculation c on c.id=r.current_price_calculation_id where r.id=?", result.registrationId())).isZero();
         assertThat(jdbc.queryForObject("select contract_amount from registration where id=?", BigDecimal.class, result.registrationId()))
                 .isEqualByComparingTo(jdbc.queryForObject("select amount from event_category where id=?", BigDecimal.class, categoryA));
     }

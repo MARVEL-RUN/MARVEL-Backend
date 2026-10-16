@@ -3,6 +3,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.service.Organiza
 import kr.co.teambrain.marvelrun.user.discount.service.LinkDiscountEligibilityService;
 import kr.co.teambrain.marvelrun.user.discount.service.OrganizationDiscountGuard;
 import kr.co.teambrain.marvelrun.user.discount.service.DiscountPolicyResolver;
+import kr.co.teambrain.marvelrun.user.discount.service.RegistrationPriceCalculationRecorder;
 
 
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategoryStartGroup;
@@ -79,7 +80,7 @@ import static org.mockito.Mockito.when;
         OrganizationLifecycleService.class,
         LinkDiscountEligibilityService.class,
         OrganizationDiscountGuard.class,
-        DiscountPolicyResolver.class,
+        DiscountPolicyResolver.class, RegistrationPriceCalculationRecorder.class,
         ReservationHistoryRecorder.class,
         RegistrationActionPolicyService.class,
         BCryptPasswordEncoder.class,

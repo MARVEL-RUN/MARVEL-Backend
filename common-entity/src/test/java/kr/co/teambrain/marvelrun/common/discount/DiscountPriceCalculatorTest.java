@@ -16,6 +16,7 @@ class DiscountPriceCalculatorTest {
     void internalFixedPricePrecedesExternalRate() {
         DiscountModels.PriceResult result = calculator.calculateDiscountedPrice(new BigDecimal("70000"), child(), rate("50"));
         assertEquals(new BigDecimal("20000"), result.finalAmount());
+        assertEquals(new BigDecimal("70000"), result.baseAmount());
         assertEquals(2, result.appliedDiscounts().size());
         assertEquals(new BigDecimal("30000"), result.appliedDiscounts().getFirst().reductionAmount());
     }
@@ -53,6 +54,15 @@ class DiscountPriceCalculatorTest {
         LocalDate birth = LocalDate.of(2012, 2, 29);
         assertTrue(child().matchesAge(birth, LocalDate.of(2025, 2, 27)));
         assertFalse(child().matchesAge(birth, LocalDate.of(2025, 2, 28)));
+    }
+
+    /** 소수 참가비와 소수 할인율의 절사 차액은 6자리까지 보존한다. */
+    @Test
+    void preservesFractionalRoundingEvidence() {
+        DiscountModels.PriceResult result = calculator.calculateDiscountedPrice(new BigDecimal("101.01"), null, rate("12.34"));
+        assertEquals(0, result.finalAmount().compareTo(new BigDecimal("88")));
+        assertEquals(0, result.roundingAdjustmentAmount().compareTo(new BigDecimal("0.545366")));
+        assertEquals(0, result.appliedDiscounts().getFirst().amountAfter().compareTo(new BigDecimal("88.545366")));
     }
 
     private DiscountModels.Policy child() {

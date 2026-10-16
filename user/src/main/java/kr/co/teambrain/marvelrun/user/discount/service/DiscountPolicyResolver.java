@@ -3,12 +3,12 @@ package kr.co.teambrain.marvelrun.user.discount.service;
 import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
-import kr.co.teambrain.marvelrun.user.discount.domain.DiscountAgeCondition;
+import kr.co.teambrain.marvelrun.user.discount.domain.InternalDiscountCondition;
 import kr.co.teambrain.marvelrun.user.discount.domain.DiscountLink;
 import kr.co.teambrain.marvelrun.user.discount.domain.DiscountPolicy;
 import kr.co.teambrain.marvelrun.user.discount.domain.DiscountPolicyCategory;
 import kr.co.teambrain.marvelrun.user.discount.domain.ReferenceFilter;
-import kr.co.teambrain.marvelrun.user.discount.repository.DiscountAgeConditionRepository;
+import kr.co.teambrain.marvelrun.user.discount.repository.InternalDiscountConditionRepository;
 import kr.co.teambrain.marvelrun.user.discount.repository.DiscountLinkRepository;
 import kr.co.teambrain.marvelrun.user.discount.repository.DiscountPolicyCategoryRepository;
 import kr.co.teambrain.marvelrun.user.discount.repository.DiscountPolicyRepository;
@@ -31,7 +31,7 @@ import java.util.Set;
 public class DiscountPolicyResolver {
     private final DiscountPolicyRepository policies;
     private final DiscountPolicyCategoryRepository targets;
-    private final DiscountAgeConditionRepository ages;
+    private final InternalDiscountConditionRepository ages;
     private final DiscountLinkRepository links;
     private final ReferenceFilterRepository filters;
     private final EventCategoryCommandRepository categories;
@@ -44,7 +44,7 @@ public class DiscountPolicyResolver {
         }
         List<String> ids = rows.stream().map(DiscountPolicy::getId).toList();
         List<DiscountPolicyCategory> targetRows = targets.findByPolicyIdIn(ids);
-        List<DiscountAgeCondition> ageRows = ages.findByPolicyIdIn(ids);
+        List<InternalDiscountCondition> ageRows = ages.findByPolicyIdIn(ids);
         Set<String> categoryIds = new HashSet<>();
         targetRows.forEach(target -> categoryIds.add(target.getEventCategoryId()));
         Set<String> validCategoryIds = new HashSet<>();
@@ -63,10 +63,10 @@ public class DiscountPolicyResolver {
             Set<String> selected = new HashSet<>();
             targetRows.stream().filter(target -> row.getId().equals(target.getPolicyId()))
                     .forEach(target -> selected.add(target.getEventCategoryId()));
-            List<DiscountAgeCondition> conditions = ageRows.stream()
+            List<InternalDiscountCondition> conditions = ageRows.stream()
                     .filter(age -> row.getId().equals(age.getPolicyId())).toList();
             validatePolicyShape(row, selected, conditions);
-            DiscountAgeCondition age = conditions.isEmpty() ? null : conditions.getFirst();
+            InternalDiscountCondition age = conditions.isEmpty() ? null : conditions.getFirst();
             result.add(new DiscountModels.Policy(row.getId(), eventId, row.getRevision(), row.getStage(),
                     row.getCalculationMethod(), row.getRatePercent(), row.getFixedAmount(), row.getApplicationType(),
                     row.getCategoryScope(), Set.copyOf(selected), row.getMinimumGroupSize(),
@@ -95,7 +95,7 @@ public class DiscountPolicyResolver {
     }
 
     /** 지원하지 않는 조합은 할인 미적용으로 숨기지 않고 설정 오류로 반환한다. */
-    private void validatePolicyShape(DiscountPolicy row, Set<String> selected, List<DiscountAgeCondition> conditions) {
+    private void validatePolicyShape(DiscountPolicy row, Set<String> selected, List<InternalDiscountCondition> conditions) {
         boolean internal = row.getStage() == DiscountModels.Stage.INTERNAL;
         if (row.getStage() == null || row.getApplicationType() == null || row.getCategoryScope() == null
                 || row.getRevision() < 1

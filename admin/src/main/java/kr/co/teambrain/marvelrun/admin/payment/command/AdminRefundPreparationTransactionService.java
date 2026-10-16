@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.admin.payment.command;
 
+import kr.co.teambrain.marvelrun.common.discount.model.RegistrationPriceCalculationSnapshot;
+import kr.co.teambrain.marvelrun.admin.discount.service.RegistrationPriceCalculationRecorder;
 import jakarta.validation.Validator;
 import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
 import kr.co.teambrain.marvelrun.admin.discount.service.DiscountPolicyResolver;
@@ -37,6 +39,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class AdminRefundPreparationTransactionService {
+    private final RegistrationPriceCalculationRecorder priceCalculations;
     private final ReservationHistoryRecorder historyRecorder;
     private final DiscountPolicyResolver discountPolicies;
     private final OrganizationDiscountGuard discountGuard;
@@ -217,13 +220,14 @@ public class AdminRefundPreparationTransactionService {
         removal.releaseAll(eventId, removed, now);
         for (Payment payment : readyToInvalidate) { payment.invalidateForRegistrationModification(); }
         List<AdminRefundPrepared.Member> members = new ArrayList<>();
+        List<RegistrationPriceCalculationRecorder.Input> priceRecords = new ArrayList<>();
         for (Candidate candidate : candidates) {
             Registration registration = candidate.registration();
             BigDecimal previous = registration.getContractAmount();
             String previousBirth = registration.getBirth();
             String previousCategory = registration.getEventCategory().getId();
             if (targets != null) {
-                registration.recordAppliedDiscountPrice(discountPrices.get(registration.getId()));
+                priceRecords.add(new RegistrationPriceCalculationRecorder.Input(registration, discountPrices.get(registration.getId())));
                 registration.applyAdminAdjustmentCandidate(candidate.category(), candidate.souvenirs(), candidate.birth(), candidate.amount());
             }
             if (candidate.cancel()) { registration.cancelParticipation(); }
@@ -235,6 +239,9 @@ public class AdminRefundPreparationTransactionService {
                     registration.getPaidAmount(), registration.getStatus(), reservation.getStatus(), registration.isSoftDeleted(),
                     previousBirth, registration.getBirth(), previousCategory, registration.getEventCategory().getId()));
         }
+        // 전체 취소는 기존 계산 참조를 보존하고 실제 가격 변경에만 근거를 추가한다.
+        priceCalculations.recordRegistrationPriceCalculations(priceRecords,
+                RegistrationPriceCalculationSnapshot.Reason.ADMIN_ADJUSTED);
         String correlationId = UUID.randomUUID().toString();
         List<AdminRefundPrepared.Refund> refunds = new ArrayList<>();
         for (RefundPreparationPlan plan : plans) {

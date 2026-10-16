@@ -42,7 +42,7 @@ public final class DiscountPriceCalculator {
         if (rounded.compareTo(MAX_AMOUNT) > 0) {
             return failure(DiscountModels.Failure.CONFIGURATION);
         }
-        return new DiscountModels.PriceResult(DiscountModels.Failure.NONE, rounded,
+        return new DiscountModels.PriceResult(DiscountModels.Failure.NONE, baseAmount, rounded,
                 amount.subtract(rounded), List.copyOf(applied));
     }
 
@@ -70,6 +70,6 @@ public final class DiscountPriceCalculator {
 
     /** 실패 시 가격으로 오인할 수 있는 부분 계산 결과를 반환하지 않는다. */
     private DiscountModels.PriceResult failure(DiscountModels.Failure failure) {
-        return new DiscountModels.PriceResult(failure, null, null, List.of());
+        return new DiscountModels.PriceResult(failure, null, null, null, List.of());
     }
 }

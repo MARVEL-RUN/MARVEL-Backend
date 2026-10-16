@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import kr.co.teambrain.marvelrun.common.discount.model.RegistrationPriceCalculationSnapshot;
+import kr.co.teambrain.marvelrun.user.discount.service.RegistrationPriceCalculationRecorder;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.math.BigDecimal;
@@ -45,6 +47,7 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 @Transactional(propagation = Propagation.MANDATORY)
 public class RegistrationPersonalModificationService {
+    private final RegistrationPriceCalculationRecorder priceCalculations;
     private final ReservationHistoryRecorder historyRecorder;
 
     private final RegistrationCapacityService registrationCapacityService;
@@ -181,16 +184,18 @@ public class RegistrationPersonalModificationService {
                 now
         );
 
-        // 현재 가격에 실제 적용한 정책 개정을 함께 보존한다.
-        if (price.discountPrice() != null) {
-            registration.recordAppliedDiscountPrice(price.discountPrice());
-        }
         registration.applyPersonalModification(
                 candidate.eventCategory(),
                 candidate.souvenirJsons(),
                 candidate.request(),
                 price.newContractAmount()
         );
+
+        // 실제 후보 반영 후에만 새 계산 근거를 연결한다.
+        if (price.discountPrice() != null) {
+            priceCalculations.recordRegistrationPriceCalculation(registration, price.discountPrice(),
+                    RegistrationPriceCalculationSnapshot.Reason.REGISTRATION_MODIFIED);
+        }
 
         /*
          * 관리 중인 Entity이므로 save()로 다시 병합하지 않는다.

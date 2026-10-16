@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import kr.co.teambrain.marvelrun.common.discount.model.RegistrationPriceCalculationSnapshot;
+import kr.co.teambrain.marvelrun.user.discount.service.RegistrationPriceCalculationRecorder;
 import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
 import kr.co.teambrain.marvelrun.user.discount.domain.DiscountLink;
 import kr.co.teambrain.marvelrun.user.discount.service.DiscountPolicyResolver;
@@ -52,6 +54,7 @@ import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
 @Service
 @RequiredArgsConstructor
 public class RegistrationCommandService {
+    private final RegistrationPriceCalculationRecorder priceCalculations;
     private final DiscountPolicyResolver discountPolicies;
     private final LinkDiscountEligibilityService discountEligibility;
     private final RegistrationStartGroupResolver startGroups;
@@ -147,7 +150,6 @@ public class RegistrationCommandService {
         if (discountLink != null) {
             registration.assignDiscountQualification(discountLink.getId(), discountLink.getReferenceFilterId());
         }
-        registration.recordAppliedDiscountPrice(discountPrice);
 
         // 종목별 선택을 검증하고 미선택은 실제 후미 UUID로 저장한다.
         RegistrationStartGroupResolver.Selection selection = startGroups.resolveRegistrationStartGroups(List.of(
@@ -157,6 +159,10 @@ public class RegistrationCommandService {
 
         Registration savedRegistration =
                 registrationCommandRepository.save(registration);
+
+        // 신청 저장과 같은 트랜잭션에서 계산 근거와 현재 참조를 보존한다.
+        priceCalculations.recordRegistrationPriceCalculation(savedRegistration, discountPrice,
+                RegistrationPriceCalculationSnapshot.Reason.REGISTRATION_CREATED);
 
         registrationCapacityService.holdAndCloseIfFull(
                 event,

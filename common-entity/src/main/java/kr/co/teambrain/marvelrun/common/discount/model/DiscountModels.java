@@ -42,6 +42,6 @@ public final class DiscountModels {
                                   BigDecimal reductionAmount) { }
 
     /** 실패 상태는 모듈별 CustomException으로 변환한다. */
-    public record PriceResult(Failure failure, BigDecimal finalAmount, BigDecimal roundingAdjustmentAmount,
+    public record PriceResult(Failure failure, BigDecimal baseAmount, BigDecimal finalAmount, BigDecimal roundingAdjustmentAmount,
                               List<AppliedDiscount> appliedDiscounts) { }
 }

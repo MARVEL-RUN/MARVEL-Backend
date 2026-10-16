@@ -1,4 +1,5 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
+import kr.co.teambrain.marvelrun.user.discount.service.RegistrationPriceCalculationRecorder;
 import kr.co.teambrain.marvelrun.user.discount.service.OrganizationDiscountGuard;
 
 import java.math.BigDecimal;
@@ -34,6 +35,7 @@ import static org.mockito.Mockito.*;
 /** 실제 수정 서비스가 추가 참가자에게 해시를 저장하는지 DB 없이 검증한다. */
 @ExtendWith(MockitoExtension.class)
 class OrgParticipantPasswordStorageTest {
+    @Mock private RegistrationPriceCalculationRecorder priceCalculations;
     @Spy private OrgParticipantPasswordEncoder participantPasswordEncoder =
             new OrgParticipantPasswordEncoder(new BCryptPasswordEncoder(4));
     @Mock private RegistrationCapacityService capacity;

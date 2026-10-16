@@ -1,4 +1,5 @@
 package kr.co.teambrain.marvelrun.admin.payment.command;
+import kr.co.teambrain.marvelrun.admin.discount.service.RegistrationPriceCalculationRecorder;
 import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
 import kr.co.teambrain.marvelrun.admin.discount.service.OrganizationDiscountGuard;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationCommandRepository;
@@ -57,7 +58,7 @@ class AdminRefundPreparationServiceTest {
     private final ReservationRemovalService removal = mock(ReservationRemovalService.class);
     private final PaymentCancelAllocationCreator allocations = mock(PaymentCancelAllocationCreator.class);
     private final AdminRefundTime time = mock(AdminRefundTime.class);
-    private final AdminRefundPreparationService service = new AdminRefundPreparationService(new AdminRefundPreparationTransactionService(mock(ReservationHistoryRecorder.class), PricingPolicyFixtures.resolver(), mock(OrganizationDiscountGuard.class), mock(RegistrationCommandRepository.class),access, store, policies,
+    private final AdminRefundPreparationService service = new AdminRefundPreparationService(new AdminRefundPreparationTransactionService(mock(RegistrationPriceCalculationRecorder.class), mock(ReservationHistoryRecorder.class), PricingPolicyFixtures.resolver(), mock(OrganizationDiscountGuard.class), mock(RegistrationCommandRepository.class),access, store, policies,
             pricing, requirements, diffs, movement, removal, new ModificationRefundPlanner(), allocations, time, VALIDATION.getValidator()));
     private final LocalDateTime now = LocalDateTime.of(2026, 11, 2, 12, 0);
     private final AdminRefundCommandContext command = new AdminRefundCommandContext("request", "admin", "종목 변경");
@@ -151,7 +152,7 @@ class AdminRefundPreparationServiceTest {
     @ParameterizedTest
     @ValueSource(strings = {"70000", "80000"})
     void acceptsAdditionalAndSamePriceWithoutRefund(String amount) {
-        doReturn(new DiscountModels.PriceResult(DiscountModels.Failure.NONE, new BigDecimal(amount), BigDecimal.ZERO, List.of())).when(pricing).calculateRegistrationPrice(any(), any(), anyString(), anyBoolean(), any(), anyList());
+        doReturn(new DiscountModels.PriceResult(DiscountModels.Failure.NONE, new BigDecimal(amount), new BigDecimal(amount), BigDecimal.ZERO, List.of())).when(pricing).calculateRegistrationPrice(any(), any(), anyString(), anyBoolean(), any(), anyList());
         var prepared = service.preparePartial("test-marvelrun", null, List.of(target(true)), command);
         var member = prepared.members().getFirst();
         assertThat(prepared.refunds()).isEmpty();
@@ -234,7 +235,7 @@ class AdminRefundPreparationServiceTest {
         ModificationRefundPlanner planner=mock(ModificationRefundPlanner.class);
         RefundPreparationPlan plan=mock(RefundPreparationPlan.class);
         when(planner.plan(anyList(),anyList())).thenReturn(Collections.nCopies(11,plan));
-        AdminRefundPreparationService limited=new AdminRefundPreparationService(new AdminRefundPreparationTransactionService(mock(ReservationHistoryRecorder.class), PricingPolicyFixtures.resolver(), mock(OrganizationDiscountGuard.class), mock(RegistrationCommandRepository.class),
+        AdminRefundPreparationService limited=new AdminRefundPreparationService(new AdminRefundPreparationTransactionService(mock(RegistrationPriceCalculationRecorder.class), mock(ReservationHistoryRecorder.class), PricingPolicyFixtures.resolver(), mock(OrganizationDiscountGuard.class), mock(RegistrationCommandRepository.class),
                 access,store,policies,pricing,requirements,diffs,movement,removal,planner,allocations,time,VALIDATION.getValidator()));
         AdminRefundCommandContext batchCommand=new AdminRefundCommandContext("request","admin","상한 확인",null,"batch",0);
         assertThatThrownBy(() -> limited.prepareFull("test-marvelrun",null,List.of("r"),batchCommand))
