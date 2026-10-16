@@ -14,6 +14,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import kr.co.teambrain.marvelrun.user.discount.domain.RegistrationPriceCalculation;
 import kr.co.teambrain.marvelrun.user.discount.repository.RegistrationPriceCalculationRepository;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
+import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
+import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentCreator;
+import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentAllocationCreator;
+import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
+import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentAllocationTarget;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -26,6 +32,47 @@ import static org.assertj.core.api.Assertions.*;
 class DiscountRegistrationDatabaseTest extends CapacityMvpTestSupport {
     @Autowired
     private RegistrationPriceCalculationRepository calculations;
+
+    @Autowired
+    private RegistrationCommandRepository registrationRows;
+    @Autowired
+    private PaymentCreator paymentCreator;
+    @Autowired
+    private PaymentAllocationCreator allocationCreator;
+
+    /** 중단 링크로 개인·단체를 생성하면 신청·주문·정원 변경이 남지 않는다. */
+    @Test
+    void killSwitchBlocksPersonalAndGroupCreation() {
+        String code = insertDiscountLink(false, "50");
+        jdbc.update("update discount_link set enabled=0 where code=?", code);
+        expectError(ErrorCode.REGISTRATION_DISCOUNT_LINK_UNAVAILABLE,
+            () -> registrations.register(eventId, request(code)));
+        expectError(ErrorCode.REGISTRATION_DISCOUNT_LINK_UNAVAILABLE,
+            () -> organizations.register(eventId, groupRequest(code, 2)));
+        noApplications();
+        assertThat(queryIntegerValue("select count(*) from organization where event_id=?", eventId)).isZero();
+        assertCapacityCounts(total, 0, 0);
+    }
+
+    /** 주문이 먼저 저장되어도 귀속 단계에서 중단 링크를 감지하면 같은 트랜잭션이 롤백된다. */
+    @Test
+    void killSwitchRollsBackNewPaymentForExistingPendingRegistration() {
+        String code = insertDiscountLink(false, "50");
+        RegistrationCreateResponse created = registrations.register(eventId, request(code));
+        jdbc.update("update discount_link set enabled=0 where code=?", code);
+        int before = queryIntegerValue("select count(*) from payment where registration_id=?", created.registrationId());
+        String calculation = queryStringValue("select current_price_calculation_id from registration where id=?", created.registrationId());
+
+        expectError(ErrorCode.DISCOUNT_LINK_PAYMENT_DISABLED, () -> tx.executeWithoutResult(status -> {
+            Registration pending = registrationRows.findById(created.registrationId()).orElseThrow();
+            Payment payment = paymentCreator.createInitialPayment(pending, UUID.randomUUID().toString());
+            allocationCreator.create(payment, List.of(new PaymentAllocationTarget(pending, pending.getContractAmount())));
+        }));
+
+        assertThat(queryIntegerValue("select count(*) from payment where registration_id=?", created.registrationId())).isEqualTo(before);
+        assertThat(queryStringValue("select current_price_calculation_id from registration where id=?", created.registrationId())).isEqualTo(calculation);
+        assertThat(queryStringValue("select discount_link_id from registration where id=?", created.registrationId())).isNotNull();
+    }
 
     /** 일반 신청에도 기본가와 빈 적용 목록을 기록하며 미결제 상태부터 현재 참조가 존재한다. */
     @Test

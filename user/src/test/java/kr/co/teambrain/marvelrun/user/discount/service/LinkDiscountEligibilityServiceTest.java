@@ -2,6 +2,8 @@ package kr.co.teambrain.marvelrun.user.discount.service;
 
 import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
+import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.discount.domain.DiscountLink;
 import kr.co.teambrain.marvelrun.user.discount.domain.DiscountPolicy;
 import kr.co.teambrain.marvelrun.user.discount.repository.DiscountLinkRepository;
@@ -67,6 +69,48 @@ class LinkDiscountEligibilityServiceTest {
     void unknownCodeFails() {
         assertThatThrownBy(() -> service.acquireRegistrationLink("unknown", "event", true, start, List.of()))
             .isInstanceOf(CustomException.class);
+    }
+
+    /** 비활성 링크는 신규 취득을 차단하고 단체 신규원에게 승계하지 않는다. */
+    @Test
+    void killSwitchBlocksAcquisitionAndInheritance() {
+        DiscountLink disabled = DiscountLink.builder().id("link").policyId("policy").code("Crew")
+            .referenceFilterId("filter").enabled(false)
+            .acquisitionStartAt(start).acquisitionEndAt(start.plusDays(1)).build();
+        when(links.findByCode("Crew")).thenReturn(Optional.of(disabled));
+        when(policies.findById("policy")).thenReturn(Optional.of(DiscountPolicy.builder().eventId("event").build()));
+        when(resolver.resolveLinkPolicy(disabled, "event", List.of(policy))).thenReturn(policy);
+        when(resolver.resolveStoredLink("link")).thenReturn(disabled);
+
+        assertThatThrownBy(() -> service.acquireRegistrationLink("Crew", "event", true, start, List.of(policy)))
+            .isInstanceOfSatisfying(CustomException.class,
+                error -> assertThat(error.getErrorCode()).isEqualTo(ErrorCode.REGISTRATION_DISCOUNT_LINK_UNAVAILABLE));
+        assertThat(service.inheritOrganizationLink("link", "event", start, List.of(policy))).isNull();
+        assertThat(disabled.getReferenceFilterId()).isEqualTo("filter");
+    }
+
+    /** 중단 링크의 기존 미결제자는 새 최초 주문을 만들 수 없으며 기간은 재검사하지 않는다. */
+    @Test
+    void killSwitchValidatesStoredInitialPaymentLinks() {
+        Registration pending = Registration.builder().discountLinkId("link").build();
+        when(links.findAllById(List.of("link"))).thenReturn(List.of(
+            DiscountLink.builder().id("link").enabled(false).build()));
+        assertThatThrownBy(() -> service.validateInitialPaymentLinks(List.of(pending)))
+            .isInstanceOfSatisfying(CustomException.class,
+                error -> assertThat(error.getErrorCode()).isEqualTo(ErrorCode.DISCOUNT_LINK_PAYMENT_DISABLED));
+
+        // 재활성화되면 취득 기간이 과거여도 저장된 자격으로 새 주문을 준비할 수 있다.
+        when(links.findAllById(List.of("link"))).thenReturn(List.of(link));
+        assertThatCode(() -> service.validateInitialPaymentLinks(List.of(pending))).doesNotThrowAnyException();
+    }
+
+    /** 코드가 없는 일반 주문과 최초 납부 대상이 없는 호출은 링크를 조회하지 않는다. */
+    @Test
+    void killSwitchDoesNotQueryLinksForOrdinaryPayment() {
+        service.validateInitialPaymentLinks(List.of(Registration.builder().build()));
+        service.validateInitialPaymentLinks(List.of());
+        verifyNoInteractions(links, policies, resolver);
+        assertThat(DiscountLink.builder().build().isEnabled()).isTrue();
     }
 
     /** 검증 완료 정책 대역을 준비한다. */

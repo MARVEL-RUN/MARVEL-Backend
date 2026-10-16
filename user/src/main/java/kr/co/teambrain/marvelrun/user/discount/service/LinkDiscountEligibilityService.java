@@ -12,6 +12,8 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 
 /** 신규 링크 취득과 기존 단체의 기간 내 승계를 판단한다. */
 @Service
@@ -41,7 +43,7 @@ public class LinkDiscountEligibilityService {
 
         // 신규 자격은 종목 선택과 별개로 취득 기간 및 개인·단체 유형을 검증한다.
         DiscountModels.Policy policy = resolver.resolveLinkPolicy(link, eventId, snapshot);
-        if (!withinAcquisitionPeriod(link, now)
+        if (!link.isEnabled() || !withinAcquisitionPeriod(link, now)
             || (policy.applicationType() != DiscountModels.ApplicationType.BOTH
             && policy.applicationType() != (organization ? DiscountModels.ApplicationType.ORGANIZATION
             : DiscountModels.ApplicationType.PERSONAL))) {
@@ -63,7 +65,26 @@ public class LinkDiscountEligibilityService {
         }
 
         // 기존 단체의 자격은 해제하지 않고 추가 참가자의 신규 승계 여부만 반환한다.
-        return withinAcquisitionPeriod(link, now) ? link : null;
+        return link.isEnabled() && withinAcquisitionPeriod(link, now) ? link : null;
+    }
+
+    /** 최초 참가비 귀속 대상의 링크만 검사하며 기존 자격·기간·가격은 변경하지 않는다. */
+    public void validateInitialPaymentLinks(List<Registration> registrations) {
+        // 단체의 링크 유무가 아니라 실제 미결제 참가자들의 저장된 자격을 일괄 조회한다.
+        List<String> linkIds = registrations.stream().map(Registration::getDiscountLinkId)
+            .filter(Objects::nonNull).distinct().toList();
+        if (linkIds.isEmpty()) {
+            return;
+        }
+        List<DiscountLink> storedLinks = links.findAllById(linkIds);
+        if (storedLinks.size() != linkIds.size()) {
+            throw new CustomException(ErrorCode.DISCOUNT_CONFIGURATION_ERROR);
+        }
+
+        // 기간 종료는 기존 자격을 박탈하지 않지만 운영 중단은 새 최초 납부 주문을 차단한다.
+        if (storedLinks.stream().anyMatch(link -> !link.isEnabled())) {
+            throw new CustomException(ErrorCode.DISCOUNT_LINK_PAYMENT_DISABLED);
+        }
     }
 
     /** 시작 시각은 포함하고 종료 시각은 제외한다. */

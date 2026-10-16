@@ -64,6 +64,10 @@ public class DiscountQueryService {
             .getEventId().equals(eventId)) {
             throw new CustomException(ErrorCode.DISCOUNT_LINK_NOT_FOUND);
         }
+        // 중단 링크는 사용 가능한 신규 접수 안내로 노출하지 않는다.
+        if (!link.isEnabled()) {
+            throw new CustomException(ErrorCode.DISCOUNT_LINK_DISABLED);
+        }
         List<DiscountModels.Policy> snapshot = resolver.resolveEventPolicies(eventId);
         DiscountModels.Policy external = resolver.resolveLinkPolicy(link, eventId, snapshot);
 
