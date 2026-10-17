@@ -16,7 +16,7 @@ import kr.co.teambrain.marvelrun.admin.payment.command.application.domain.Paymen
 import kr.co.teambrain.marvelrun.admin.payment.command.application.domain.PaymentProcessLog;
 import kr.co.teambrain.marvelrun.admin.payment.command.application.dto.RefundPaymentLedger;
 
-/** 02에서 잠근 행을 현재 읽기로 로드하고 기존 테이블에 준비 결과를 저장한다. */
+/** 접근 단계에서 잠근 행을 현재 읽기로 로드하고 기존 테이블에 준비 결과를 저장한다. */
 @Repository
 @RequiredArgsConstructor
 @Transactional(propagation = Propagation.MANDATORY)
@@ -31,6 +31,18 @@ public class AdminRefundPreparationStore {
         if (value == null) { throw invalid(); }
         entityManager.refresh(value, LockModeType.PESSIMISTIC_WRITE);
         return value;
+    }
+
+    /** 대회·단체·금융 잠금 이후 현재 구성원을 읽어 접수 명단과 비교한다. 삭제 이력도 보존한다. */
+    public List<Registration> lockOrganizationMembers(String eventId, String organizationId) {
+        List<Registration> rows = entityManager.createQuery(
+                "select r from Registration r where r.event.id=:event and r.organization.id=:organization order by r.id",
+                Registration.class).setParameter("event", eventId).setParameter("organization", organizationId)
+                .setLockMode(LockModeType.PESSIMISTIC_WRITE).getResultList();
+        for (Registration row : rows) {
+            entityManager.refresh(row, LockModeType.PESSIMISTIC_WRITE);
+        }
+        return rows;
     }
 
     /** 선택 참가자마다 CONSUMED 예약이 있는지는 준비 서비스에서 검증한다. */

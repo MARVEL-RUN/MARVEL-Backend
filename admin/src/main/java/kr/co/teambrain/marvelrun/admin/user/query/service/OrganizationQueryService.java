@@ -160,9 +160,9 @@ public class OrganizationQueryService {
                 sSize = selected.selectedSize() != null ? selected.selectedSize() : "-";
             }
 
-            // 추가 요청된 데이터 변환 로직 적용
+            // 표시용 성별과 실제 약관 동의값을 변환한다.
             String genderStr = reg.getGender() == GenderClass.M ? "남성" : "여성";
-            String marketingConsent = Boolean.TRUE.equals(reg.getActiveUniqueInfo()) ? "Y" : "N";
+            String marketingConsent = Boolean.TRUE.equals(reg.getTermsMarketingAgreed()) ? "Y" : "N";
             String finalStatus = isPaymentUnknown ? "UNKNOWN" : reg.getStatus().name();
 
             members.add(OrganizationMemberDto.builder()

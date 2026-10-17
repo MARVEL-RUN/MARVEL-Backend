@@ -110,7 +110,8 @@ public class DiscountQueryService {
             // 신청 유형과 종목에 맞는 내부 조건으로 일반가·연령별 안내를 구성한다.
             List<DiscountModels.Policy> internal = snapshot.stream().filter(policy -> policy.stage() == DiscountModels.Stage.INTERNAL
                 && policy.targets(categoryId, organization)).toList();
-            result.add(describePrice("STANDARD", "모든 서비스 내 연령 할인 조건에 해당하지 않는 경우", type, base, null, appliedExternal));
+            result.add(describePrice(DiscountExplanation.STANDARD, DiscountExplanation.STANDARD.getFixedDescription(),
+                type, base, null, appliedExternal));
             for (DiscountModels.Policy policy : internal) {
 
                 // 겹친 연령 조건을 임의 우선순위로 선택하지 않고 설정 오류로 드러낸다.
@@ -118,15 +119,17 @@ public class DiscountQueryService {
                     && other.minAgeInclusive() < policy.maxAgeExclusive() && policy.minAgeInclusive() < other.maxAgeExclusive())) {
                     throw new CustomException(ErrorCode.DISCOUNT_CONFIGURATION_ERROR);
                 }
-                result.add(describePrice("AGE_CONDITION", "대회일 기준 만 " + policy.minAgeInclusive() + "세 이상 "
-                    + policy.maxAgeExclusive() + "세 미만인 경우", type, base, policy, appliedExternal));
+                result.add(describePrice(DiscountExplanation.AGE_CONDITION,
+                    DiscountExplanation.AGE_CONDITION.getConditionType()
+                        .describeAgeRange(policy.minAgeInclusive(), policy.maxAgeExclusive()),
+                    type, base, policy, appliedExternal));
             }
         }
         return List.copyOf(result);
     }
 
     /** 계산 실패를 정상 금액으로 노출하지 않는다. */
-    private PriceOptionResponse describePrice(String scenario, String description, DiscountModels.ApplicationType type,
+    private PriceOptionResponse describePrice(DiscountExplanation scenario, String description, DiscountModels.ApplicationType type,
         BigDecimal base, DiscountModels.Policy internal, DiscountModels.Policy external) {
         DiscountModels.PriceResult result = calculator.calculateDiscountedPrice(base, internal, external);
         if (result.failure() != DiscountModels.Failure.NONE) {

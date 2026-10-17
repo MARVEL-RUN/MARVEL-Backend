@@ -6,7 +6,7 @@ import java.util.List;
 
 /** 조건 충족을 가정한 안내 금액이며 실제 참가자의 자격 확정 결과가 아니다. */
 public record PriceOptionResponse(
-        String scenario,
+        DiscountExplanation scenario,
         String description,
         DiscountModels.ApplicationType applicationType,
         BigDecimal baseAmount,

@@ -97,6 +97,25 @@ public class AdminRefundPreparationTransactionService {
                 && (registrations.size() != 1 || !Objects.equals(registrations.getFirst().getVersion(), command.expectedRegistrationVersion()))) {
             throw new CustomException(ErrorCode.CONCURRENT_MODIFICATION);
         }
+        // 접수 후 명단 또는 선택 신청이 변경되었으면 정원·금액을 바꾸기 전에 묶음 전체를 차단한다.
+        List<Registration> organizationMembers = null;
+        if (command.expectedRegistrations() != null) {
+            if (organizationId == null || command.expectedActiveRegistrationIds() == null) {
+                throw new CustomException(ErrorCode.CONCURRENT_MODIFICATION);
+            }
+            organizationMembers = store.lockOrganizationMembers(eventId, organizationId);
+            List<String> currentIds = organizationMembers.stream().filter(member -> !member.isSoftDeleted())
+                    .map(Registration::getId).sorted().toList();
+            List<String> expectedIds = command.expectedActiveRegistrationIds().stream().sorted().toList();
+            List<String> selectedIds = command.expectedRegistrations().stream()
+                    .map(AdminRefundCommandContext.ExpectedRegistration::registrationId).sorted().toList();
+            if (!currentIds.equals(expectedIds) || !selectedIds.equals(ids.stream().sorted().toList())
+                    || command.expectedRegistrations().stream().anyMatch(expected -> expected.version() == null
+                    || registrations.stream().noneMatch(registration -> registration.getId().equals(expected.registrationId())
+                        && Objects.equals(registration.getVersion(), expected.version())))) {
+                throw new CustomException(ErrorCode.CONCURRENT_MODIFICATION);
+            }
+        }
         List<Reservation> reservations = store.reservations(registrations.stream().map(Registration::getId).toList());
         Map<String, Reservation> byRegistration = new TreeMap<>();
         for (Reservation reservation : reservations) {
@@ -165,7 +184,8 @@ public class AdminRefundPreparationTransactionService {
         }
         // 선택되지 않은 구성원까지 포함하여 단체 최소 인원 유지 여부를 검증한다.
         if (organization != null) {
-            List<Registration> allMembers = registrationRepository.findAllByOrganization_Id(organizationId);
+            List<Registration> allMembers = organizationMembers != null ? organizationMembers
+                    : registrationRepository.findAllByOrganization_Id(organizationId);
             Set<String> removedIds = new HashSet<>();
             candidates.stream().filter(Candidate::cancel).forEach(candidate -> removedIds.add(candidate.registration().getId()));
             Set<String> retainedIds = new HashSet<>();
@@ -204,8 +224,9 @@ public class AdminRefundPreparationTransactionService {
         }
         List<RefundPreparationPlan> plans = planner.plan(projected, ledgers);
         if (targets == null && plans.isEmpty()) { throw invalid(); }
-        // 관리자 배치 단일 대상의 외부 호출 수도 제한한다. 준비 변경 전이므로 전체 롤백된다.
-        if (command.batchId() != null && plans.size() > 10) { throw invalid(); }
+        // 묶음은 기존 신청당 호출 예산을 합산하되 실행기의 원장 상한을 넘지 않는다.
+        int refundLimit = Math.min(AdminRefundLockRepository.MAX_LEDGER_ROWS, 10 * ids.size());
+        if (command.batchId() != null && plans.size() > refundLimit) { throw invalid(); }
 
         List<Candidate> retained = candidates.stream().filter(c -> !c.cancel()).toList();
         if (!retained.isEmpty()) {
