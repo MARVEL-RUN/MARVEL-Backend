@@ -18,7 +18,27 @@ public final class DiscountModels {
 
     /** 현재 지원하는 고정 참가비와 비율 할인 방식을 구분한다. */
     public enum Method {
-        FIXED_PRICE, PERCENT
+        FIXED_PRICE("고정 참가비", "참가비를 지정된 고정 금액으로 설정합니다. 정액 차감이 아닙니다."),
+        PERCENT("비율 할인", "현재 계산 단계의 금액에서 지정 비율을 할인합니다.");
+
+        private final String label;
+        private final String description;
+
+        /** 계산 방식의 공통 명칭과 설명을 보관하며 저장 코드와 분리한다. */
+        Method(String label, String description) {
+            this.label = label;
+            this.description = description;
+        }
+
+        /** 화면·문서에서 재사용할 짧은 명칭을 반환한다. */
+        public String getLabel() {
+            return label;
+        }
+
+        /** 계산 의미를 안내하는 공통 설명을 반환한다. */
+        public String getDescription() {
+            return description;
+        }
     }
 
     /** 개인·단체 신청의 정책 적용 대상을 구분한다. */

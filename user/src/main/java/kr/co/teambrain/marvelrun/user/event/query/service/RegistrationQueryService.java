@@ -1,6 +1,8 @@
 package kr.co.teambrain.marvelrun.user.event.query.service;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
+import kr.co.teambrain.marvelrun.user.discount.domain.RegistrationPriceCalculation;
+import kr.co.teambrain.marvelrun.user.discount.repository.RegistrationPriceCalculationRepository;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -44,6 +46,7 @@ public class RegistrationQueryService {
     private final ServerTimeProvider time;
     private final RegistrationActionPolicyService actionPolicies;
     private final EventCategoryStartGroupRepository startGroupRepository;
+    private final RegistrationPriceCalculationRepository priceCalculations;
     private final RegistrationActionPolicyEvaluator policyEvaluator = new RegistrationActionPolicyEvaluator();
 
     /** 개인 취소·재신청 이력도 일괄 조회하고 현재 본인확인을 통과한 행만 반환한다. */
@@ -93,6 +96,7 @@ public class RegistrationQueryService {
         List<RegistrationActionPolicyInput> policies = actionPolicies.loadEnabledRegistrationActionPolicies(eventId, List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT));
         Map<String, String> names = souvenirNames(eventId, members);
         Map<String, String> groupCodes = findStartGroupCodes(members);
+        Map<String, RegistrationPriceCalculationResponse> calculations = findCurrentPriceCalculations(members);
         List<RegistrationQueryData.Payment> payments = repository.personalPayments(eventId,
                 members.stream().map(RegistrationQueryData.Member::id).toList());
         List<String> ids = payments.stream().map(RegistrationQueryData.Payment::id).toList();
@@ -114,7 +118,8 @@ public class RegistrationQueryService {
                     row.categoryId(), row.categoryName(), selections(row, names), row.address(), row.addressDetail(),
                     row.guardianConsent(), row.guardianName(), row.guardianPhNum(), row.guardianRelationShip(), row.status(), row.contractAmount(), row.paidAmount(),
                     payment.status(), payment.refundStatus(), payment.action(), payment.warning(), payment.paymentId(), payment.orderId(), row.externalPayment(), policyEvaluator.evaluateRegistrationUserPolicy(row.policyEvent(), toParticipantActionPolicyInput(row), now, policies),
-                    row.startGroupId(), row.startGroupId() == null ? null : groupCodes.get(row.startGroupId()), row.startGroupUnselected()));
+                    row.startGroupId(), row.startGroupId() == null ? null : groupCodes.get(row.startGroupId()), row.startGroupUnselected(),
+                    calculations.containsKey(row.id()), calculations.get(row.id())));
         }
         return List.copyOf(result);
     }
@@ -136,6 +141,7 @@ public class RegistrationQueryService {
             List<RegistrationActionPolicyInput> policies = loadedPolicies;
             Map<String, String> names = souvenirNames(eventId, members);
             Map<String, String> groupCodes = findStartGroupCodes(members);
+            Map<String, RegistrationPriceCalculationResponse> calculations = findCurrentPriceCalculations(members);
             List<RegistrationQueryData.Payment> payments = repository.payments(eventId, org.id(), true);
             List<String> ids = payments.stream().map(RegistrationQueryData.Payment::id).toList();
             RegistrationPaymentQueryResolver.Result payment = paymentResolver.resolveRegistrationPaymentGuidance(members, payments,
@@ -147,7 +153,8 @@ public class RegistrationQueryService {
                             row.address() == null ? org.addressDetail() : row.addressDetail(),
                             row.guardianBase() == GuardianBase.ORG_LEADER ? org.leaderName() : row.guardianName(),
                             row.guardianBase() == GuardianBase.ORG_LEADER ? org.phNum() : row.guardianPhNum(), row.status(), policyEvaluator.evaluateOrganizationMemberPolicy(row.policyEvent(), toParticipantActionPolicyInput(row), now, policies),
-                            row.startGroupId(), row.startGroupId() == null ? null : groupCodes.get(row.startGroupId()), row.startGroupUnselected())).toList();
+                            row.startGroupId(), row.startGroupId() == null ? null : groupCodes.get(row.startGroupId()), row.startGroupUnselected(),
+                            calculations.containsKey(row.id()), calculations.get(row.id()))).toList();
             BigDecimal total = members.stream().map(RegistrationQueryData.Member::contractAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
             BigDecimal paid = members.stream().map(RegistrationQueryData.Member::paidAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
             result.add(new OrgRegistrationQueryResponse(org.id(), org.name(), org.loginId(), org.leaderName(),
@@ -157,6 +164,35 @@ public class RegistrationQueryService {
         }
         if (result.isEmpty()) { throw new CustomException(ErrorCode.ORGANIZATION_ACCESS_DENIED); }
         return List.copyOf(result);
+    }
+
+    /** 인증된 신청의 현재 계산 근거를 일괄 조회하며 다른 신청의 기록 노출을 차단한다. */
+    private Map<String, RegistrationPriceCalculationResponse> findCurrentPriceCalculations(List<RegistrationQueryData.Member> members) {
+        // 과거 기록 미생성 신청만 있으면 조회 없이 기존 응답을 유지한다.
+        List<String> ids = members.stream().map(RegistrationQueryData.Member::currentPriceCalculationId)
+                .filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+
+        // 최신 시각이 아닌 신청의 현재 참조를 사용하고 누락·소유 불일치를 검증한다.
+        Map<String, RegistrationPriceCalculation> records = priceCalculations.findAllById(ids).stream()
+                .collect(Collectors.toMap(RegistrationPriceCalculation::getId, calculation -> calculation));
+        Map<String, RegistrationPriceCalculationResponse> result = new HashMap<>();
+        for (RegistrationQueryData.Member member : members) {
+            if (member.currentPriceCalculationId() == null) {
+                continue;
+            }
+            RegistrationPriceCalculation calculation = records.get(member.currentPriceCalculationId());
+            if (calculation == null || !member.id().equals(calculation.getRegistrationId())
+                    || calculation.getSnapshot() == null || calculation.getSnapshot().schemaVersion() != 1) {
+                throw new CustomException(ErrorCode.DISCOUNT_CONFIGURATION_ERROR);
+            }
+            result.put(member.id(), RegistrationPriceCalculationResponse.from(calculation));
+        }
+
+        // 실제 납부액과 분리된 마지막 계산 근거만 응답에 연결한다.
+        return result;
     }
 
     /** 기존 선택은 비활성 그룹도 포함하여 ID 목록 한 번으로 표시 코드를 읽는다. */

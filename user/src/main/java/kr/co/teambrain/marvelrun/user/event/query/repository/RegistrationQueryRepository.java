@@ -30,6 +30,7 @@ public class RegistrationQueryRepository {
             select r.id as id, r.name as name, r.email as email, r.birth as birth, r.phNum as phNum,
                    r.password as password, r.gender as gender,
                    r.startGroupId as startGroupId, r.startGroupUnselected as startGroupUnselected,
+                   r.currentPriceCalculationId as currentPriceCalculationId,
                    c.id as categoryId, c.name as categoryName, r.souvenirJson as souvenirs,
                    r.address as address, r.addressDetail as addressDetail,
                    r.guardianBase as guardianBase, r.guardianConsent as guardianConsent, r.guardianName as guardianName, r.guardianRelationship as guardianRelationship,
@@ -165,7 +166,8 @@ public class RegistrationQueryRepository {
                 t.get("contractAmount", BigDecimal.class), t.get("paidAmount", BigDecimal.class),
                 t.get("deleted", Boolean.class), t.get("reservationStatus", ReservationStatus.class),
                 t.get("paymentDeadline", LocalDateTime.class), t.get("externalPayment", Boolean.class), t.get("registrationDate", LocalDateTime.class), mapEventActionPolicyInput(t),
-                t.get("startGroupId", String.class), t.get("startGroupUnselected", Boolean.class));
+                t.get("startGroupId", String.class), t.get("startGroupUnselected", Boolean.class),
+                t.get("currentPriceCalculationId", String.class));
     }
     /** 상세 조회와 명령 판정에 동일한 대회 시각 값을 전달한다. */
     private EventInput mapEventActionPolicyInput(Tuple t) {
