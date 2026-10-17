@@ -2,6 +2,7 @@ package kr.co.teambrain.marvelrun.user.payment.command.application.creator;
 
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
+import kr.co.teambrain.marvelrun.user.discount.service.LinkDiscountEligibilityService;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
@@ -32,6 +33,7 @@ import java.util.Set;
 @Component
 @RequiredArgsConstructor
 public class PaymentAllocationCreator {
+    private final LinkDiscountEligibilityService discountEligibility;
 
     private final PaymentAllocationCommandRepository
             paymentAllocationCommandRepository;
@@ -87,6 +89,11 @@ public class PaymentAllocationCreator {
                 payment,
                 allocations
         );
+
+        // 최초 납부 귀속만 검사한다. 차단 시 호출자의 주문·정원 변경까지 함께 롤백한다.
+        discountEligibility.validateInitialPaymentLinks(allocations.stream()
+                .filter(allocation -> allocation.effectivePurpose() == PaymentPurpose.REGISTRATION_TRY)
+                .map(PaymentAllocation::getRegistration).toList());
 
         return paymentAllocationCommandRepository.saveAll(
                 allocations

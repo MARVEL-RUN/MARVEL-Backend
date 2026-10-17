@@ -1,4 +1,5 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
+import kr.co.teambrain.marvelrun.user.discount.service.RegistrationPriceCalculationRecorder;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
@@ -80,7 +81,7 @@ class RegistrationPersonalModificationServiceTest {
     private final EntityManager entityManager = mock(EntityManager.class);
 
     private final RegistrationPersonalModificationService service =
-            new RegistrationPersonalModificationService(mock(ReservationHistoryRecorder.class),
+            new RegistrationPersonalModificationService(mock(RegistrationPriceCalculationRecorder.class), mock(ReservationHistoryRecorder.class),
                     registrationCapacityService,
                     accessValidator,
                     candidateValidator,

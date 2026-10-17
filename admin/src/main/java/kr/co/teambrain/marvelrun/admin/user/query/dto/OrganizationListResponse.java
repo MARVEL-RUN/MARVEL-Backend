@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.admin.user.query.dto;
 
+import kr.co.teambrain.marvelrun.admin.discount.query.ReferenceFilterSummaryResponse;
+
 import lombok.Builder;
 import lombok.Getter;
 
@@ -8,6 +10,7 @@ import java.time.LocalDateTime;
 @Getter
 @Builder
 public class OrganizationListResponse {
+    private ReferenceFilterSummaryResponse referenceFilter;
     private long listNumber;           // 역순 넘버링
     private String organizationId;     // 단체 ID
     private String groupName;          // 단체명

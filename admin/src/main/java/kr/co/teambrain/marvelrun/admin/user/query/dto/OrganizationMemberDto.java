@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.admin.user.query.dto;
 
+import kr.co.teambrain.marvelrun.admin.discount.query.ReferenceFilterSummaryResponse;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import kr.co.teambrain.marvelrun.admin.event.policy.RegistrationActionPolicyModels;
@@ -10,6 +12,7 @@ import lombok.Getter;
 @Getter
 @Builder
 public class OrganizationMemberDto {
+    private ReferenceFilterSummaryResponse referenceFilter;
     /** 사용자 관점의 기간·외부결제 제한이며 관리자 명령 권한과는 별개다. */
     private RegistrationActionPolicyModels.OrganizationMemberPolicy memberPolicy;
 

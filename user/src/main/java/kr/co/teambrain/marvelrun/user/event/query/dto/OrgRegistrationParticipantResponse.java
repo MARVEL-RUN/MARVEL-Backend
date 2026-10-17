@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.query.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
@@ -13,5 +15,9 @@ public record OrgRegistrationParticipantResponse(
         String address, String addressDetail, String guardianName, String guardianPhNum,
         RegistrationStatus registrationStatus,
         RegistrationActionPolicyModels.OrganizationMemberPolicy memberPolicy,
-        String startGroupId, String startGroupCode, boolean startGroupUnselected
+        String startGroupId, String startGroupCode, boolean startGroupUnselected,
+        @Schema(description = "해당 참가자의 계산 기록 존재 여부. false는 할인 미적용을 의미하지 않습니다.")
+        boolean hasPriceCalculation,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        RegistrationPriceCalculationResponse priceCalculation
 ) { }

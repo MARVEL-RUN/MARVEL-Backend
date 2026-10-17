@@ -1,4 +1,9 @@
 package kr.co.teambrain.marvelrun.admin.event.command.application.service;
+import kr.co.teambrain.marvelrun.admin.discount.service.OrganizationDiscountGuard;
+import kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationCommandRepository;
+import kr.co.teambrain.marvelrun.admin.user.command.application.service.OrganizationLifecycleService;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import jakarta.persistence.EntityManager;
 import java.time.LocalDateTime;
@@ -47,6 +52,9 @@ import org.springframework.transaction.annotation.Propagation;
 @RequiredArgsConstructor
 @Transactional
 public class AdminUnpaidRegistrationCancellationService {
+    private final OrganizationDiscountGuard discountGuard;
+    private final RegistrationCommandRepository registrationRepository;
+    private final OrganizationLifecycleService organizationLifecycle;
     private final EntityManager entityManager;
     private final AdminRefundLockRepository locks;
     private final AdminRefundPreparationStore store;
@@ -259,6 +267,13 @@ public class AdminUnpaidRegistrationCancellationService {
             throw new CustomException(ErrorCode.RESERVATION_STATE_CONFLICT);
         }
 
+        // 일괄 API도 단건 독립 취소이므로 각 성공 후 최소 인원을 유지해야 한다.
+        if (registration.getOrganization() != null) {
+            List<Registration> allMembers = registrationRepository.findAllByOrganization_Id(organizationId);
+            Set<String> retained = allMembers.stream().filter(member -> !member.isSoftDeleted()
+                    && !member.getId().equals(registrationId)).map(Registration::getId).collect(Collectors.toSet());
+            discountGuard.validateOrganizationMemberChange(registration.getOrganization(), allMembers, retained, 0);
+        }
         Map<String, Integer> quantities = new TreeMap<>();
 
         if (reservation.getStatus() == ReservationStatus.HELD) {
@@ -309,6 +324,7 @@ public class AdminUnpaidRegistrationCancellationService {
             }
         }
 
+        organizationLifecycle.completeOrganizationCancellation(organizationId);
         return new CancellationOutcome(false, message);
     }
 

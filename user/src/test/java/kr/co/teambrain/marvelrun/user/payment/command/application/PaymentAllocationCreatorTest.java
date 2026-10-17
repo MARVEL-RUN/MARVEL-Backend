@@ -1,6 +1,7 @@
 package kr.co.teambrain.marvelrun.user.payment.command.application;
 
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
+import kr.co.teambrain.marvelrun.user.discount.service.LinkDiscountEligibilityService;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentAllocationCreator;
@@ -42,7 +43,7 @@ class PaymentAllocationCreatorTest {
 
         creator =
                 new PaymentAllocationCreator(
-                        repository
+                        mock(LinkDiscountEligibilityService.class), repository
                 );
 
         when(

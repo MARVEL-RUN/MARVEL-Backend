@@ -41,7 +41,7 @@ public class RegistrationReceiptQueryRepository {
     public List<Organization> findOrganizationCandidates(String eventId, String loginId) {
         return entityManager.createQuery("""
                 select o from Organization o join fetch o.event e
-                where e.id = :eventId and o.loginId = :loginId
+                where e.id = :eventId and o.loginId = :loginId and o.softDeleted = false
                 order by o.id
                 """, Organization.class)
                 .setParameter("eventId", eventId).setParameter("loginId", loginId)

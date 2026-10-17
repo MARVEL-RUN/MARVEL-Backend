@@ -1,4 +1,9 @@
 package kr.co.teambrain.marvelrun.admin.payment.command;
+import kr.co.teambrain.marvelrun.admin.discount.service.RegistrationPriceCalculationRecorder;
+import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
+import kr.co.teambrain.marvelrun.admin.discount.service.OrganizationDiscountGuard;
+import kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationCommandRepository;
+import kr.co.teambrain.marvelrun.admin.discount.PricingPolicyFixtures;
 
 import jakarta.validation.Validation;
 import jakarta.validation.ValidatorFactory;
@@ -46,14 +51,14 @@ class AdminRefundPreparationServiceTest {
     private final AdminRefundAccessService access = mock(AdminRefundAccessService.class);
     private final AdminRefundPreparationStore store = mock(AdminRefundPreparationStore.class);
     private final RegistrationPolicyCandidateValidator policies = mock(RegistrationPolicyCandidateValidator.class);
-    private final RegistrationPricingService pricing = spy(new RegistrationPricingService());
+    private final RegistrationPricingService pricing = spy(new RegistrationPricingService(PricingPolicyFixtures.resolver()));
     private final CapacityRequirementResolver requirements = mock(CapacityRequirementResolver.class);
     private final ReservationCapacityDiffService diffs = mock(ReservationCapacityDiffService.class);
     private final CapacityModificationService movement = mock(CapacityModificationService.class);
     private final ReservationRemovalService removal = mock(ReservationRemovalService.class);
     private final PaymentCancelAllocationCreator allocations = mock(PaymentCancelAllocationCreator.class);
     private final AdminRefundTime time = mock(AdminRefundTime.class);
-    private final AdminRefundPreparationService service = new AdminRefundPreparationService(new AdminRefundPreparationTransactionService(mock(ReservationHistoryRecorder.class),access, store, policies,
+    private final AdminRefundPreparationService service = new AdminRefundPreparationService(new AdminRefundPreparationTransactionService(mock(RegistrationPriceCalculationRecorder.class), mock(ReservationHistoryRecorder.class), PricingPolicyFixtures.resolver(), mock(OrganizationDiscountGuard.class), mock(RegistrationCommandRepository.class),access, store, policies,
             pricing, requirements, diffs, movement, removal, new ModificationRefundPlanner(), allocations, time, VALIDATION.getValidator()));
     private final LocalDateTime now = LocalDateTime.of(2026, 11, 2, 12, 0);
     private final AdminRefundCommandContext command = new AdminRefundCommandContext("request", "admin", "종목 변경");
@@ -131,23 +136,23 @@ class AdminRefundPreparationServiceTest {
         verifyNoInteractions(policies, requirements, movement);
     }
 
-    /** 0원 정책 결과의 사전 선택으로 참가 유지와 취소를 분기하며 새 상태를 만들지 않는다. */
-    @ParameterizedTest
-    @ValueSource(booleans = {true, false})
-    void zeroContractUsesExplicitParticipationSetting(boolean keep) {
-        doReturn(BigDecimal.ZERO).when(pricing).calculateContractAmount(any(), any(), anyString());
-        var result = service.preparePartial("test-marvelrun", null, List.of(target(keep)), command);
-        assertThat(result.refunds().getFirst().amount()).isEqualByComparingTo("70000");
-        assertThat(registration.isSoftDeleted()).isEqualTo(!keep);
-        assertThat(reservation.getStatus()).isEqualTo(keep ? ReservationStatus.CONSUMED : ReservationStatus.RELEASED);
-        assertThat(registration.getStatus()).isEqualTo(keep ? RegistrationStatus.PARTIAL_REFUND_REQUIRED : RegistrationStatus.CANCELLATION_PENDING);
+    /** 할인 계산 결과 0원은 현재 명시적인 업무 오류로 차단한다. */
+    @Test
+    void zeroContractIsRejectedBeforeMutation() {
+        doThrow(new CustomException(ErrorCode.DISCOUNT_ZERO_AMOUNT_NOT_SUPPORTED)).when(pricing)
+                .calculateRegistrationPrice(any(), any(), anyString(), anyBoolean(), any(), anyList());
+        assertThatThrownBy(() -> service.preparePartial("test-marvelrun", null, List.of(target(true)), command))
+                .isInstanceOf(CustomException.class);
+        assertThat(registration.isSoftDeleted()).isFalse();
+        assertThat(registration.getContractAmount()).isEqualByComparingTo("70000");
+        verifyNoInteractions(movement, removal, allocations);
     }
 
     /** 증가/동일 금액도 변경을 완료하고 주문·환불 시도는 만들지 않는다. */
     @ParameterizedTest
     @ValueSource(strings = {"70000", "80000"})
     void acceptsAdditionalAndSamePriceWithoutRefund(String amount) {
-        doReturn(new BigDecimal(amount)).when(pricing).calculateContractAmount(any(), any(), anyString());
+        doReturn(new DiscountModels.PriceResult(DiscountModels.Failure.NONE, new BigDecimal(amount), new BigDecimal(amount), BigDecimal.ZERO, List.of())).when(pricing).calculateRegistrationPrice(any(), any(), anyString(), anyBoolean(), any(), anyList());
         var prepared = service.preparePartial("test-marvelrun", null, List.of(target(true)), command);
         var member = prepared.members().getFirst();
         assertThat(prepared.refunds()).isEmpty();
@@ -219,7 +224,7 @@ class AdminRefundPreparationServiceTest {
             return List.of(new RegistrationPolicyCandidateResult(category,LocalDate.of(2015,1,1),souvenirs));
         });
         service.preparePartial("test-marvelrun",null,List.of(new AdminPaymentPartialRefundTarget("r","c",souvenirs,"2015-01-01",true)),command);
-        verify(pricing).calculateContractAmount(event,category,"2015-01-01");
+        verify(pricing).calculateRegistrationPrice(eq(event),eq(category),eq("2015-01-01"),eq(false),isNull(),anyList());
         verify(requirements).resolveAll(eq("test-marvelrun"),argThat(inputs -> inputs.size()==1 && inputs.getFirst().child()));
         assertThat(registration.getBirth()).isEqualTo("2015-01-01");
         assertThat(registration.getContractAmount()).isEqualByComparingTo("40000");
@@ -230,7 +235,7 @@ class AdminRefundPreparationServiceTest {
         ModificationRefundPlanner planner=mock(ModificationRefundPlanner.class);
         RefundPreparationPlan plan=mock(RefundPreparationPlan.class);
         when(planner.plan(anyList(),anyList())).thenReturn(Collections.nCopies(11,plan));
-        AdminRefundPreparationService limited=new AdminRefundPreparationService(new AdminRefundPreparationTransactionService(mock(ReservationHistoryRecorder.class),
+        AdminRefundPreparationService limited=new AdminRefundPreparationService(new AdminRefundPreparationTransactionService(mock(RegistrationPriceCalculationRecorder.class), mock(ReservationHistoryRecorder.class), PricingPolicyFixtures.resolver(), mock(OrganizationDiscountGuard.class), mock(RegistrationCommandRepository.class),
                 access,store,policies,pricing,requirements,diffs,movement,removal,planner,allocations,time,VALIDATION.getValidator()));
         AdminRefundCommandContext batchCommand=new AdminRefundCommandContext("request","admin","상한 확인",null,"batch",0);
         assertThatThrownBy(() -> limited.prepareFull("test-marvelrun",null,List.of("r"),batchCommand))

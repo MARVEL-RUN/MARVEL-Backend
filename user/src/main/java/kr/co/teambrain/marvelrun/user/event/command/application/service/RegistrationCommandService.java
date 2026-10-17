@@ -1,5 +1,12 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import kr.co.teambrain.marvelrun.common.discount.model.RegistrationPriceCalculationSnapshot;
+import kr.co.teambrain.marvelrun.user.discount.service.RegistrationPriceCalculationRecorder;
+import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
+import kr.co.teambrain.marvelrun.user.discount.domain.DiscountLink;
+import kr.co.teambrain.marvelrun.user.discount.service.DiscountPolicyResolver;
+import kr.co.teambrain.marvelrun.user.discount.service.LinkDiscountEligibilityService;
+
 import org.springframework.security.crypto.password.PasswordEncoder;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import java.nio.charset.StandardCharsets;
@@ -47,6 +54,9 @@ import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
 @Service
 @RequiredArgsConstructor
 public class RegistrationCommandService {
+    private final RegistrationPriceCalculationRecorder priceCalculations;
+    private final DiscountPolicyResolver discountPolicies;
+    private final LinkDiscountEligibilityService discountEligibility;
     private final RegistrationStartGroupResolver startGroups;
     private final RegistrationActionPolicyService actionPolicies;
     private final PasswordEncoder passwordEncoder;
@@ -94,9 +104,9 @@ public class RegistrationCommandService {
             String eventId,
             RegistrationCreateRequest request
     ) {
-        LocalDateTime now = serverTimeProvider.currentDateTime();
-
         registrationCapacityService.lockEvent(eventId);
+
+        LocalDateTime now = serverTimeProvider.currentDateTime();
 
         RegistrationCreateContext context =
                 registrationApplyValidator.validate(
@@ -112,20 +122,13 @@ public class RegistrationCommandService {
 
         EventCategory eventCategory = context.eventCategory();
 
-        /*
-         * Validation을 통과한 신청정보를 기준으로
-         * 서버에서 최종 계약금액을 계산한다.
-         *
-         * Client에서 전달한 금액은 사용하지 않으며,
-         * 현재 9/22 MVP에서는 대상 MarvelRun Event의 어린이에게만
-         * 40,000원 고정가격을 적용한다.
-         */
-        BigDecimal contractAmount =
-                registrationPricingService.calculateContractAmount(
-                        event,
-                        eventCategory,
-                        request.birth()
-                );
+        // 검증된 자격과 DB 정책으로 가격을 계산한다.
+        List<DiscountModels.Policy> discountSnapshot = discountPolicies.resolveEventPolicies(eventId);
+        DiscountLink discountLink = discountEligibility.acquireRegistrationLink(
+                request.discountLinkCode(), eventId, false, now, discountSnapshot);
+        DiscountModels.PriceResult discountPrice = registrationPricingService.calculateRegistrationPrice(
+                event, eventCategory, request.birth(), false, discountLink, discountSnapshot);
+        BigDecimal contractAmount = discountPrice.finalAmount();
 
         // BCrypt의 입력 한도를 넘는 원문은 자르지 않고 업무 오류로 거부한다.
         if (request.password().getBytes(StandardCharsets.UTF_8).length > 72) {
@@ -143,6 +146,11 @@ public class RegistrationCommandService {
                         now
                 );
 
+        // 비대상 종목도 링크 자격을 보존하며 실제 적용 내역은 별도 계산 기록에 남긴다.
+        if (discountLink != null) {
+            registration.assignDiscountQualification(discountLink.getId(), discountLink.getReferenceFilterId());
+        }
+
         // 종목별 선택을 검증하고 미선택은 실제 후미 UUID로 저장한다.
         RegistrationStartGroupResolver.Selection selection = startGroups.resolveRegistrationStartGroups(List.of(
                 new RegistrationStartGroupResolver.Input(eventCategory.getId(), request.startGroupId(),
@@ -151,6 +159,10 @@ public class RegistrationCommandService {
 
         Registration savedRegistration =
                 registrationCommandRepository.save(registration);
+
+        // 신청 저장과 같은 트랜잭션에서 계산 근거와 현재 참조를 보존한다.
+        priceCalculations.recordRegistrationPriceCalculation(savedRegistration, discountPrice,
+                RegistrationPriceCalculationSnapshot.Reason.REGISTRATION_CREATED);
 
         registrationCapacityService.holdAndCloseIfFull(
                 event,

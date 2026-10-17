@@ -17,6 +17,12 @@ public class OrganizationSpecification {
     public static Specification<Organization> searchWith(OrganizationSearchCondition condition) {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
+            // 현재 행의 실제 필터 연결로 검색하며 단체 연결을 개인에게 대신 적용하지 않는다.
+            if (StringUtils.hasText(condition.referenceFilterId())) {
+                predicates.add(cb.equal(root.get("referenceFilterId"), condition.referenceFilterId()));
+            }
+            // 일반 단체 목록은 활성 계정만 제공하며 금융 이력 조회는 별도 유지한다.
+            predicates.add(cb.isFalse(root.get("softDeleted")));
 
             // 1. 대회(Event) 필터 추가
             if (StringUtils.hasText(condition.eventId())) {

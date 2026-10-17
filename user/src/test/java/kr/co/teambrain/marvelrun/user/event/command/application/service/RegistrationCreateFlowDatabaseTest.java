@@ -1,4 +1,10 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
+import kr.co.teambrain.marvelrun.user.event.command.application.service.OrganizationLifecycleService;
+import kr.co.teambrain.marvelrun.user.discount.service.LinkDiscountEligibilityService;
+import kr.co.teambrain.marvelrun.user.discount.service.OrganizationDiscountGuard;
+import kr.co.teambrain.marvelrun.user.discount.service.DiscountPolicyResolver;
+import kr.co.teambrain.marvelrun.user.discount.service.RegistrationPriceCalculationRecorder;
+
 
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategoryStartGroup;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategoryStartGroupRepository;
@@ -71,6 +77,10 @@ import static org.mockito.Mockito.when;
         replace = AutoConfigureTestDatabase.Replace.NONE
 )
 @Import({
+        OrganizationLifecycleService.class,
+        LinkDiscountEligibilityService.class,
+        OrganizationDiscountGuard.class,
+        DiscountPolicyResolver.class, RegistrationPriceCalculationRecorder.class,
         ReservationHistoryRecorder.class,
         RegistrationActionPolicyService.class,
         BCryptPasswordEncoder.class,

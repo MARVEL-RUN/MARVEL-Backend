@@ -1,5 +1,8 @@
 package kr.co.teambrain.marvelrun.admin.event.query.service;
 
+import kr.co.teambrain.marvelrun.admin.discount.query.ReferenceFilterQueryService;
+import kr.co.teambrain.marvelrun.admin.discount.query.ReferenceFilterSummaryResponse;
+
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
 
 import java.math.BigDecimal;
@@ -42,6 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class RegistrationQueryService {
+    private final ReferenceFilterQueryService referenceFilters;
     private final RegistrationActionPolicyReader actionPolicies;
     private final ServerTimeProvider policyTime;
     private final EventCategoryStartGroupRepository startGroupRepository;
@@ -81,6 +85,8 @@ public class RegistrationQueryService {
 
         // 그룹 코드는 현재 페이지의 ID만 묶어서 조회한다.
         Map<String, String> groupCodes = findStartGroupCodes(registrations.getContent());
+        Map<String, ReferenceFilterSummaryResponse> filterSummaries = referenceFilters.loadReferenceFilterSummaries(
+                registrations.getContent().stream().map(Registration::getReferenceFilterId).toList());
         long totalElements = registrations.getTotalElements();
         int pageNumber = pageable.getPageNumber();
         int pageSize = pageable.getPageSize();
@@ -91,13 +97,13 @@ public class RegistrationQueryService {
                     - ((long) pageNumber * pageSize)
                     - currentIndex;
 
-            return convertToDto(registration, listNumber, souvenirNames, groupCodes);
+            return convertToDto(registration, listNumber, souvenirNames, groupCodes, filterSummaries);
         });
     }
 
     /** 일괄 조회한 표시 코드와 기존 목록 정보를 결합한다. */
     private RegistrationListResponse convertToDto(Registration registration, long listNumber,
-                                                  Map<String, String> souvenirNames, Map<String, String> groupCodes) {
+                                                  Map<String, String> souvenirNames, Map<String, String> groupCodes, Map<String, ReferenceFilterSummaryResponse> filterSummaries) {
 
         boolean isOrganization = registration.getOrganization() != null;
         String type = isOrganization ? "단체" : "개인";
@@ -131,8 +137,9 @@ public class RegistrationQueryService {
                 : registration.getStatus().name();
 
         return RegistrationListResponse.builder()
+                .referenceFilter(filterSummaries.get(registration.getReferenceFilterId()))
                 .registrationId(registration.getId())
-                .startGroupCode(groupCodes.get(registration.getStartGroupId()))
+                .startGroupCode(registration.getStartGroupId() == null ? null : groupCodes.get(registration.getStartGroupId()))
                 .startGroupUnselected(registration.isStartGroupUnselected())
                 .listNumber(listNumber)
                 .type(type)
@@ -162,7 +169,7 @@ public class RegistrationQueryService {
 
         // 비활성화된 기존 선택도 저장된 코드로 표시한다.
         Map<String, String> groupCodes = findStartGroupCodes(List.of(registration));
-        return toRegistrationDetailResponse(registration, payment, groupCodes.get(registration.getStartGroupId()));
+        return toRegistrationDetailResponse(registration, payment, registration.getStartGroupId() == null ? null : groupCodes.get(registration.getStartGroupId()));
     }
 
     /* 신청 정보와 결제 표시값을 변환하며 외부 결제 여부는 저장된 값을 그대로 제공한다. */
@@ -234,6 +241,7 @@ public class RegistrationQueryService {
                 ? payment.getPaymentMethod().name() : "-";
 
         return RegistrationDetailResponse.builder()
+                .referenceFilter(referenceFilters.loadReferenceFilterSummaries(Collections.singletonList(registration.getReferenceFilterId())).get(registration.getReferenceFilterId()))
                 .startGroupId(registration.getStartGroupId())
                 .startGroupCode(startGroupCode)
                 .startGroupUnselected(registration.isStartGroupUnselected())

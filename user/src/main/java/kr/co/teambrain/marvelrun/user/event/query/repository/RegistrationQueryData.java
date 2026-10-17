@@ -26,7 +26,7 @@ public final class RegistrationQueryData {
             RegistrationStatus status, BigDecimal contractAmount, BigDecimal paidAmount,
             boolean deleted, ReservationStatus reservationStatus, LocalDateTime paymentDeadline,
             boolean externalPayment, LocalDateTime registrationDate, EventInput policyEvent,
-            String startGroupId, boolean startGroupUnselected) { }
+            String startGroupId, boolean startGroupUnselected, String currentPriceCalculationId) { }
 
     /** 단체 인증·대표자 정보의 내부 행이다. 비밀번호를 응답으로 직렬화하지 않는다. */
     public record Organization(String id, String loginId, String password, String name,

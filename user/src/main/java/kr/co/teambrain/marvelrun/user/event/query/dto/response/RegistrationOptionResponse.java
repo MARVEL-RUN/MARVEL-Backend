@@ -3,6 +3,7 @@ package kr.co.teambrain.marvelrun.user.event.query.dto.response;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.math.BigDecimal;
 import java.util.List;
+import kr.co.teambrain.marvelrun.user.discount.query.RegistrationPricingOptionsResponse;
 
 /** 종목·기념품·그룹 선택지와 별도로 신규 접수 정책상 허용 여부를 제공한다. */
 @JsonInclude(JsonInclude.Include.ALWAYS)
@@ -28,8 +29,14 @@ public record RegistrationOptionResponse(
             BigDecimal amount,
 
             List<SouvenirOption> souvenirs,
-            List<StartGroupOption> startGroups
+            List<StartGroupOption> startGroups,
+            RegistrationPricingOptionsResponse pricing
     ) {
+        /** 기존 종목·기념품 조립 호출을 유지하고 가격 안내는 조회 서비스가 추가한다. */
+        public EventCategoryOption(long order, String categoryId, String distance, String categoryName,
+                Boolean isActive, BigDecimal amount, List<SouvenirOption> souvenirs, List<StartGroupOption> startGroups) {
+            this(order, categoryId, distance, categoryName, isActive, amount, souvenirs, startGroups, null);
+        }
     }
 
 

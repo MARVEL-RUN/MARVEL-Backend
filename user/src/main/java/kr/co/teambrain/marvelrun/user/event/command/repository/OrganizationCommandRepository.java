@@ -18,7 +18,7 @@ public interface OrganizationCommandRepository
     @Query("""
         select o
         from Organization o
-        where o.id = :organizationId
+        where o.id = :organizationId and o.softDeleted = false
           and o.event.id = :eventId
         """)
     Optional<Organization> findPasswordChangeTarget(
@@ -36,7 +36,7 @@ public interface OrganizationCommandRepository
         select o
         from Organization o
         join fetch o.event e
-        where o.id = :organizationId
+        where o.id = :organizationId and o.softDeleted = false
           and e.id = :eventId
         """)
     Optional<Organization> findModificationTarget(
@@ -44,7 +44,11 @@ public interface OrganizationCommandRepository
             @Param("organizationId") String organizationId
     );
 
+    /** 활성 단체만 중복으로 취급한다. */
+    @Query("select (count(o) > 0) from Organization o where o.groupName = ?1 and o.event.id = ?2 and o.softDeleted = false")
     boolean existsByGroupNameAndEventId(String groupName, String eventId);
 
+    /** 삭제된 과거 단체와 아이디를 재사용할 수 있다. */
+    @Query("select (count(o) > 0) from Organization o where o.loginId = ?1 and o.event.id = ?2 and o.softDeleted = false")
     boolean existsByLoginIdAndEventId(String loginId, String eventId);
 }

@@ -342,14 +342,16 @@ class RegistrationDeliveryQueryRepositoryDatabaseTest {
         em.persist(row); return row;
     }
 
-    /** 관리자 단체 엔티티는 빌더가 없어 테스트 SQL로 필수 정보를 생성한다. */
+    /** 테스트 SQL로 필수 정보를 생성하며 활성 단체명·아이디 중복 제약을 준수한다. */
     private Organization organization() {
+        // 같은 대회에 여러 단체를 생성할 수 있도록 컬럼 길이 안에서 이름도 구분한다.
         String organization=id();
+        String groupName="단체-"+organization.substring(0,20);
         jdbc.update("""
             insert into organization(id,event_id,login_id,password,group_name,leader_name,leader_birth,leader_ph_num,
                 guardian_consent,created_at,address,address_detail)
-            values(?,?,?,'fixture','단체','대표','1990-01-01','01000000000',false,?,'단체 배송지','단체 상세')
-            """,organization,eventId,organization.substring(0,20),START);
+            values(?,?,?,'fixture',?,'대표','1990-01-01','01000000000',false,?,'단체 배송지','단체 상세')
+            """,organization,eventId,organization.substring(0,20),groupName,START);
         return em.getReference(Organization.class,organization);
     }
 
