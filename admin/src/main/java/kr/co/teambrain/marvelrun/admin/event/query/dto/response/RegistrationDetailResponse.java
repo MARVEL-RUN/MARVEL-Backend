@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.admin.event.query.dto.response;
 
+import kr.co.teambrain.marvelrun.admin.discount.query.ReferenceFilterSummaryResponse;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -12,6 +14,7 @@ import lombok.Builder;
  */
 @Builder
 public record RegistrationDetailResponse(
+        ReferenceFilterSummaryResponse referenceFilter,
         String name,                  // 성명
         String orgName,               // 단체명 (개인은 null 또는 "-")
         String courseName,            // 코스

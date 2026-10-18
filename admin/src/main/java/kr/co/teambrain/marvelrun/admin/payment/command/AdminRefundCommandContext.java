@@ -1,6 +1,18 @@
 package kr.co.teambrain.marvelrun.admin.payment.command;
+
+import java.util.List;
 /** 인증된 관리자 진입점이 제공하는 추적정보다. 금액이나 시간은 외부 입력으로 받지 않는다. */
-public record AdminRefundCommandContext(String requestId, String adminId, String reason, Long expectedRegistrationVersion, String batchId, Integer batchItemNo) {
+public record AdminRefundCommandContext(String requestId, String adminId, String reason, Long expectedRegistrationVersion,
+        String batchId, Integer batchItemNo, List<ExpectedRegistration> expectedRegistrations,
+        List<String> expectedActiveRegistrationIds) {
+    /** 접수 당시 선택 신청별 버전이다. 단체 버전 필드를 신설하지 않는다. */
+    public record ExpectedRegistration(String registrationId, Long version) { }
+
+    /** 기존 단건 준비와 정보 변경 배치의 호출 계약을 유지한다. */
+    public AdminRefundCommandContext(String requestId, String adminId, String reason, Long expectedRegistrationVersion,
+            String batchId, Integer batchItemNo) {
+        this(requestId, adminId, reason, expectedRegistrationVersion, batchId, batchItemNo, null, null);
+    }
     /** 기존 즉시 실행 호출은 별도 접수 스냅샷 없이 동일 트랜잭션 검증을 사용한다. */
     public AdminRefundCommandContext(String requestId, String adminId, String reason) {
         this(requestId, adminId, reason, null, null, null);

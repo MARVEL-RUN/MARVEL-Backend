@@ -13,10 +13,25 @@ public final class AdminRefundBatchModels {
     public enum Operation { FULL, PARTIAL }
     /** 접수 시 대상과 버전을 고정한다. 오류 대상도 목록에 남긴다. */
     public record Target(String registrationId, String organizationId, Long version,
-            AdminPaymentPartialRefundTarget change, String errorCode) { }
+            AdminPaymentPartialRefundTarget change, String errorCode, List<String> activeOrganizationMemberIds) {
+        /** 기존 저장 JSON과 단건·정보 변경 호출의 생성자 호환성을 유지한다. */
+        public Target(String registrationId, String organizationId, Long version,
+                AdminPaymentPartialRefundTarget change, String errorCode) {
+            this(registrationId, organizationId, version, change, errorCode, null);
+        }
+    }
+    /** 외부 결과 항목은 신청자별로 유지하면서 내부 실행 소유권만 함께 확보한다. */
+    public record WorkItem(int itemNo, Target target) { }
     /** 작업 소유권은 DB에서 먼저 커밋한 후 업무 트랜잭션을 시작한다. */
     public record Work(String batchId, int itemNo, String eventId, String adminId, String requestId,
-            String reason, Operation operation, Target target) { }
+            String reason, Operation operation, Target target, List<WorkItem> executionItems) {
+        /** 기존 단일 항목 호출은 한 명짜리 실행 묶음으로 해석한다. */
+        public Work(String batchId, int itemNo, String eventId, String adminId, String requestId,
+                String reason, Operation operation, Target target) {
+            this(batchId, itemNo, eventId, adminId, requestId, reason, operation, target,
+                    List.of(new WorkItem(itemNo, target)));
+        }
+    }
     /** 완료는 배치 실행 종료이며 모든 환불의 성공을 뜻하지 않는다. */
     public record Summary(String batchId, String requestId, String operation, String status,
             LocalDateTime acceptedAt, LocalDateTime updatedAt, LocalDateTime completedAt,

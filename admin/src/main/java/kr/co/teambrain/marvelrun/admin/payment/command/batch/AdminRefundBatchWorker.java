@@ -2,17 +2,19 @@ package kr.co.teambrain.marvelrun.admin.payment.command.batch;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
+import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.payment.command.*;
 import kr.co.teambrain.marvelrun.admin.payment.command.application.refund.*;
 import kr.co.teambrain.marvelrun.admin.payment.command.infrastructure.toss.refund.TossCancelOutcome;
 import kr.co.teambrain.marvelrun.admin.payment.command.batch.AdminRefundBatchModels.*;
 
-/** 한 번에 참가자 한 명만 실행하며 배치 예외를 수집한 후 다음 대상이 진행되게 한다. */
+/** 전체 환불은 단체별로 준비하며 개인·정보 변경은 단건으로 실행하고 예외를 수집한다. */
 @Component
 @RequiredArgsConstructor
 @Slf4j
@@ -31,8 +33,23 @@ public class AdminRefundBatchWorker {
             Target target = work.target();
             if (target.version() == null) { throw new IllegalStateException("접수 버전이 없습니다."); }
             AdminRefundCommandContext context = new AdminRefundCommandContext(work.requestId(),work.adminId(),work.reason(),target.version(),work.batchId(),work.itemNo());
+            // 신규 단체 환불은 접수 명단과 대상별 버전을 한 번의 준비 트랜잭션에 전달한다.
+            if (work.operation() == Operation.FULL && target.organizationId() != null) {
+                if (target.activeOrganizationMemberIds() == null || work.executionItems().stream().anyMatch(item ->
+                        item.target().version() == null || item.target().errorCode() != null
+                        || !Objects.equals(item.target().organizationId(), target.organizationId())
+                        || !Objects.equals(item.target().activeOrganizationMemberIds(), target.activeOrganizationMemberIds()))) {
+                    throw new CustomException(ErrorCode.CONCURRENT_MODIFICATION);
+                }
+                List<AdminRefundCommandContext.ExpectedRegistration> expected = work.executionItems().stream()
+                        .map(item -> new AdminRefundCommandContext.ExpectedRegistration(
+                                item.target().registrationId(), item.target().version())).toList();
+                context = new AdminRefundCommandContext(work.requestId(), work.adminId(), work.reason(), null,
+                        work.batchId(), work.itemNo(), expected, target.activeOrganizationMemberIds());
+            }
             prepared = work.operation() == Operation.FULL
-                    ? preparation.prepareFull(work.eventId(),target.organizationId(),List.of(target.registrationId()),context)
+                    ? preparation.prepareFull(work.eventId(), target.organizationId(),
+                            work.executionItems().stream().map(item -> item.target().registrationId()).sorted().toList(), context)
                     : preparation.preparePartial(work.eventId(),target.organizationId(),List.of(target.change()),context);
             // 정보 변경은 준비 트랜잭션 안에서 이미 원자적으로 저장했다.
             if (work.operation() == Operation.FULL) { store.prepared(work,prepared); }

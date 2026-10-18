@@ -58,7 +58,18 @@ public class AdminRefundBatchSelection {
             checkSize(selected.size());
         }
         checkSize(selected.size());
-        return List.copyOf(selected.values());
+        // 부분 선택도 단체 전체 활성 명단을 고정하여 실행 전 추가·삭제를 검출한다.
+        Map<String, List<String>> membership = new TreeMap<>();
+        for (Target target : selected.values()) {
+            if (target.organizationId() != null && target.errorCode() == null) {
+                membership.computeIfAbsent(target.organizationId(), organizationId -> jdbc.queryForList(
+                        "select id from registration where event_id=:event and organization_id=:organization and is_del=false order by id",
+                        Map.of("event", eventId, "organization", organizationId), String.class));
+            }
+        }
+        return selected.values().stream().map(target -> new Target(target.registrationId(), target.organizationId(),
+                target.version(), target.change(), target.errorCode(),
+                target.organizationId() == null ? null : membership.get(target.organizationId()))).toList();
     }
 
     /** 부분환불 후보는 요청 ID 순서와 무관하게 한 참가자당 한 번만 구성한다. */

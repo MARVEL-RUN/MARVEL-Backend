@@ -1,4 +1,5 @@
 package kr.co.teambrain.marvelrun.user.capacity.command.application.service;
+import kr.co.teambrain.marvelrun.user.event.command.application.service.OrganizationLifecycleService;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -50,7 +51,8 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /** 실제 MySQL에서 취소 원자성·귀속 환불·중복·충돌을 검증한다. Toss 승인과 환불은 대역이다. */
-@Import({RegistrationCancellationCommandService.class, RegistrationCancellationTransactionService.class,
+@Import({
+        OrganizationLifecycleService.class,RegistrationCancellationCommandService.class, RegistrationCancellationTransactionService.class,
         RegistrationModificationPaymentGuard.class, RegistrationModificationSettlementService.class,
         ReservationRemovalService.class, RefundExecutionLock.class, RefundExecutionTransactionService.class,
         ModificationRefundExecutor.class, ModificationRefundResultReader.class})
@@ -93,23 +95,28 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
                 UUID.randomUUID().toString(), eventId, NOW.minusDays(1), NOW.plusDays(1), NOW);
         jdbc.update("update event set regist_deadline=? where id=?", NOW, eventId);
         RegistrationModificationSettlementResult first = cancel(target);
-        RegistrationModificationSettlementResult repeated = cancel(target);
         assertThat(first.members()).hasSize(target.ids().size());
         assertThat(first.refunds()).isEmpty();
         assertThat(first.orders()).isEmpty();
-        assertThat(repeated.members()).hasSize(first.members().size());
+        // 삭제된 단체는 재접근을 차단하고 개인의 완료 취소 조회는 유지한다.
+        if (group) {
+            expectError(ErrorCode.ORGANIZATION_ACCESS_DENIED, () -> cancel(target));
+        } else {
+            RegistrationModificationSettlementResult repeated = cancel(target);
+            assertThat(repeated.members()).hasSize(first.members().size());
 
-        for (int index = 0; index < first.members().size(); index++) {
-            assertThat(repeated.members().get(index).registrationId())
-                    .isEqualTo(first.members().get(index).registrationId());
-            assertThat(repeated.members().get(index).status())
-                    .isEqualTo(first.members().get(index).status());
-            assertThat(repeated.members().get(index).contractAmount())
-                    .isEqualByComparingTo(first.members().get(index).contractAmount());
-            assertThat(repeated.members().get(index).paidAmount())
-                    .isEqualByComparingTo(first.members().get(index).paidAmount());
-            assertThat(repeated.members().get(index).balance())
-                    .isEqualByComparingTo(first.members().get(index).balance());
+            for (int index = 0; index < first.members().size(); index++) {
+                assertThat(repeated.members().get(index).registrationId())
+                        .isEqualTo(first.members().get(index).registrationId());
+                assertThat(repeated.members().get(index).status())
+                        .isEqualTo(first.members().get(index).status());
+                assertThat(repeated.members().get(index).contractAmount())
+                        .isEqualByComparingTo(first.members().get(index).contractAmount());
+                assertThat(repeated.members().get(index).paidAmount())
+                        .isEqualByComparingTo(first.members().get(index).paidAmount());
+                assertThat(repeated.members().get(index).balance())
+                        .isEqualByComparingTo(first.members().get(index).balance());
+            }
         }
         for (String id : target.ids()) { assertCanceled(id); }
         assertCapacityCounts(total, 0, 0);
@@ -159,11 +166,15 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
         assertThat(queryIntegerValue("select count(*) from payment_cancel_allocation a join payment_cancel c on c.id=a.payment_cancel_id where c.payment_id=?",
                 target.paymentId())).isEqualTo(target.ids().size());
         List<Map<String, Object>> resources = resourceSnapshot();
-        // 완료된 취소 재조회는 접수 마감 이후에도 허용하되 PG를 다시 부르지 않는다.
+        // 개인 재조회는 유지하고 삭제된 단체는 접근을 차단하며 PG를 다시 부르지 않는다.
         when(time.currentDateTime()).thenReturn(NOW.plusDays(3));
-        RegistrationModificationSettlementResult repeated = cancel(target);
-        assertThat(repeated.refunds()).hasSize(1);
-        assertThat(repeated.refunds().get(0).status()).isEqualTo(PaymentCancelStatus.DONE);
+        if (group) {
+            expectError(ErrorCode.ORGANIZATION_ACCESS_DENIED, () -> cancel(target));
+        } else {
+            RegistrationModificationSettlementResult repeated = cancel(target);
+            assertThat(repeated.refunds()).hasSize(1);
+            assertThat(repeated.refunds().get(0).status()).isEqualTo(PaymentCancelStatus.DONE);
+        }
         assertThat(resourceSnapshot()).isEqualTo(resources);
         verify(cancelClient, times(1)).cancel(any());
     }
@@ -356,8 +367,16 @@ class RegistrationCancellationDatabaseTest extends CapacityMvpTestSupport {
         try {
             Callable<RegistrationModificationSettlementResult> action = () -> {
                 if (!start.await(10, TimeUnit.SECONDS)) { throw new AssertionError("시작 신호 대기 초과"); }
-                return group ? commands.cancelOrganization(eventId, target.organizationId(), organizationAccess)
-                        : commands.cancelPersonal(eventId, target.ids().get(0), personalAccess);
+                try {
+                    return group ? commands.cancelOrganization(eventId, target.organizationId(), organizationAccess)
+                            : commands.cancelPersonal(eventId, target.ids().get(0), personalAccess);
+                } catch (CustomException exception) {
+                    // 다른 요청이 환불과 단체 삭제를 끝냈다면 삭제 계정 접근 거절만 허용한다.
+                    if (!group || exception.getErrorCode() != ErrorCode.ORGANIZATION_ACCESS_DENIED) {
+                        throw exception;
+                    }
+                    return null;
+                }
             };
             Future<RegistrationModificationSettlementResult> first = workers.submit(action);
             Future<RegistrationModificationSettlementResult> second = workers.submit(action);

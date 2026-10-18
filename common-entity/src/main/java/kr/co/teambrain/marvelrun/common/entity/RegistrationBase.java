@@ -284,4 +284,27 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
 //
 //    @Column(name = "refund_requested_at")
 //    protected LocalDateTime refundRequestedAt; // 환불 요청 시각
+
+    /** 취득한 링크 자격과 필터는 취소·소프트 삭제 후에도 보존한다. */
+    @Column(name = "discount_link_id", length = 40)
+    protected String discountLinkId;
+
+    // 실제 종목 할인 여부와 별개로 취득한 링크의 신청 분류를 보존한다.
+    @Column(name = "reference_filter_id", length = 40)
+    protected String referenceFilterId;
+
+    /** 신규 취득 또는 승인된 단체 승계 결과를 함께 기록한다. */
+    public void assignDiscountQualification(String linkId, String filterId) {
+        this.discountLinkId = linkId;
+        this.referenceFilterId = filterId;
+    }
+
+    /** 현재 계약금액의 계산 근거이며 전체 취소 후에도 마지막 기록을 보존한다. */
+    @Column(name = "current_price_calculation_id", length = 40)
+    protected String currentPriceCalculationId;
+
+    /** 동일 트랜잭션에서 저장된 이 신청 소유 계산 기록을 연결한다. */
+    public void assignCurrentPriceCalculation(String calculationId) {
+        this.currentPriceCalculationId = calculationId;
+    }
 }

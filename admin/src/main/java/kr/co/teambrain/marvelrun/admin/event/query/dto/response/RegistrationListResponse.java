@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.admin.event.query.dto.response;
 
+import kr.co.teambrain.marvelrun.admin.discount.query.ReferenceFilterSummaryResponse;
+
 import lombok.Builder;
 import java.time.LocalDateTime;
 
@@ -10,6 +12,7 @@ import java.time.LocalDateTime;
  */
 @Builder
 public record RegistrationListResponse(
+        ReferenceFilterSummaryResponse referenceFilter,
         String registrationId,    // 상세 조회 등을 위한 신청 PK
         Long listNumber,          // 번호: 페이징 정보를 기반으로 계산된 내림차순 번호
         String type,              // 유형: "개인" 또는 "단체"

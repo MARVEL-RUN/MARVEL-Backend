@@ -64,7 +64,7 @@ public class AdminRefundBatchStore {
         return batchId;
     }
 
-    /** 작업 하나의 소유권을 먼저 커밋한다. 이전 프로세스 RUNNING 작업은 자동 재전송하지 않는다. */
+    /** 단건 또는 단체 묶음의 소유권을 먼저 커밋한다. RUNNING 작업은 자동 재전송하지 않는다. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public Work claim(String batchId) {
         List<Map<String, Object>> batches = jdbc.queryForList("select * from admin_refund_batch where id=? and status='PENDING' for update", batchId);
@@ -74,19 +74,40 @@ public class AdminRefundBatchStore {
         if (items.isEmpty()) { finishBatchIfDone(batchId, time.now()); return null; }
         Map<String, Object> item = items.getFirst();
         int number = ((Number) item.get("item_no")).intValue();
+        Target first = read(jsonText(item.get("target_json")), Target.class);
+        Operation operation = Operation.valueOf((String) batch.get("operation"));
+        List<WorkItem> executionItems = new ArrayList<>();
+        // 신규 전체 환불만 단체별로 묶는다. 구형 JSON과 정보 변경 작업은 기존 단건 단위를 유지한다.
+        if (operation == Operation.FULL && first.organizationId() != null && first.activeOrganizationMemberIds() != null) {
+            List<Map<String, Object>> group = jdbc.queryForList("""
+                    select item_no,target_json from admin_refund_batch_item
+                    where batch_id=? and organization_id=? and status='PENDING' order by item_no for update
+                    """, batchId, first.organizationId());
+            for (Map<String, Object> row : group) {
+                executionItems.add(new WorkItem(((Number) row.get("item_no")).intValue(),
+                        read(jsonText(row.get("target_json")), Target.class)));
+            }
+        } else {
+            executionItems.add(new WorkItem(number, first));
+        }
         LocalDateTime now = time.now();
         jdbc.update("update admin_refund_batch set status='RUNNING',updated_at=? where id=?", now, batchId);
-        jdbc.update("update admin_refund_batch_item set status='RUNNING',started_at=? where batch_id=? and item_no=?", now, batchId, number);
+        for (WorkItem member : executionItems) {
+            requireOne(jdbc.update("update admin_refund_batch_item set status='RUNNING',started_at=? where batch_id=? and item_no=? and status='PENDING'",
+                    now, batchId, member.itemNo()));
+        }
         return new Work(batchId, number, (String) batch.get("event_id"), (String) batch.get("admin_id"),
-                (String) batch.get("request_id"), (String) batch.get("reason"), Operation.valueOf((String) batch.get("operation")),
-                read(jsonText(item.get("target_json")), Target.class));
+                (String) batch.get("request_id"), (String) batch.get("reason"), operation, first, List.copyOf(executionItems));
     }
 
     /** 준비 커밋 결과를 PG 호출 전에 보존한다. 저장 실패 시 PG 호출을 시작하지 않는다. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void prepared(Work work, AdminRefundPrepared prepared) {
-        requireOne(jdbc.update("update admin_refund_batch_item set preparation_json=? where batch_id=? and item_no=? and status='RUNNING'",
-                json(prepared), work.batchId(), work.itemNo()));
+        String body = json(prepared);
+        for (WorkItem member : work.executionItems()) {
+            requireOne(jdbc.update("update admin_refund_batch_item set preparation_json=? where batch_id=? and item_no=? and status='RUNNING'",
+                    body, work.batchId(), member.itemNo()));
+        }
     }
 
     /** 종료 결과와 작업 소유권 반환을 같은 배치 전용 트랜잭션에 저장한다. */
@@ -95,8 +116,11 @@ public class AdminRefundBatchStore {
         if (!Set.of("SUCCEEDED", "BLOCKED", "FAILED", "NEEDS_REVIEW").contains(status)) { throw new IllegalArgumentException("배치 종료 상태 오류"); }
         jdbc.queryForObject("select id from admin_refund_batch where id=? for update", String.class, work.batchId());
         LocalDateTime now = time.now();
-        requireOne(jdbc.update("update admin_refund_batch_item set status=?,error_code=?,result_json=?,finished_at=? where batch_id=? and item_no=? and status='RUNNING'",
-                status, errorCode, result == null ? null : json(result), now, work.batchId(), work.itemNo()));
+        String body = result == null ? null : json(result);
+        for (WorkItem member : work.executionItems()) {
+            requireOne(jdbc.update("update admin_refund_batch_item set status=?,error_code=?,result_json=?,finished_at=? where batch_id=? and item_no=? and status='RUNNING'",
+                    status, errorCode, body, now, work.batchId(), member.itemNo()));
+        }
         jdbc.update("update admin_refund_batch set status='PENDING',updated_at=? where id=?", now, work.batchId());
         finishBatchIfDone(work.batchId(), now);
     }

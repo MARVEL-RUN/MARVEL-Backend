@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.admin.payment.command.application.refund;
 
+import kr.co.teambrain.marvelrun.admin.user.command.application.service.OrganizationLifecycleService;
+
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.math.BigDecimal;
@@ -36,6 +38,7 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 @Transactional(propagation = Propagation.REQUIRES_NEW)
 public class RefundExecutionTransactionService {
+    private final OrganizationLifecycleService organizationLifecycle;
     private final ReservationHistoryRecorder historyRecorder;
     private final RefundExecutionLock locks;
     private final EntityManager entityManager;
@@ -136,6 +139,7 @@ public class RefundExecutionTransactionService {
                     currentShares.stream().filter(s -> registration.getId().equals(s.registrationId())).map(RefundExecutionTicket.Share::originalAllocationId).toList(),
                     cancel.getId(), currentShares.stream().filter(s -> registration.getId().equals(s.registrationId())).map(RefundExecutionTicket.Share::cancelAllocationId).toList(), time.now());
         }
+        organizationLifecycle.completeOrganizationCancellation(ticket.organizationId());
         cancel.getPayment().recordVerifiedRefundStatus(TossPaymentStatus.valueOf(expected));
         appendLog(cancel, ticket.correlationId(), PaymentProcessType.CANCEL_SUCCEEDED, outcome);
         entityManager.flush();

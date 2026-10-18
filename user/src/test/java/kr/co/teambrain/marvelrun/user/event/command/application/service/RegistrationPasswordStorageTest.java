@@ -1,4 +1,8 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
+import kr.co.teambrain.marvelrun.user.discount.service.RegistrationPriceCalculationRecorder;
+import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
+import kr.co.teambrain.marvelrun.user.discount.service.DiscountPolicyResolver;
+import kr.co.teambrain.marvelrun.user.discount.service.LinkDiscountEligibilityService;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.RegistrationCapacityService;
@@ -39,6 +43,7 @@ import static org.mockito.Mockito.*;
 /** 생성 서비스를 통과한 저장값이 해시이며 요청 DTO의 원문은 유지되는지 확인한다. */
 @ExtendWith(MockitoExtension.class)
 class RegistrationPasswordStorageTest {
+    @Mock private RegistrationPriceCalculationRecorder priceCalculations;
     @Mock private RegistrationActionPolicyService actionPolicies;
     @Mock private RegistrationStartGroupResolver startGroups;
     @Spy private PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(4);
@@ -53,6 +58,8 @@ class RegistrationPasswordStorageTest {
     @Mock private RegistrationApplyValidator personalValidator;
     @Mock private OrgRegistrationApplyValidator organizationValidator;
     @Mock private RegistrationPricingService pricing;
+    @Mock private DiscountPolicyResolver discountPolicies;
+    @Mock private LinkDiscountEligibilityService discountEligibility;
     @Mock private PaymentCreator payments;
     @Mock private PaymentAllocationCreator allocations;
     @Mock private ServerTimeProvider time;
@@ -118,7 +125,7 @@ class RegistrationPasswordStorageTest {
         when(time.currentDateTime()).thenReturn(NOW);
         when(organizationValidator.validate("event", request, NOW))
                 .thenReturn(new OrgRegistrationCreateContext(event, List.of(context, secondContext)));
-        when(pricing.calculateContractAmount(event, category, participant.birth())).thenReturn(BigDecimal.TEN);
+        when(pricing.calculateRegistrationPrice(eq(event), eq(category), eq(participant.birth()), eq(true), isNull(), anyList())).thenReturn(new DiscountModels.PriceResult(DiscountModels.Failure.NONE, BigDecimal.TEN, BigDecimal.TEN, BigDecimal.ZERO, List.of()));
         when(organizations.save(any(Organization.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(registrations.saveAll(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
         when(payments.createInitialPayment(any(Organization.class), any(BigDecimal.class), anyString()))
@@ -176,7 +183,7 @@ class RegistrationPasswordStorageTest {
         when(time.currentDateTime()).thenReturn(NOW);
         when(personalValidator.validate("event", request, NOW))
                 .thenReturn(new RegistrationCreateContext(event, category, List.of()));
-        when(pricing.calculateContractAmount(event, category, request.birth())).thenReturn(BigDecimal.TEN);
+        when(pricing.calculateRegistrationPrice(eq(event), eq(category), eq(request.birth()), eq(false), isNull(), anyList())).thenReturn(new DiscountModels.PriceResult(DiscountModels.Failure.NONE, BigDecimal.TEN, BigDecimal.TEN, BigDecimal.ZERO, List.of()));
     }
 
     /** 구성원 정책은 기존 검증기에 맡기고 단체 계정의 저장 경계를 준비한다. */

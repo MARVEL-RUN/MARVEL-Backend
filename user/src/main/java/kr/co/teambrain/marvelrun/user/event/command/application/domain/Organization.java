@@ -3,6 +3,7 @@ package kr.co.teambrain.marvelrun.user.event.command.application.domain;
 
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import kr.co.teambrain.marvelrun.common.entity.OrganizationBase;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -14,7 +15,9 @@ import static lombok.AccessLevel.PROTECTED;
 @Getter
 @Entity
 @SuperBuilder
-@Table(name = "organization")
+@Table(name = "organization", uniqueConstraints = {
+        @UniqueConstraint(name = "uk_organization_active_login", columnNames = {"event_id", "login_id", "active_unique_info"}),
+        @UniqueConstraint(name = "uk_organization_active_name", columnNames = {"event_id", "group_name", "active_unique_info"})})
 @NoArgsConstructor(access = PROTECTED)
 public class Organization
         extends OrganizationBase<Event> {

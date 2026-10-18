@@ -1,4 +1,5 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
+import kr.co.teambrain.marvelrun.user.discount.PricingPolicyFixtures;
 
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
@@ -39,7 +40,7 @@ class RegistrationPricingServiceTest {
             LocalDateTime.of(2026, 9, 10, 11, 0);
 
     private final RegistrationPricingService registrationPricingService =
-            new RegistrationPricingService();
+            new RegistrationPricingService(PricingPolicyFixtures.resolver());
 
 
     /**

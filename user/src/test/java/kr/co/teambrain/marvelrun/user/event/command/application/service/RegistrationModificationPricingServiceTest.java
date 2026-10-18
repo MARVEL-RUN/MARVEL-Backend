@@ -1,4 +1,6 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
+import kr.co.teambrain.marvelrun.user.discount.service.LinkDiscountEligibilityService;
+import kr.co.teambrain.marvelrun.user.discount.PricingPolicyFixtures;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -37,7 +39,7 @@ class RegistrationModificationPricingServiceTest {
 
     private final RegistrationModificationPricingService service =
             new RegistrationModificationPricingService(
-                    new RegistrationPricingService()
+                    new RegistrationPricingService(PricingPolicyFixtures.resolver()), PricingPolicyFixtures.resolver(), mock(LinkDiscountEligibilityService.class)
             );
 
     /**

@@ -79,6 +79,30 @@ import static org.mockito.Mockito.*;
 class RegistrationModificationDatabaseTest
         extends CapacityMvpTestSupport {
 
+    /** 원종목 복귀도 새 계산이며 과거 계산은 그대로 남고 현재 참조만 교체된다. */
+    @Test
+    void repeatedModificationKeepsHistoryAndPointsToLatestCalculation() {
+        RegistrationCreateResponse original = createPersonalRegistration(categoryA, "S", "1990-01-01");
+        String registrationId = original.registrationId();
+        String first = queryStringValue("select current_price_calculation_id from registration where id=?", registrationId);
+        Map<String, Object> firstSnapshot = jdbc.queryForMap("select * from registration_price_calculation where id=?", first);
+
+        // 다른 종목을 거쳐 돌아오는 것은 과거 기록을 복원하는 작업이 아니다.
+        modifications.modifyPersonalRegistration(eventId, registrationId, personalRequest(registrationId, categoryB, "M"));
+        String second = queryStringValue("select current_price_calculation_id from registration where id=?", registrationId);
+        modifications.modifyPersonalRegistration(eventId, registrationId, personalRequest(registrationId, categoryA, "S"));
+        String third = queryStringValue("select current_price_calculation_id from registration where id=?", registrationId);
+
+        assertThat(first).isNotNull();
+        assertThat(second).isNotEqualTo(first);
+        assertThat(third).isNotEqualTo(first).isNotEqualTo(second);
+        assertThat(queryIntegerValue("select count(*) from registration_price_calculation where registration_id=?", registrationId)).isEqualTo(3);
+        assertThat(jdbc.queryForMap("select * from registration_price_calculation where id=?", first)).isEqualTo(firstSnapshot);
+        assertThat(queryStringValue("select calculation_reason from registration_price_calculation where id=?", third))
+                .isEqualTo("REGISTRATION_MODIFIED");
+        assertThat(queryIntegerValue("select count(*) from registration r join registration_price_calculation c on c.id=r.current_price_calculation_id where r.id=? and c.registration_id=r.id and c.final_amount=r.contract_amount", registrationId)).isEqualTo(1);
+    }
+
     @Autowired
     private RegistrationStartGroupModificationService startGroupModifications;
 
@@ -99,6 +123,7 @@ class RegistrationModificationDatabaseTest
     void modifiesPersonalStartGroupWithoutActionPolicyOrExternalPaymentChecks() {
         RegistrationCreateResponse created = createPersonalRegistration(categoryA, "S", "1990-01-01");
         String registrationId = created.registrationId();
+        String calculationId = queryStringValue("select current_price_calculation_id from registration where id=?", registrationId);
         String front = queryStringValue("select id from event_category_start_group where event_category_id=? and code='A'", categoryA);
         String rear = queryStringValue("select start_group_id from registration where id=?", registrationId);
         insertActionPolicy("REGIST");
@@ -122,6 +147,8 @@ class RegistrationModificationDatabaseTest
         startGroupModifications.modifyPersonalRegistrationStartGroup(eventId, registrationId,
                 new RegistrationStartGroupModificationRequest("Test1234!", rear, false));
         assertThat(queryIntegerValue("select start_group_unselected from registration where id=?", registrationId)).isZero();
+        assertThat(queryStringValue("select current_price_calculation_id from registration where id=?", registrationId)).isEqualTo(calculationId);
+        assertThat(queryIntegerValue("select count(*) from registration_price_calculation where registration_id=?", registrationId)).isEqualTo(1);
     }
 
     /** 단체 비밀번호 하나로 참가자별 선택을 저장하고 누락된 인원은 그대로 둔다. */
@@ -601,55 +628,22 @@ class RegistrationModificationDatabaseTest
         assertThat(captureRegistrationModificationState()).isEqualTo(before);
     }
 
-    /**
-     * 수정 후 최초 참가비가 0원이면 주문 없이 예약과 재고를 확정한다.
-     */
+    /** 0원 수정은 차단하고 기존 신청·주문·예약·정원을 보존한다. */
     @Test
-    void zeroAmountModificationConfirmsWithoutPayment() {
+    void zeroAmountModificationRejectsWithoutChangingState() {
+        // 미결제 신청을 준비하고 변경하려는 종목의 금액만 0원으로 설정한다.
         RegistrationCreateResponse original =
                 createPersonalRegistration(categoryA, "S", "1990-01-01");
-
         changeCategoryPrice(categoryB, "0");
+        Map<String, List<Map<String, Object>>> before = captureRegistrationModificationState();
 
-        RegistrationModificationSettlementResult result =
-                modifications.modifyPersonalRegistration(
-                        eventId,
-                        original.registrationId(),
-                        personalRequest(
-                                original.registrationId(),
-                                categoryB,
-                                "M"
-                        )
-                );
-
-        assertThat(result.orders()).isEmpty();
-        assertThat(result.members().get(0).balance())
-                .isEqualByComparingTo("0");
-
-        assertThat(findRegistrationStatus(original.registrationId()))
-                .isEqualTo("CONFIRMED");
-
-        assertThat(queryStringValue(
-                "select status from reservation where registration_id = ?",
-                original.registrationId()
-        )).isEqualTo("CONSUMED");
-
-        assertThat(findPaymentProcessStatus(original.paymentId()))
-                .isEqualTo("INVALIDATED");
-
-        assertThat(queryIntegerValue(
-                "select count(*) from payment where registration_id = ?",
-                original.registrationId()
-        )).isEqualTo(1);
-
-        assertCapacityCounts(total, 0, 1);
-        assertCapacityCounts(categoryBCapacity, 0, 1);
-        assertCapacityCounts(shirtS, 0, 0);
-        assertCapacityCounts(shirtM, 0, 1);
-
+        // 가격 검증 실패로 신청 변경과 결제 후속 처리가 실행되지 않아야 한다.
+        expectError(ErrorCode.DISCOUNT_ZERO_AMOUNT_NOT_SUPPORTED,
+                () -> modifications.modifyPersonalRegistration(eventId, original.registrationId(),
+                        personalRequest(original.registrationId(), categoryB, "M")));
+        assertThat(captureRegistrationModificationState()).isEqualTo(before);
         verifyNoInteractions(toss);
     }
-
     /**
      * 결제 완료 단체에서 기존 구성원 수정·제거·신규 추가를 함께 처리한다.
      *
@@ -1582,12 +1576,13 @@ class RegistrationModificationDatabaseTest
     private Map<String, List<Map<String, Object>>> captureRegistrationModificationState() {
         Map<String, List<Map<String, Object>>> result = new LinkedHashMap<>();
 
+        result.put("calculations", jdbc.queryForList("select c.* from registration_price_calculation c join registration r on r.id=c.registration_id where r.event_id=? order by c.id", eventId));
         result.put("registrations", jdbc.queryForList(
                 """
                 select id, event_category_id, organization_id,
                        name, ph_num, birth,
                        address, address_detail,
-                       contract_amount, paid_amount, status, is_del, version,
+                       contract_amount, paid_amount, status, is_del, version, current_price_calculation_id,
                        cast(souvenir_json as char) as souvenirs
                 from registration
                 where event_id = ?
