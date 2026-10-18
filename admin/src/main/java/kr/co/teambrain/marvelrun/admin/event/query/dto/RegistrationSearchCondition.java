@@ -2,22 +2,18 @@ package kr.co.teambrain.marvelrun.admin.event.query.dto;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 
-/**
- * 관리자 서버 신청 목록 검색 조건 DTO
- */
-public record RegistrationSearchCondition(
-
-        String eventId, //대회 필터 (Event PK)
-        String type,              // 전체 유형 필터 (예: "PERSONAL" 또는 "ORGANIZATION")
-        String eventCategoryId,   // 특정 코스 필터 (EventCategory의 PK)
-        RegistrationStatus status,// 신청 진행 상태 필터
-        String keyword,           // 통합 검색어 (이름, 단체명, 주문번호, 연락처)
-        String startGroupCode,
-        Boolean startGroupUnselected
-) {
-    /** 그룹 검색을 사용하지 않는 기존 엑셀 요청의 조건을 유지한다. */
+/** 신청 목록의 기존 조건과 실제 보유 참조필터를 함께 검색한다. */
+public record RegistrationSearchCondition(String eventId, String type, String eventCategoryId,
+        RegistrationStatus status, String keyword, String startGroupCode, Boolean startGroupUnselected,
+        String referenceFilterId) {
+    /** 기존 그룹 조건 호출은 필터 없이 유지한다. */
     public RegistrationSearchCondition(String eventId, String type, String eventCategoryId,
-                                       RegistrationStatus status, String keyword) {
-        this(eventId, type, eventCategoryId, status, keyword, null, null);
+            RegistrationStatus status, String keyword, String startGroupCode, Boolean startGroupUnselected) {
+        this(eventId, type, eventCategoryId, status, keyword, startGroupCode, startGroupUnselected, null);
+    }
+    /** 기존 엑셀 요청은 추가 검색 조건 없이 유지한다. */
+    public RegistrationSearchCondition(String eventId, String type, String eventCategoryId,
+            RegistrationStatus status, String keyword) {
+        this(eventId, type, eventCategoryId, status, keyword, null, null, null);
     }
 }

@@ -62,8 +62,15 @@ public record RegistrationCreateRequest(
         @Email(message = "이메일 형식이 올바르지 않습니다.")
         String email,
         String startGroupId,
-        @NotNull Boolean startGroupUnselected
+        @NotNull Boolean startGroupUnselected,
+        @Size(max = 64)
+        String discountLinkCode
 ) {
+    /** 기존 내부 호출부의 일반 신청 입력을 호환한다. */
+    public RegistrationCreateRequest(String eventCategoryId, List<@NotNull @Valid SouvenirJson> selectedSouvenirList, String password, String name, String phNum, String birth, GenderClass gender, String address, String addressDetail, Boolean guardianConsent, String guardianName, String guardianPhNum, String guardianRelationship, Boolean termsEssentialAgreed, Boolean termsMarketingAgreed, Boolean termsMarketingChannelAgreed, String email, String startGroupId, Boolean startGroupUnselected) {
+        this(eventCategoryId, selectedSouvenirList, password, name, phNum, birth, gender, address, addressDetail, guardianConsent, guardianName, guardianPhNum, guardianRelationship, termsEssentialAgreed, termsMarketingAgreed, termsMarketingChannelAgreed, email, startGroupId, startGroupUnselected, null);
+    }
+
     /** 미선택이 아니면 선택 그룹의 식별자를 반드시 전달한다. */
     @JsonIgnore
     @AssertTrue(message = "그룹을 선택하거나 미선택을 체크해주세요.")

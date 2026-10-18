@@ -1,4 +1,9 @@
 package kr.co.teambrain.marvelrun.user.capacity.command.application.service;
+import kr.co.teambrain.marvelrun.user.event.command.application.service.OrganizationLifecycleService;
+import kr.co.teambrain.marvelrun.user.discount.service.LinkDiscountEligibilityService;
+import kr.co.teambrain.marvelrun.user.discount.service.OrganizationDiscountGuard;
+import kr.co.teambrain.marvelrun.user.discount.service.DiscountPolicyResolver;
+import kr.co.teambrain.marvelrun.user.discount.service.RegistrationPriceCalculationRecorder;
 
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
@@ -84,6 +89,10 @@ import static org.mockito.Mockito.*;
 )
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Import({
+        OrganizationLifecycleService.class,
+        LinkDiscountEligibilityService.class,
+        OrganizationDiscountGuard.class,
+        DiscountPolicyResolver.class, RegistrationPriceCalculationRecorder.class,
         ReservationHistoryRecorder.class,
         RegistrationActionPolicyService.class,
         BCryptPasswordEncoder.class,
@@ -408,7 +417,7 @@ abstract class CapacityMvpTestSupport {
                 eventId,
                 new OrgRegistrationCreateRequest(
                         new OrgAccountRequest(
-                                "테스트 단체",
+                                "테스트 단체 " + UUID.randomUUID().toString().substring(0, 8),
                                 "g" + UUID.randomUUID()
                                         .toString().replace("-", "").substring(0, 15),
                                 "Test1234!"

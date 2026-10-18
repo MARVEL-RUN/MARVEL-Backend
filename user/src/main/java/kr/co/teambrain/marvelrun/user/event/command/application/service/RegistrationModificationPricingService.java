@@ -11,6 +11,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
+import kr.co.teambrain.marvelrun.user.discount.domain.DiscountLink;
+import kr.co.teambrain.marvelrun.user.discount.service.DiscountPolicyResolver;
+import kr.co.teambrain.marvelrun.user.discount.service.LinkDiscountEligibilityService;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -29,6 +33,8 @@ import java.util.Objects;
 public class RegistrationModificationPricingService {
 
     private final RegistrationPricingService registrationPricingService;
+    private final DiscountPolicyResolver discountPolicies;
+    private final LinkDiscountEligibilityService discountEligibility;
     private final RegistrationModificationClassifier classifier = new RegistrationModificationClassifier();
 
     /**
@@ -43,7 +49,7 @@ public class RegistrationModificationPricingService {
                 candidate.event(),
                 candidate.currentRegistration(),
                 candidate.eventCategory(),
-                candidate.request().birth()
+                candidate.request().birth(), false, null, discountPolicies.resolveEventPolicies(candidate.event().getId())
         );
     }
 
@@ -60,6 +66,10 @@ public class RegistrationModificationPricingService {
         List<OrgRegistrationParticipantPricing> results =
                 new ArrayList<>(candidate.registrations().size());
 
+        // 정책은 단체 전체에 재사용하고 취득 기간은 신규 추가 인원의 링크 승계에만 적용한다.
+        List<DiscountModels.Policy> snapshot = discountPolicies.resolveEventPolicies(candidate.event().getId());
+        DiscountLink inheritedLink = discountEligibility.inheritOrganizationLink(
+                candidate.organization().getDiscountLinkId(), candidate.event().getId(), candidate.now(), snapshot);
         for (OrgRegistrationModificationCandidateContext.ParticipantCandidate participant
                 : candidate.registrations()) {
 
@@ -77,7 +87,7 @@ public class RegistrationModificationPricingService {
                             candidate.event(),
                             participant.currentRegistration(),
                             participant.eventCategory(),
-                            participant.request().birth()
+                            participant.request().birth(), true, inheritedLink, snapshot
                     );
 
             results.add(
@@ -103,7 +113,10 @@ public class RegistrationModificationPricingService {
             Event event,
             Registration currentRegistration,
             EventCategory candidateCategory,
-            String candidateBirth
+            String candidateBirth,
+            boolean organization,
+            DiscountLink inheritedLink,
+            List<DiscountModels.Policy> snapshot
     ) {
         BigDecimal oldContractAmount =
                 currentRegistration == null
@@ -113,25 +126,15 @@ public class RegistrationModificationPricingService {
                         "기존 Registration의 contractAmount가 누락되었습니다."
                 );
 
-        BigDecimal newContractAmount =
-                Objects.requireNonNull(
-                        registrationPricingService.calculateContractAmount(
-                                event,
-                                candidateCategory,
-                                candidateBirth
-                        ),
-                        "Pricing 계산 결과가 누락되었습니다."
-                );
-
-        if (currentRegistration == null) {
-            return RegistrationModificationPrice.forNew(
-                    newContractAmount
-            );
-        }
-
-        return RegistrationModificationPrice.forExisting(
-                oldContractAmount,
-                newContractAmount
-        );
+        // 기존원은 저장된 자격, 신규원은 취득 기간을 통과한 단체 승계 자격을 사용한다.
+        DiscountLink link = currentRegistration == null ? inheritedLink
+                : currentRegistration.getDiscountLinkId() == null ? null
+                : discountPolicies.resolveStoredLink(currentRegistration.getDiscountLinkId());
+        DiscountModels.PriceResult result = registrationPricingService.calculateRegistrationPrice(
+                event, candidateCategory, candidateBirth, organization, link, snapshot);
+        return new RegistrationModificationPrice(oldContractAmount, result.finalAmount(),
+                oldContractAmount == null ? null : result.finalAmount().subtract(oldContractAmount), result,
+                currentRegistration == null && link != null ? link.getId() : null,
+                currentRegistration == null && link != null ? link.getReferenceFilterId() : null);
     }
 }

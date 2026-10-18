@@ -1,4 +1,13 @@
 package kr.co.teambrain.marvelrun.admin.payment.command;
+import kr.co.teambrain.marvelrun.admin.discount.query.ReferenceFilterQueryService;
+import kr.co.teambrain.marvelrun.admin.user.command.application.service.OrganizationLifecycleService;
+import kr.co.teambrain.marvelrun.admin.discount.service.OrganizationDiscountGuard;
+import kr.co.teambrain.marvelrun.admin.discount.service.DiscountPolicyResolver;
+import kr.co.teambrain.marvelrun.admin.discount.service.RegistrationPriceCalculationRecorder;
+import kr.co.teambrain.marvelrun.admin.discount.domain.DiscountPolicy;
+import kr.co.teambrain.marvelrun.admin.discount.domain.DiscountLink;
+import kr.co.teambrain.marvelrun.admin.discount.domain.ReferenceFilter;
+import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
 
@@ -115,7 +124,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.datasource.hikari.maximum-pool-size=4"})
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@Import({RegistrationStartGroupResolver.class,ReservationHistoryRecorder.class,RegistrationQueryService.class, AdminUnpaidRegistrationCancellationService.class, RegistrationCommandService.class, AdminRefundEvidenceStore.class, AdminRefundEvidenceService.class, AdminRefundEvidenceMatcher.class, AdminPaymentQueryRepository.class, AdminRefundPreparationService.class, AdminRefundPreparationTransactionService.class, AdminRefundPreparationStore.class,
+@Import({
+        ReferenceFilterQueryService.class,
+        OrganizationLifecycleService.class,
+        OrganizationDiscountGuard.class,
+        DiscountPolicyResolver.class, RegistrationPriceCalculationRecorder.class,RegistrationStartGroupResolver.class,ReservationHistoryRecorder.class,RegistrationQueryService.class, AdminUnpaidRegistrationCancellationService.class, RegistrationCommandService.class, AdminRefundEvidenceStore.class, AdminRefundEvidenceService.class, AdminRefundEvidenceMatcher.class, AdminPaymentQueryRepository.class, AdminRefundPreparationService.class, AdminRefundPreparationTransactionService.class, AdminRefundPreparationStore.class,
         RegistrationActionPolicyReader.class,
         AdminRefundAccessService.class, AdminRefundLockRepository.class, AdminRefundTime.class,
         RegistrationPolicyCandidateValidator.class, RegistrationPolicyValidator.class, RegistrationPolicyLoader.class,
@@ -310,7 +323,13 @@ class AdminRefundPreparationDatabaseTest {
     /** 같은 트랜잭션에 계약·예약 상세·카운터·시도·귀속·로그가 함께 저장된다. */
     @Test
     void partialRefundMovesConfirmedResourcesAndCreatesLedger() {
+        // 과거 신청의 미기록 상태는 추정 복원하지 않고 첫 실제 수정부터 기록한다.
+        assertThat(jdbc.queryForObject("select current_price_calculation_id from registration where id=?", String.class, registrationId)).isNull();
         AdminRefundPrepared result = service.preparePartial(eventId,null,List.of(birthTarget()),command());
+        String calculationId = jdbc.queryForObject("select current_price_calculation_id from registration where id=?", String.class, registrationId);
+        assertThat(calculationId).isNotNull();
+        assertThat(jdbc.queryForObject("select calculation_reason from registration_price_calculation where id=?", String.class, calculationId)).isEqualTo("ADMIN_ADJUSTED");
+        Map<String, Object> calculation = jdbc.queryForMap("select * from registration_price_calculation where id=?", calculationId);
         assertThat(jdbc.queryForObject("select birth from registration where id=?",String.class,registrationId)).isEqualTo("1991-01-01");
         assertThat(jdbc.queryForObject("select ph_num from registration where id=?",String.class,registrationId)).isEqualTo("010-0000-0000");
         assertThat(result.refunds()).hasSize(1);
@@ -337,6 +356,8 @@ class AdminRefundPreparationDatabaseTest {
         AdminRefundPrepared remaining = service.prepareFull(eventId,null,List.of(registrationId),command());
         assertThat(remaining.refunds().getFirst().amount()).isEqualByComparingTo("40000");
         executeSuccess(remaining);
+        assertThat(jdbc.queryForObject("select current_price_calculation_id from registration where id=?", String.class, registrationId)).isEqualTo(calculationId);
+        assertThat(jdbc.queryForMap("select * from registration_price_calculation where id=?", calculationId)).isEqualTo(calculation);
         assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo("0");
         assertThat(state()).isEqualTo("CANCELED");
     }
@@ -357,26 +378,27 @@ class AdminRefundPreparationDatabaseTest {
         assertThat(count(total)).isZero();
     }
 
-    /** 현재 가격표가 0원인 후보에서도 사전에 지정한 참가 유지 선택을 실제 DB에 반영한다. */
+    /** 참가 유지 선택과 무관하게 0원 수정은 차단하고 신청·그룹·금융·정원 상태를 보존한다. */
     @ParameterizedTest
     @ValueSource(booleans = {true,false})
-    void zeroContractKeepsOrReleasesParticipation(boolean keep) {
+    void zeroContractModificationRejectsWithoutChangingState(boolean keep) {
+        // 0원 후보를 준비하고 수정 전 신청·원장·예약·정원·로그를 함께 보관한다.
         jdbc.update("update event_category set amount=0 where id=?",categoryB);
-        AdminRefundPrepared result = service.preparePartial(eventId,null,List.of(target(keep)),command());
-        assertThat(findRegistrationAmountByColumn("contract_amount")).isEqualByComparingTo("0");
-        assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo("70000");
-        assertThat(count(total)).isEqualTo(keep ? 1 : 0);
-        assertThat(state()).isEqualTo(keep ? "PARTIAL_REFUND_REQUIRED" : "CANCELLATION_PENDING");
-        assertThat(jdbc.queryForObject("select expires_at from reservation where id=?",Timestamp.class,reservationId)).isNull();
-        executeSuccess(result);
-        assertThat(findRegistrationAmountByColumn("paid_amount")).isEqualByComparingTo("0");
-        assertThat(state()).isEqualTo(keep ? "CONFIRMED" : "CANCELED");
-        assertThat(count(total)).isEqualTo(keep ? 1 : 0);
+        Map<String, Object> before = unpaidSnapshot();
+
+        // 전체 취소와 구분되는 가격 수정이므로 환불 준비 전에 지정 오류로 거절한다.
+        assertThatThrownBy(() -> service.preparePartial(eventId,null,List.of(target(keep)),command()))
+                .isInstanceOfSatisfying(CustomException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.DISCOUNT_ZERO_AMOUNT_NOT_SUPPORTED));
+        assertThat(unpaidSnapshot()).isEqualTo(before);
+        assertThat(cancelCount()).isZero();
+        verifyNoInteractions(toss);
     }
 
     /** 로그 저장 실패가 계약·정원·환불 시도·귀속 전체를 원복시키는지 실제 트랜잭션으로 검증한다. */
     @Test
     void failureAfterWritesRollsBackWholePreparation() {
+        Map<String, Object> before = unpaidSnapshot();
         // 실패 설정 시에만 프록시 내부 spy에 접근하며, 실제 준비 실행은 서비스 프록시를 통한다.
         AdminRefundPreparationStore storeSpy = AopTestUtils.getUltimateTargetObject(store);
         assertThat(mockingDetails(storeSpy).isSpy()).isTrue();
@@ -391,6 +413,7 @@ class AdminRefundPreparationDatabaseTest {
         assertThat(cancelCount()).isZero();
         assertThat(jdbc.queryForObject("select count(*) from payment_process_log where payment_id=?",Integer.class,paymentId)).isZero();
         assertThat(jdbc.queryForObject("select version from registration where id=?",Long.class,registrationId)).isZero();
+        assertThat(unpaidSnapshot()).isEqualTo(before);
     }
 
     /** 단체 일부·전체 취소에서 선택하지 않은 인원의 계약과 원귀속을 사용하지 않는다. */
@@ -631,6 +654,8 @@ class AdminRefundPreparationDatabaseTest {
             }
             jdbc.update("delete i from reservation_item i join reservation v on v.id=i.reservation_id join registration r on r.id=v.registration_id where r.event_id=?",eventId);
             jdbc.update("delete v from reservation v join registration r on r.id=v.registration_id where r.event_id=?",eventId);
+            jdbc.update("update registration set current_price_calculation_id=null where event_id=?",eventId);
+            jdbc.update("delete c from registration_price_calculation c join registration r on r.id=c.registration_id where r.event_id=?",eventId);
             jdbc.update("delete from registration where event_id=?",eventId);
             jdbc.update("delete cc from capacity_category cc join capacity c on c.id=cc.capacity_id where c.event_id=?",eventId);
             jdbc.update("delete from capacity where event_id=?",eventId);
@@ -641,6 +666,9 @@ class AdminRefundPreparationDatabaseTest {
             jdbc.update("delete from event_category where event_id=?",eventId);
             jdbc.update("delete from event_registration_policy where event_id=?",eventId);
             jdbc.update("delete from organization where event_id=?",eventId);
+            jdbc.update("delete l from discount_link l join discount_policy p on p.id=l.policy_id where p.event_id=?", eventId);
+            jdbc.update("delete from reference_filter where event_id=?", eventId);
+            jdbc.update("delete from discount_policy where event_id=?", eventId);
             jdbc.update("delete from registration_action_policy where event_id=?",eventId);
             jdbc.update("delete from event where id=?",eventId);
         });
@@ -686,6 +714,120 @@ class AdminRefundPreparationDatabaseTest {
     /** 생년월일 변경 후보를 기존 성공·롤백 검증에서 재사용한다. */
     private AdminPaymentPartialRefundTarget birthTarget() {
         return new AdminPaymentPartialRefundTarget(registrationId,categoryB,List.of(new SouvenirJson(souvenir,"M")),"1991-01-01",true);
+    }
+
+    /** 전원 개별 선택·단체 선택과 부분 선택을 실제 최소 5명 정책으로 검증한다. */
+    @ParameterizedTest
+    @CsvSource({"5,5,false,true", "5,5,true,true", "7,2,false,true", "7,3,false,false"})
+    void groupedRefundUsesFinalMembership(int memberCount, int selectedCount, boolean selectOrganization, boolean allowed) {
+        String organizationId = createDiscountedRefundGroup(memberCount);
+        List<String> ids = activeGroupIds(organizationId);
+        List<String> selected = ids.subList(0, selectedCount);
+        Map<String, Object> before = unpaidSnapshot();
+        doAnswer(invocation -> verifiedOutcome(invocation.getArgument(0))).when(toss).cancel(any());
+
+        // 단체와 구성원을 중복 선택해도 신청별 결과와 PG 호출은 중복되지 않는다.
+        AdminPaymentRefundRequest request = new AdminPaymentRefundRequest(id(), "단체 취소", selected,
+                selectOrganization ? List.of(organizationId) : List.of());
+        Response response = batches.full(eventId, "fixture-admin", request);
+        assertThat(response.summary().total()).isEqualTo(selectedCount);
+        assertThat(response.summary().status()).isEqualTo("COMPLETED");
+        assertThat(response.summary().counts()).containsEntry(allowed ? "SUCCEEDED" : "BLOCKED", (long) selectedCount);
+        if (allowed) {
+            assertThat(activeGroupIds(organizationId)).hasSize(memberCount - selectedCount);
+            assertThat(count(total)).isEqualTo(memberCount - selectedCount);
+            verify(toss, times(selectedCount)).cancel(any());
+            batches.full(eventId, "fixture-admin", request);
+            verify(toss, times(selectedCount)).cancel(any());
+        } else {
+            assertThat(unpaidSnapshot()).isEqualTo(before);
+            assertThat(response.items()).allSatisfy(item -> assertThat(item.errorCode()).isEqualTo("DISCOUNT_GROUP_MINIMUM_NOT_MET"));
+            verifyNoInteractions(toss);
+        }
+    }
+
+    /** 접수 후 추가·삭제·버전 변경은 준비 부작용 없이 묶음 전체를 차단한다. */
+    @ParameterizedTest
+    @ValueSource(strings = {"ADDED", "REMOVED", "VERSION"})
+    void groupedRefundRejectsChangedSnapshot(String change) {
+        String organizationId = createDiscountedRefundGroup(5);
+        List<String> ids = activeGroupIds(organizationId);
+        AdminPaymentRefundRequest request = new AdminPaymentRefundRequest(id(), "단체 취소", ids, List.of());
+        String batchId = batchStore.create(eventId, request.requestId(), "fixture-admin", request.reason(), Operation.FULL,
+                "0".repeat(64), batchSelection.full(eventId, request));
+        switch (change) {
+            case "ADDED" -> unpaidGroupMember(true, organizationId);
+            case "REMOVED" -> jdbc.update("update registration set is_del=1 where id=?", ids.getFirst());
+            case "VERSION" -> jdbc.update("update registration set version=version+1 where id=?", ids.getFirst());
+            default -> throw new AssertionError(change);
+        }
+        Map<String, Object> before = unpaidSnapshot();
+
+        batchWorker.processOne(batchId);
+        assertThat(batchStore.summary(eventId, batchId).counts()).containsEntry("BLOCKED", 5L);
+        assertThat(unpaidSnapshot()).isEqualTo(before);
+        verifyNoInteractions(toss);
+    }
+
+    /** 묶음 구성원 모두의 실행권을 함께 선점하고 중복 실행기를 차단한다. */
+    @Test
+    void groupedRefundClaimOwnsEverySelectedMember() {
+        String organizationId = createDiscountedRefundGroup(5);
+        AdminPaymentRefundRequest request = new AdminPaymentRefundRequest(id(), "전체 취소", List.of(), List.of(organizationId));
+        String batchId = batchStore.create(eventId, request.requestId(), "fixture-admin", request.reason(), Operation.FULL,
+                "0".repeat(64), batchSelection.full(eventId, request));
+        Work claimed = batchStore.claim(batchId);
+        assertThat(claimed.executionItems()).hasSize(5);
+        assertThat(batchStore.summary(eventId, batchId).counts()).containsEntry("RUNNING", 5L);
+        assertThat(batchStore.claim(batchId)).isNull();
+        batchStore.finish(claimed, "NEEDS_REVIEW", "TEST_INTERRUPTED", null);
+        assertThat(batchStore.summary(eventId, batchId).counts()).containsEntry("NEEDS_REVIEW", 5L);
+        verifyNoInteractions(toss);
+    }
+
+    /** 묶음 준비의 후반 오류도 앞서 변경한 구성원·정원·금융 기록을 모두 롤백한다. */
+    @Test
+    void groupedRefundPreparationFailureRollsBackEveryMember() {
+        String organizationId = createDiscountedRefundGroup(5);
+        Map<String, Object> before = unpaidSnapshot();
+        AdminRefundPreparationStore storeSpy = AopTestUtils.getUltimateTargetObject(store);
+        doThrow(new IllegalStateException("group journal failure")).when(storeSpy).log(any());
+        Response response = batches.full(eventId, "fixture-admin",
+                new AdminPaymentRefundRequest(id(), "전체 취소", List.of(), List.of(organizationId)));
+        assertThat(response.summary().counts()).containsEntry("NEEDS_REVIEW", 5L);
+        assertThat(unpaidSnapshot()).isEqualTo(before);
+        verifyNoInteractions(toss);
+    }
+
+    /** 실제 저장 정책과 원결제별 귀속을 가진 최소 인원 단체를 준비한다. */
+    private String createDiscountedRefundGroup(int count) {
+        unpaidGroupMember(true);
+        String organizationId = jdbc.queryForObject("select organization_id from registration where id=?", String.class, registrationId);
+        for (int index = 2; index < count; index++) {
+            unpaidGroupMember(true, organizationId);
+        }
+        tx.executeWithoutResult(status -> {
+            DiscountPolicy policy = DiscountPolicy.builder().eventId(eventId).name("단체 최소 5명")
+                    .stage(DiscountModels.Stage.EXTERNAL).calculationMethod(DiscountModels.Method.PERCENT)
+                    .ratePercent(new BigDecimal("50")).applicationType(DiscountModels.ApplicationType.ORGANIZATION)
+                    .categoryScope(DiscountModels.CategoryScope.ALL).minimumGroupSize(5).build();
+            ReferenceFilter filter = ReferenceFilter.builder().eventId(eventId).code("GROUP_TEST").displayName("단체 테스트").build();
+            em.persist(policy);
+            em.persist(filter);
+            em.flush();
+            DiscountLink link = DiscountLink.builder().policyId(policy.getId()).referenceFilterId(filter.getId())
+                    .code("group-" + id()).acquisitionStartAt(now.minusDays(1)).acquisitionEndAt(now.plusDays(1)).build();
+            em.persist(link);
+            em.flush();
+            em.find(Organization.class, organizationId).assignDiscountQualification(link.getId(), filter.getId());
+        });
+        return organizationId;
+    }
+
+    /** DB의 현재 활성 명단으로 접수 스냅샷 및 실행 후 잔여 인원을 비교한다. */
+    private List<String> activeGroupIds(String organizationId) {
+        return jdbc.queryForList("select id from registration where organization_id=? and is_del=false order by id",
+                String.class, organizationId);
     }
 
     /** 접수·중복·없는 대상·외부 실행·예외 필터를 실제 DB에서 한 흐름으로 확인한다. */
@@ -1727,12 +1869,19 @@ class AdminRefundPreparationDatabaseTest {
 
     /** 공동 미결제 주문 또는 별도 완료 주문을 가진 두 번째 단체원을 만든다. */
     private String unpaidGroupMember(boolean completed) {
+        return unpaidGroupMember(completed, null);
+    }
+
+    /** 기존 단체에도 테스트 구성원을 추가하여 5명 이상 경계를 검증한다. */
+    private String unpaidGroupMember(boolean completed, String existingOrganizationId) {
         return tx.execute(status -> {
-            String orgId = id();
+            String orgId = existingOrganizationId == null ? id() : existingOrganizationId;
+            if (existingOrganizationId == null) {
             jdbc.update("insert into organization(id,event_id,login_id,password,group_name,leader_name,leader_birth,leader_ph_num,guardian_consent,created_at) values(?,?,?,?,?,?,?,?,true,?)",
                     orgId, eventId, "g" + id().substring(0, 15), "Test1234!", "fixture group", "leader", "1990-01-01", "010-0000-0000", now);
             jdbc.update("update registration set organization_id=? where id=?", orgId, registrationId);
             jdbc.update("update payment set registration_id=null,organization_id=?,amount=? where id=?", orgId, completed ? 70000 : 140000, paymentId);
+            }
             var org = em.getReference(Organization.class, orgId);
             Registration other = Registration.builder().organization(org).event(em.getReference(Event.class, eventId))
                     .startGroupId(startGroupId(categoryA)).startGroupUnselected(true)
@@ -1767,6 +1916,7 @@ class AdminRefundPreparationDatabaseTest {
     /** 금융/신청/예약/카운터와 로그를 DB 현재값으로 비교한다. */
     private Map<String, Object> unpaidSnapshot() {
         Map<String, Object> result = new LinkedHashMap<>();
+        result.put("calculations", jdbc.queryForList("select c.* from registration_price_calculation c join registration r on r.id=c.registration_id where r.event_id=? order by c.id", eventId));
         result.put("registration", jdbc.queryForList("select * from registration where event_id=? order by id", eventId));
         result.put("payment", jdbc.queryForList("select * from payment where id=?", paymentId));
         result.put("allocation", jdbc.queryForList("select * from payment_allocation where payment_id=? order by id", paymentId));

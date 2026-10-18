@@ -1,6 +1,12 @@
 package kr.co.teambrain.marvelrun.admin.payment.command;
 
+import kr.co.teambrain.marvelrun.common.discount.model.RegistrationPriceCalculationSnapshot;
+import kr.co.teambrain.marvelrun.admin.discount.service.RegistrationPriceCalculationRecorder;
 import jakarta.validation.Validator;
+import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
+import kr.co.teambrain.marvelrun.admin.discount.service.DiscountPolicyResolver;
+import kr.co.teambrain.marvelrun.admin.discount.service.OrganizationDiscountGuard;
+import kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationCommandRepository;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -33,7 +39,11 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class AdminRefundPreparationTransactionService {
+    private final RegistrationPriceCalculationRecorder priceCalculations;
     private final ReservationHistoryRecorder historyRecorder;
+    private final DiscountPolicyResolver discountPolicies;
+    private final OrganizationDiscountGuard discountGuard;
+    private final RegistrationCommandRepository registrationRepository;
     private final AdminRefundAccessService access;
     private final AdminRefundPreparationStore store;
     private final RegistrationPolicyCandidateValidator policies;
@@ -87,6 +97,25 @@ public class AdminRefundPreparationTransactionService {
                 && (registrations.size() != 1 || !Objects.equals(registrations.getFirst().getVersion(), command.expectedRegistrationVersion()))) {
             throw new CustomException(ErrorCode.CONCURRENT_MODIFICATION);
         }
+        // 접수 후 명단 또는 선택 신청이 변경되었으면 정원·금액을 바꾸기 전에 묶음 전체를 차단한다.
+        List<Registration> organizationMembers = null;
+        if (command.expectedRegistrations() != null) {
+            if (organizationId == null || command.expectedActiveRegistrationIds() == null) {
+                throw new CustomException(ErrorCode.CONCURRENT_MODIFICATION);
+            }
+            organizationMembers = store.lockOrganizationMembers(eventId, organizationId);
+            List<String> currentIds = organizationMembers.stream().filter(member -> !member.isSoftDeleted())
+                    .map(Registration::getId).sorted().toList();
+            List<String> expectedIds = command.expectedActiveRegistrationIds().stream().sorted().toList();
+            List<String> selectedIds = command.expectedRegistrations().stream()
+                    .map(AdminRefundCommandContext.ExpectedRegistration::registrationId).sorted().toList();
+            if (!currentIds.equals(expectedIds) || !selectedIds.equals(ids.stream().sorted().toList())
+                    || command.expectedRegistrations().stream().anyMatch(expected -> expected.version() == null
+                    || registrations.stream().noneMatch(registration -> registration.getId().equals(expected.registrationId())
+                        && Objects.equals(registration.getVersion(), expected.version())))) {
+                throw new CustomException(ErrorCode.CONCURRENT_MODIFICATION);
+            }
+        }
         List<Reservation> reservations = store.reservations(registrations.stream().map(Registration::getId).toList());
         Map<String, Reservation> byRegistration = new TreeMap<>();
         for (Reservation reservation : reservations) {
@@ -117,6 +146,11 @@ public class AdminRefundPreparationTransactionService {
             if (checked.size() != registrations.size()) { throw invalid(); }
             for (int i = 0; i < registrations.size(); i++) { checkedById.put(registrations.get(i).getId(), checked.get(i)); }
         }
+        // 전체 취소는 가격을 다시 계산하지 않고 가격 변경 대상만 당시 정책을 읽는다.
+        List<DiscountModels.Policy> discountSnapshot = targets == null
+                ? List.of()
+                : discountPolicies.resolveEventPolicies(eventId);
+        Map<String, DiscountModels.PriceResult> discountPrices = new HashMap<>();
         List<Candidate> candidates = new ArrayList<>();
         for (Registration registration : registrations) {
             // 소속·금액은 JDBC 검사 후 현재 Entity에서도 대조한다.
@@ -134,7 +168,12 @@ public class AdminRefundPreparationTransactionService {
                 AdminPaymentPartialRefundTarget target = requests.get(registration.getId());
                 if (target == null) { throw invalid(); }
                 RegistrationPolicyCandidateResult checked = checkedById.get(registration.getId());
-                BigDecimal amount = pricing.calculateContractAmount(event, checked.eventCategory(), checked.birth().toString());
+                DiscountModels.PriceResult discountPrice = pricing.calculateRegistrationPrice(
+                        event, checked.eventCategory(), checked.birth().toString(), organization != null,
+                        registration.getDiscountLinkId() == null ? null : discountPolicies.resolveStoredLink(registration.getDiscountLinkId()),
+                        discountSnapshot);
+                discountPrices.put(registration.getId(), discountPrice);
+                BigDecimal amount = discountPrice.finalAmount();
                 if (amount == null || amount.signum() < 0) { throw invalid(); }
                 AdminAdjustmentTemporaryBlock.validateCategoryPriceIncrease(
                         registration.getEventCategory().getId(), checked.eventCategory().getId(),
@@ -142,6 +181,17 @@ public class AdminRefundPreparationTransactionService {
                 candidates.add(new Candidate(registration, checked.eventCategory(), checked.souvenirJsons(), checked.birth().toString(), amount,
                         amount.signum() == 0 && Boolean.FALSE.equals(target.keepParticipationWhenZero())));
             }
+        }
+        // 선택되지 않은 구성원까지 포함하여 단체 최소 인원 유지 여부를 검증한다.
+        if (organization != null) {
+            List<Registration> allMembers = organizationMembers != null ? organizationMembers
+                    : registrationRepository.findAllByOrganization_Id(organizationId);
+            Set<String> removedIds = new HashSet<>();
+            candidates.stream().filter(Candidate::cancel).forEach(candidate -> removedIds.add(candidate.registration().getId()));
+            Set<String> retainedIds = new HashSet<>();
+            allMembers.stream().filter(member -> !member.isSoftDeleted() && !removedIds.contains(member.getId()))
+                    .forEach(member -> retainedIds.add(member.getId()));
+            discountGuard.validateOrganizationMemberChange(organization, allMembers, retainedIds, 0);
         }
         // 비영속 후보로 원귀속을 먼저 검증하여 실제 변경 전 불일치를 차단한다.
         List<Registration> projected = candidates.stream().<Registration>map(c -> Registration.builder()
@@ -174,8 +224,9 @@ public class AdminRefundPreparationTransactionService {
         }
         List<RefundPreparationPlan> plans = planner.plan(projected, ledgers);
         if (targets == null && plans.isEmpty()) { throw invalid(); }
-        // 관리자 배치 단일 대상의 외부 호출 수도 제한한다. 준비 변경 전이므로 전체 롤백된다.
-        if (command.batchId() != null && plans.size() > 10) { throw invalid(); }
+        // 묶음은 기존 신청당 호출 예산을 합산하되 실행기의 원장 상한을 넘지 않는다.
+        int refundLimit = Math.min(AdminRefundLockRepository.MAX_LEDGER_ROWS, 10 * ids.size());
+        if (command.batchId() != null && plans.size() > refundLimit) { throw invalid(); }
 
         List<Candidate> retained = candidates.stream().filter(c -> !c.cancel()).toList();
         if (!retained.isEmpty()) {
@@ -193,13 +244,19 @@ public class AdminRefundPreparationTransactionService {
         removal.releaseAll(eventId, removed, now);
         for (Payment payment : readyToInvalidate) { payment.invalidateForRegistrationModification(); }
         List<AdminRefundPrepared.Member> members = new ArrayList<>();
+        List<RegistrationPriceCalculationRecorder.Input> priceRecords = new ArrayList<>();
         for (Candidate candidate : candidates) {
             Registration registration = candidate.registration();
             BigDecimal previous = registration.getContractAmount();
             String previousBirth = registration.getBirth();
             String previousCategory = registration.getEventCategory().getId();
             if (targets != null) {
-                registration.applyAdminAdjustmentCandidate(candidate.category(), candidate.souvenirs(), candidate.birth(), candidate.amount());
+                priceRecords.add(new RegistrationPriceCalculationRecorder.Input(
+                        registration, discountPrices.get(registration.getId())
+                ));
+                registration.applyAdminAdjustmentCandidate(
+                        candidate.category(), candidate.souvenirs(), candidate.birth(), candidate.amount()
+                );
             }
             if (candidate.cancel()) { registration.cancelParticipation(); }
             Reservation reservation = byRegistration.get(registration.getId());
@@ -210,6 +267,11 @@ public class AdminRefundPreparationTransactionService {
                     registration.getPaidAmount(), registration.getStatus(), reservation.getStatus(), registration.isSoftDeleted(),
                     previousBirth, registration.getBirth(), previousCategory, registration.getEventCategory().getId()));
         }
+        // 전체 취소는 기존 계산 참조를 보존하고 실제 가격 변경에만 근거를 추가한다.
+        priceCalculations.recordRegistrationPriceCalculations(priceRecords,
+                RegistrationPriceCalculationSnapshot.Reason.ADMIN_ADJUSTED);
+
+        // 계산 기록 연결을 마친 뒤 기존 환불 시도와 금융 로그를 준비한다.
         String correlationId = UUID.randomUUID().toString();
         List<AdminRefundPrepared.Refund> refunds = new ArrayList<>();
         for (RefundPreparationPlan plan : plans) {

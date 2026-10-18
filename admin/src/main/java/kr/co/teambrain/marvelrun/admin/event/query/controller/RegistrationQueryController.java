@@ -46,6 +46,9 @@ public class RegistrationQueryController {
             @RequestParam(required = false)
             String keyword,
 
+            @RequestParam(name = "referenceFilterId", required = false)
+            String referenceFilterId,
+
             @RequestParam(required = false) String startGroupCode,
             @RequestParam(required = false) Boolean startGroupUnselected,
 
@@ -77,9 +80,7 @@ public class RegistrationQueryController {
                 type,
                 eventCategoryId,
                 status,
-                keyword,
-                startGroupCode,
-                startGroupUnselected
+                keyword, startGroupCode, startGroupUnselected, referenceFilterId
         );
 
         return ResponseEntity.ok(

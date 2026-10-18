@@ -1,4 +1,8 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
+import kr.co.teambrain.marvelrun.user.event.command.application.service.OrganizationLifecycleService;
+import kr.co.teambrain.marvelrun.user.discount.service.LinkDiscountEligibilityService;
+import kr.co.teambrain.marvelrun.user.discount.service.OrganizationDiscountGuard;
+import kr.co.teambrain.marvelrun.user.discount.service.DiscountPolicyResolver;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
@@ -48,6 +52,10 @@ import static org.assertj.core.api.Assertions.assertThat;
         replace = AutoConfigureTestDatabase.Replace.NONE
 )
 @Import({
+        OrganizationLifecycleService.class,
+        LinkDiscountEligibilityService.class,
+        OrganizationDiscountGuard.class,
+        DiscountPolicyResolver.class,
         RegistrationPricingService.class,
         RegistrationPolicyLoader.class,
         RegistrationPolicyValidator.class,

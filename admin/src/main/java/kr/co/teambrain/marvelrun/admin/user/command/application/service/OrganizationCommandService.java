@@ -35,7 +35,7 @@ public class OrganizationCommandService {
      */
     public void resetOrganizationPassword(String organizationId, PasswordResetRequest request) {
 
-        Organization organization = organizationCommandRepository.findById(organizationId)
+        Organization organization = organizationCommandRepository.findById(organizationId).filter(row -> !row.isSoftDeleted())
                 .orElseThrow(() -> new CustomException(ErrorCode.ORGANIZATION_NOT_FOUND)); // 해당 에러코드 추가 필요
 
         if (request.newPassword().getBytes(StandardCharsets.UTF_8).length > 72) {
@@ -60,7 +60,7 @@ public class OrganizationCommandService {
     }
 
     public void resetOrganizationLoginId(String newLoginId, String organizationId) {
-        Organization organization = organizationCommandRepository.findById(organizationId)
+        Organization organization = organizationCommandRepository.findById(organizationId).filter(row -> !row.isSoftDeleted())
                 .orElseThrow(() -> new CustomException(ErrorCode.ORGANIZATION_NOT_FOUND)); // 해당 에러코드 추가 필요
 
         organization.resetLoginIdByAdmin(newLoginId);
@@ -75,7 +75,7 @@ public class OrganizationCommandService {
     }
 
     public void modifyOrganizationInfo(String organizationId, AdminOrganizationModifyRequest request) {
-        Organization organization = organizationCommandRepository.findById(organizationId)
+        Organization organization = organizationCommandRepository.findById(organizationId).filter(row -> !row.isSoftDeleted())
                 .orElseThrow(() -> new CustomException(ErrorCode.ORGANIZATION_NOT_FOUND));
 
         // 단체명이 변경되었을 경우, 동일 대회 내 중복 단체명 방지 검증

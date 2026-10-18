@@ -28,6 +28,10 @@ public class RegistrationSpecification {
     ) {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
+            // 현재 행의 실제 필터 연결로 검색하며 단체 연결을 개인에게 대신 적용하지 않는다.
+            if (StringUtils.hasText(condition.referenceFilterId())) {
+                predicates.add(cb.equal(root.get("referenceFilterId"), condition.referenceFilterId()));
+            }
 
             // 0. 대회(Event) 필터 추가
             if (StringUtils.hasText(condition.eventId())) {

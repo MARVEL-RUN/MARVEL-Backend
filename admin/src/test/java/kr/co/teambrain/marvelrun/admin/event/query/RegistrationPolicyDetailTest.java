@@ -1,4 +1,6 @@
 package kr.co.teambrain.marvelrun.admin.event.query;
+import kr.co.teambrain.marvelrun.admin.discount.query.ReferenceFilterQueryService;
+
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
 
@@ -59,7 +61,7 @@ class RegistrationPolicyDetailTest {
     private final EventCategoryStartGroupRepository groups = mock(EventCategoryStartGroupRepository.class);
     private final LocalDateTime now = LocalDateTime.of(2026, 10, 14, 12, 0);
 
-    /** 단체원별 후미 직접 선택과 미선택을 구분하고 비활성 그룹도 한 번에 읽는다. */
+    /** 단체원별 그룹 선택과 실제 마케팅 동의를 표시하고 비활성 그룹도 한 번에 읽는다. */
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void organizationMembersExposeGroupCodeAndSelectionWithoutGroupId(boolean empty) {
@@ -86,12 +88,14 @@ class RegistrationPolicyDetailTest {
             }
             when(explicit.getId()).thenReturn("first");
             when(unselected.getId()).thenReturn("second");
+            when(explicit.getTermsMarketingAgreed()).thenReturn(false);
+            when(unselected.getTermsMarketingAgreed()).thenReturn(true);
             when(unselected.isStartGroupUnselected()).thenReturn(true);
             when(groups.findByIdIn(List.of("rear"))).thenReturn(List.of(group("rear", "category", "B", false)));
         }
 
         // 기존 순서 그대로 단체 상세를 구성한다.
-        OrganizationQueryService service = new OrganizationQueryService(policies, time, organizations,
+        OrganizationQueryService service = new OrganizationQueryService(mock(ReferenceFilterQueryService.class), policies, time, organizations,
                 registrations, souvenirs, payments, groups);
         OrganizationDetailResponse response = service.getOrganizationDetail("org");
 
@@ -106,6 +110,11 @@ class RegistrationPolicyDetailTest {
                     .containsExactly("B", "B");
             assertThat(response.getMembers()).extracting(OrganizationMemberDto::isStartGroupUnselected)
                     .containsExactly(false, true);
+            // 활성 중복 키가 아니라 신청자의 실제 동의값을 사용해야 한다.
+            assertThat(response.getMembers()).extracting(OrganizationMemberDto::getMarketingConsent)
+                    .containsExactly("N", "Y");
+            verify(explicit, never()).getActiveUniqueInfo();
+            verify(unselected, never()).getActiveUniqueInfo();
             JsonNode json = new ObjectMapper().valueToTree(response.getMembers());
             assertThat(json.get(0).has("startGroupId")).isFalse();
             assertThat(json.get(0).get("startGroupCode").asText()).isEqualTo("B");

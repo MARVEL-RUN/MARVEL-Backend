@@ -2,6 +2,7 @@ package kr.co.teambrain.marvelrun.admin.user.command.application.domain;
 
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.common.entity.OrganizationBase;
 import lombok.Getter;
@@ -12,7 +13,9 @@ import static lombok.AccessLevel.PROTECTED;
 /** 관리자 변경을 반영하며 비밀번호는 서비스에서 전달한 해시로 저장한다. */
 @Getter
 @Entity
-@Table(name = "organization")
+@Table(name = "organization", uniqueConstraints = {
+        @UniqueConstraint(name = "uk_organization_active_login", columnNames = {"event_id", "login_id", "active_unique_info"}),
+        @UniqueConstraint(name = "uk_organization_active_name", columnNames = {"event_id", "group_name", "active_unique_info"})})
 @NoArgsConstructor(access = PROTECTED)
 public class Organization extends OrganizationBase<Event> {
 

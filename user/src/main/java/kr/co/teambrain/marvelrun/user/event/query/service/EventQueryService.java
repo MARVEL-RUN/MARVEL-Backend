@@ -8,6 +8,7 @@ import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModel
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import kr.co.teambrain.marvelrun.user.event.query.assembler.RegistrationOptionResponseAssembler;
 import kr.co.teambrain.marvelrun.user.event.query.dto.response.RegistrationOptionResponse;
+import kr.co.teambrain.marvelrun.user.discount.query.DiscountQueryService;
 import kr.co.teambrain.marvelrun.user.event.query.repository.EventCategorySouvenirQueryRepository;
 import kr.co.teambrain.marvelrun.user.event.query.repository.EventQueryRepository;
 import kr.co.teambrain.marvelrun.user.event.query.repository.projection.RegistrationOptionProjection;
@@ -25,6 +26,7 @@ import java.util.List;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class EventQueryService {
+    private final DiscountQueryService discountQueries;
     private final EventQueryRepository eventQueryRepository;
     private final EventCategorySouvenirQueryRepository eventCategorySouvenirQueryRepository;
     private final RegistrationOptionResponseAssembler registrationOptionResponseAssembler;
@@ -49,6 +51,8 @@ public class EventQueryService {
                 .map(RegistrationOptionProjection::getEventCategoryId).distinct().toList();
         List<EventCategoryStartGroup> startGroups = categoryIds.isEmpty() ? List.of()
                 : startGroupRepository.findByEventCategoryIdInAndActiveTrueOrderByEventCategoryIdAscSortOrderAsc(categoryIds);
-        return registrationOptionResponseAssembler.assemble(projections, decision, startGroups);
+
+        return discountQueries.appendInternalPricingOptions(eventId,
+                registrationOptionResponseAssembler.assemble(projections, decision, startGroups));
     }
 }

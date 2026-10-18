@@ -1,7 +1,9 @@
 package kr.co.teambrain.marvelrun.admin.user.query.dto;
 
-public record OrganizationSearchCondition(
-        String eventId,     // 대회 필터 (필수)
-        String keyword      // 통합 검색어 (단체명, 대표자명)
-) {
+/** 대회별 활성 단체 목록과 참조필터 검색 조건이다. */
+public record OrganizationSearchCondition(String eventId, String keyword, String referenceFilterId) {
+    /** 필터를 지정하지 않는 기존 조회를 유지한다. */
+    public OrganizationSearchCondition(String eventId, String keyword) {
+        this(eventId, keyword, null);
+    }
 }

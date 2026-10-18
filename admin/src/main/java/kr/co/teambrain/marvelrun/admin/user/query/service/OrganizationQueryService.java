@@ -1,5 +1,8 @@
 package kr.co.teambrain.marvelrun.admin.user.query.service;
 
+import kr.co.teambrain.marvelrun.admin.discount.query.ReferenceFilterQueryService;
+import kr.co.teambrain.marvelrun.admin.discount.query.ReferenceFilterSummaryResponse;
+
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
 
 import java.time.LocalDateTime;
@@ -41,6 +44,7 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class OrganizationQueryService {
+    private final ReferenceFilterQueryService referenceFilters;
     private final RegistrationActionPolicyReader actionPolicies;
     private final ServerTimeProvider policyTime;
 
@@ -60,6 +64,8 @@ public class OrganizationQueryService {
                 pageable
         );
 
+        Map<String, ReferenceFilterSummaryResponse> filterSummaries = referenceFilters.loadReferenceFilterSummaries(
+                organizations.getContent().stream().map(Organization::getReferenceFilterId).toList());
         long totalElements = organizations.getTotalElements();
         int pageNumber = pageable.getPageNumber();
         int pageSize = pageable.getPageSize();
@@ -74,12 +80,13 @@ public class OrganizationQueryService {
             long memberCount = registrationQueryRepository
                     .countByOrganizationIdAndSoftDeletedFalse(organization.getId());
 
-            return convertToDto(organization, listNumber, memberCount);
+            return convertToDto(organization, listNumber, memberCount, filterSummaries);
         });
     }
 
-    private OrganizationListResponse convertToDto(Organization organization, long listNumber, long memberCount) {
+    private OrganizationListResponse convertToDto(Organization organization, long listNumber, long memberCount, Map<String, ReferenceFilterSummaryResponse> filterSummaries) {
         return OrganizationListResponse.builder()
+                .referenceFilter(filterSummaries.get(organization.getReferenceFilterId()))
                 .listNumber(listNumber)
                 .organizationId(organization.getId())
                 .groupName(organization.getGroupName())
@@ -134,6 +141,10 @@ public class OrganizationQueryService {
         boolean isPaymentUnknown = latestPayment != null
                 && latestPayment.getProcessStatus() == PaymentProcessStatus.UNKNOWN;
 
+        List<String> filterIds = new ArrayList<>(registrations.stream().map(Registration::getReferenceFilterId).toList());
+        filterIds.add(organization.getReferenceFilterId());
+        Map<String, ReferenceFilterSummaryResponse> filterSummaries = referenceFilters.loadReferenceFilterSummaries(filterIds);
+
         // 5. 소속 인원 DTO 변환
         List<OrganizationMemberDto> members = new ArrayList<>();
         long listNumber = 1; // 화면 UI에 맞춰 1번부터 오름차순 부여
@@ -149,16 +160,17 @@ public class OrganizationQueryService {
                 sSize = selected.selectedSize() != null ? selected.selectedSize() : "-";
             }
 
-            // 추가 요청된 데이터 변환 로직 적용
+            // 표시용 성별과 실제 약관 동의값을 변환한다.
             String genderStr = reg.getGender() == GenderClass.M ? "남성" : "여성";
-            String marketingConsent = Boolean.TRUE.equals(reg.getActiveUniqueInfo()) ? "Y" : "N";
+            String marketingConsent = Boolean.TRUE.equals(reg.getTermsMarketingAgreed()) ? "Y" : "N";
             String finalStatus = isPaymentUnknown ? "UNKNOWN" : reg.getStatus().name();
 
             members.add(OrganizationMemberDto.builder()
+                    .referenceFilter(filterSummaries.get(reg.getReferenceFilterId()))
                     .memberPolicy(actionPolicies.evaluateOrganizationMemberPolicy(reg, now, policies))
                     .listNumber(listNumber++) // 페이징 번호 할당
                     .registrationId(reg.getId())
-                    .startGroupCode(groupCodes.get(reg.getStartGroupId()))
+                    .startGroupCode(reg.getStartGroupId() == null ? null : groupCodes.get(reg.getStartGroupId()))
                     .startGroupUnselected(reg.isStartGroupUnselected())
                     .name(reg.getName())
                     .birth(reg.getBirth())
@@ -176,6 +188,7 @@ public class OrganizationQueryService {
 
         // 6. 최종 상세 응답 DTO 반환
         return OrganizationDetailResponse.builder()
+                .referenceFilter(filterSummaries.get(organization.getReferenceFilterId()))
                 .organizationPolicy(actionPolicies.evaluateOrganizationUserPolicy(organization.getEvent(), registrations, now, policies))
                 .organizationId(organization.getId())
                 .groupName(organization.getGroupName())

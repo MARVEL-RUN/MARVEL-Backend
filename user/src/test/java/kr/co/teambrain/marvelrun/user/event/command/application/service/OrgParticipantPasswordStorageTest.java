@@ -1,4 +1,6 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
+import kr.co.teambrain.marvelrun.user.discount.service.RegistrationPriceCalculationRecorder;
+import kr.co.teambrain.marvelrun.user.discount.service.OrganizationDiscountGuard;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -33,6 +35,7 @@ import static org.mockito.Mockito.*;
 /** 실제 수정 서비스가 추가 참가자에게 해시를 저장하는지 DB 없이 검증한다. */
 @ExtendWith(MockitoExtension.class)
 class OrgParticipantPasswordStorageTest {
+    @Mock private RegistrationPriceCalculationRecorder priceCalculations;
     @Spy private OrgParticipantPasswordEncoder participantPasswordEncoder =
             new OrgParticipantPasswordEncoder(new BCryptPasswordEncoder(4));
     @Mock private RegistrationCapacityService capacity;
@@ -50,6 +53,7 @@ class OrgParticipantPasswordStorageTest {
     @Mock private ReservationRemovalService removal;
     @Mock private OrgRegistrationModificationGuard guard;
     @Mock private RegistrationModificationPaymentGuard paymentGuard;
+    @Mock private OrganizationDiscountGuard discountGuard;
     @InjectMocks private OrgRegistrationModificationService service;
 
     /** 기존 단체원을 교체하는 수정에서도 새 참가자만 해시를 생성하고 기존 저장값은 보존한다. */

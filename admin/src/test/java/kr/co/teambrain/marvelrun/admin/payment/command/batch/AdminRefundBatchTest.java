@@ -46,6 +46,78 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /** 배치 접수 계약과 실패 경계를 한 클래스에서 검증한다. 금융 동작은 기존 DB 테스트를 확장한다. */
 class AdminRefundBatchTest {
+    /** 같은 단체의 전원 선택을 한 번 준비하고 명단·버전을 모두 전달한다. */
+    @Test
+    void groupSelectionPreparesOnceWithEveryVersion() {
+        List<String> active = List.of("a", "b");
+        Target first = new Target("a", "org", 3L, null, null, active);
+        Target second = new Target("b", "org", 7L, null, null, active);
+        Work grouped = new Work("batch", 0, "event", "admin", "request", "사유", Operation.FULL, first,
+                List.of(new WorkItem(0, first), new WorkItem(1, second)));
+        when(store.claim("batch")).thenReturn(grouped);
+        when(preparation.prepareFull(eq("event"), eq("org"), eq(active), any()))
+                .thenThrow(new CustomException(ErrorCode.CONCURRENT_MODIFICATION));
+
+        worker.processOne("batch");
+        ArgumentCaptor<AdminRefundCommandContext> captured = ArgumentCaptor.forClass(AdminRefundCommandContext.class);
+        verify(preparation).prepareFull(eq("event"), eq("org"), eq(active), captured.capture());
+        assertThat(captured.getValue().expectedActiveRegistrationIds()).containsExactly("a", "b");
+        assertThat(captured.getValue().expectedRegistrations()).containsExactly(
+                new AdminRefundCommandContext.ExpectedRegistration("a", 3L),
+                new AdminRefundCommandContext.ExpectedRegistration("b", 7L));
+        verify(store).finish(eq(grouped), eq("BLOCKED"), eq("CONCURRENT_MODIFICATION"), any());
+        verifyNoInteractions(execution);
+    }
+
+    /** 원결제별 결과가 섞이면 성공한 환불도 보존하면서 묶음 전체를 확인 필요로 기록한다. */
+    @Test
+    void mixedGroupRefundOutcomesRequireReviewWithoutRetry() {
+        List<String> active = List.of("a", "b");
+        Target first = new Target("a", "org", 0L, null, null, active);
+        Target second = new Target("b", "org", 0L, null, null, active);
+        Work grouped = new Work("batch", 0, "event", "admin", "request", "사유", Operation.FULL, first,
+                List.of(new WorkItem(0, first), new WorkItem(1, second)));
+        AdminRefundPrepared groupPrepared = new AdminRefundPrepared("request", "correlation", "event", "org", now, List.of(),
+                List.of(new AdminRefundPrepared.Refund("c1", "p1", BigDecimal.TEN, PaymentCancelType.FULL, PaymentCancelStatus.PROCESSING),
+                        new AdminRefundPrepared.Refund("c2", "p2", BigDecimal.TEN, PaymentCancelType.FULL, PaymentCancelStatus.PROCESSING)));
+        TossCancelOutcome success = TossCancelOutcome.verified(new VerifiedTossCancellation("tx", BigDecimal.TEN,
+                BigDecimal.ZERO, OffsetDateTime.parse("2026-09-23T12:00:00+09:00"), "CANCELED"));
+        AdminRefundExecutionService.Result result = new AdminRefundExecutionService.Result("request", "correlation", now, now,
+                List.of(new AdminRefundExecutionResult("c1", true, success, true, false, null),
+                        new AdminRefundExecutionResult("c2", true, TossCancelOutcome.unknown(null, "TIMEOUT"), true, false, null)));
+        when(store.claim("batch")).thenReturn(grouped);
+        when(preparation.prepareFull(eq("event"), eq("org"), eq(active), any())).thenReturn(groupPrepared);
+        when(execution.execute(groupPrepared)).thenReturn(result);
+
+        worker.processOne("batch");
+        verify(store).prepared(grouped, groupPrepared);
+        verify(store).finish(grouped, "NEEDS_REVIEW", "REFUND_RESULT_REQUIRES_CHECK", result);
+        verify(execution, times(1)).execute(groupPrepared);
+    }
+
+    /** 배포 전 접수되어 명단이 없는 단체 작업을 현재 명단으로 임의 확대하지 않는다. */
+    @Test
+    void legacyOrganizationTargetWithoutSnapshotIsBlocked() {
+        Work legacy = new Work("batch", 0, "event", "admin", "request", "사유", Operation.FULL,
+                new Target("a", "org", 0L, null, null));
+        when(store.claim("batch")).thenReturn(legacy);
+        worker.processOne("batch");
+        verify(store).finish(eq(legacy), eq("BLOCKED"), eq("CONCURRENT_MODIFICATION"), any());
+        verifyNoInteractions(preparation, execution);
+    }
+
+    /** 구형 target JSON도 조회 가능하고 신규 명단은 별도 필드로 복원된다. */
+    @Test
+    void targetJsonSupportsOldAndNewSnapshots() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        Target legacy = mapper.readValue("""
+                {"registrationId":"a","organizationId":"org","version":0,"change":null,"errorCode":null}
+                """, Target.class);
+        assertThat(legacy.activeOrganizationMemberIds()).isNull();
+        Target current = new Target("a", "org", 0L, null, null, List.of("a", "b"));
+        assertThat(mapper.readValue(mapper.writeValueAsString(current), Target.class)).isEqualTo(current);
+    }
+
     /* 외부 결제 사전검증 실패를 기존 배치 BLOCKED 결과로 전달하고 실행기를 호출하지 않는다. */
     @Test
     void externalPaymentRestrictionIsReportedWithoutExecutingRefund() {
