@@ -2,6 +2,7 @@ package kr.co.teambrain.marvelrun.common.entity;
 
 import jakarta.persistence.*;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.AddressBase;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.DeliveryStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GuardianBase;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
@@ -307,4 +308,25 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
     public void assignCurrentPriceCalculation(String calculationId) {
         this.currentPriceCalculationId = calculationId;
     }
+
+    /** 대회 안에서 유일하다. 환불해도 지우지 않고 다른 신청에 다시 주지 않는다. */
+    @Column(name = "bib_number", length = 20)
+    protected String bibNumber;
+
+    @Column(name = "bib_issued_at")
+    protected LocalDateTime bibIssuedAt;
+
+    /** 인증번호로 확인한 휴대폰의 해시. 대회 안에서 삭제되지 않은 신청끼리 유일하다. */
+    @Column(name = "login_ph_hash", length = 64)
+    protected String loginPhHash;
+
+    @Column(name = "tracking_number", length = 50)
+    protected String trackingNumber;
+
+    @Column(name = "delivery_status", length = 20)
+    @Enumerated(EnumType.STRING)
+    protected DeliveryStatus deliveryStatus;
+
+    @Column(name = "shipped_at")
+    protected LocalDateTime shippedAt;
 }
