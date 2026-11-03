@@ -336,6 +336,8 @@ public enum ErrorCode {
     USER_CANNOT_CHANGE_OWN_INFO_IN_REGISTRATION_PATCH(HttpStatus.BAD_REQUEST, "가입된 사용자의 정보 변경은 회원 정보 변경에서만 가능합니다. 회원정보를 변경 후 시도해주세요."),
     EVENT_NOT_FOUND(HttpStatus.NOT_FOUND, "대회를 찾을 수 없습니다"),
     EVENT_NOT_OPEN(HttpStatus.CONFLICT, "아직 신청이 불가능한 대회입니다"),
+    PARTICIPANT_AUTH_METHOD_NOT_SUPPORTED(HttpStatus.CONFLICT, "이 대회에서는 지원하지 않는 신청 방식입니다."),
+    GROUP_REGISTRATION_DISABLED(HttpStatus.CONFLICT, "이 대회는 단체 신청을 받지 않습니다."),
     REGISTRATION_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 참여한 대회에 다시 신청할 수 없습니다."), 
     MUST_NEED_DELETE_MAP_USER(HttpStatus.INTERNAL_SERVER_ERROR, "'삭제된 사용자' user가 db내에 존재하지않음"),
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다"), 
