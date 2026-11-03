@@ -1,6 +1,7 @@
 package kr.co.teambrain.marvelrun.admin.event.query.assembler;
 
 
+import kr.co.teambrain.marvelrun.admin.event.query.dto.response.EventSettingsResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationOptionResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationRestrictionReasonResponse;
 import kr.co.teambrain.marvelrun.admin.event.policy.RegistrationActionPolicyModels;
@@ -21,11 +22,12 @@ import java.util.Map;
 public class RegistrationOptionResponseAssembler {
 
 
-    /** 종목별 그룹과 기념품 목록을 조립한 뒤 기존 접수 정책 결과를 함께 제공한다. */
+    /** 종목별 그룹과 기념품 목록을 조립한 뒤 기존 접수 정책 결과와 대회 설정을 함께 제공한다. */
     public RegistrationOptionResponse assemble(
             List<RegistrationOptionProjection> projections,
             RegistrationActionPolicyModels.Decision registrationDecision,
-            List<EventCategoryStartGroup> startGroups
+            List<EventCategoryStartGroup> startGroups,
+            EventSettingsResponse eventSettings
     ) {
 
         Map<String, CategoryAccumulator> categoryMap =
@@ -85,7 +87,8 @@ public class RegistrationOptionResponseAssembler {
         return new RegistrationOptionResponse(
                 categories,
                 registrationDecision.allowed(),
-                RegistrationRestrictionReasonResponse.fromDecision(registrationDecision)
+                RegistrationRestrictionReasonResponse.fromDecision(registrationDecision),
+                eventSettings
         );
     }
 

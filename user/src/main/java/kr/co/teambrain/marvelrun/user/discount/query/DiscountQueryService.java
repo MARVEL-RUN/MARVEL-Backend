@@ -51,7 +51,8 @@ public class DiscountQueryService {
             category.amount(),
             snapshot,
             null)))).toList();
-        return new RegistrationOptionResponse(options, original.registrationAllowed(), original.registrationReason());
+        return new RegistrationOptionResponse(options, original.registrationAllowed(), original.registrationReason(),
+                original.eventSettings());
     }
 
     /** 정상 링크의 기간 전/후도 안내하되 잘못된 대회·코드는 조회 실패로 처리한다. */

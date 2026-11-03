@@ -14,7 +14,9 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.EventFormat;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventStatus;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.ParticipantAuthMethod;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
@@ -63,7 +65,7 @@ class RegistrationStartGroupQueryTest {
         // 기념품 JOIN으로 같은 종목이 반복되는 목록을 구성한다.
         EventQueryRepository events = mock(EventQueryRepository.class);
         EventCategorySouvenirQueryRepository options = mock(EventCategorySouvenirQueryRepository.class);
-        Event storedEvent = mock(Event.class);
+        Event storedEvent = storedEvent(ParticipantAuthMethod.PERSONAL_INFO_PASSWORD, EventFormat.OFFLINE, false, true);
         when(events.findById("event")).thenReturn(Optional.of(storedEvent));
         when(time.currentDateTime()).thenReturn(now);
         when(policies.evaluateNewRegistrationPolicy(storedEvent, now))
@@ -92,12 +94,37 @@ class RegistrationStartGroupQueryTest {
         verifyNoMoreInteractions(groups);
     }
 
+    /** 대회 설정을 식별·확인 종류와 함께 내려주고 내부 배번 순번은 내보내지 않는다. */
+    @Test
+    void optionsExposeEventSettingsWithoutInternalBibSequence() {
+        EventQueryRepository events = mock(EventQueryRepository.class);
+        EventCategorySouvenirQueryRepository options = mock(EventCategorySouvenirQueryRepository.class);
+        Event storedEvent = storedEvent(ParticipantAuthMethod.BIB_PHONE_OTP, EventFormat.VIRTUAL, true, false);
+        when(events.findById("event")).thenReturn(Optional.of(storedEvent));
+        when(policies.evaluateNewRegistrationPolicy(eq(storedEvent), any()))
+                .thenReturn(new RegistrationActionPolicyModels.Decision(null));
+
+        RegistrationOptionResponse response = new EventQueryService(pricingQuery(), events, options,
+                new RegistrationOptionResponseAssembler(), policies, time, groups).getRegistrationOptions("event");
+
+        // enum은 이름 문자열로 나가고 화면이 입력 칸을 정할 종류도 함께 나간다.
+        JsonNode settings = new ObjectMapper().valueToTree(response).get("eventSettings");
+        assertThat(settings.get("eventFormat").asText()).isEqualTo("VIRTUAL");
+        assertThat(settings.get("participantAuth").get("method").asText()).isEqualTo("BIB_PHONE_OTP");
+        assertThat(settings.get("participantAuth").get("identifierType").asText()).isEqualTo("BIB");
+        assertThat(settings.get("participantAuth").get("credentialType").asText()).isEqualTo("PHONE_OTP");
+        assertThat(settings.get("bibAutoIssue").asBoolean()).isTrue();
+        assertThat(settings.get("groupRegistrationEnabled").asBoolean()).isFalse();
+        assertThat(settings.has("lastBibSeq")).isFalse();
+        assertThat(settings.size()).isEqualTo(4);
+    }
+
     /** 빈 종목 목록에서는 불필요한 IN 조회를 수행하지 않는다. */
     @Test
     void optionsSkipGroupReadWhenCategoriesAreEmpty() {
         EventQueryRepository events = mock(EventQueryRepository.class);
         EventCategorySouvenirQueryRepository options = mock(EventCategorySouvenirQueryRepository.class);
-        Event storedEvent = mock(Event.class);
+        Event storedEvent = storedEvent(ParticipantAuthMethod.PERSONAL_INFO_PASSWORD, EventFormat.OFFLINE, false, true);
         when(events.findById("event")).thenReturn(Optional.of(storedEvent));
         when(policies.evaluateNewRegistrationPolicy(eq(storedEvent), any()))
                 .thenReturn(new RegistrationActionPolicyModels.Decision(null));
@@ -311,4 +338,15 @@ class RegistrationStartGroupQueryTest {
         DiscountQueryService service = mock(DiscountQueryService.class);
         when(service.appendInternalPricingOptions(any(), any())).thenAnswer(call -> call.getArgument(1));
         return service;
+    }
+
+    /** 저장된 대회의 설정 컬럼 값을 흉내 낸다. */
+    private static Event storedEvent(ParticipantAuthMethod method, EventFormat format,
+            boolean bibAutoIssue, boolean groupRegistrationEnabled) {
+        Event event = mock(Event.class);
+        when(event.getParticipantAuthMethod()).thenReturn(method);
+        when(event.getEventFormat()).thenReturn(format);
+        when(event.getBibAutoIssue()).thenReturn(bibAutoIssue);
+        when(event.getGroupRegistrationEnabled()).thenReturn(groupRegistrationEnabled);
+        return event;
     }}

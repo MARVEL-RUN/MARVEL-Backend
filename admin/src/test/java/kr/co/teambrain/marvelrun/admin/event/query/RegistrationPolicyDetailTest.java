@@ -26,6 +26,7 @@ import kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCat
 import kr.co.teambrain.marvelrun.admin.event.command.repository.EventCategoryStartGroupRepository;
 import kr.co.teambrain.marvelrun.admin.event.policy.RegistrationActionPolicyModels;
 import kr.co.teambrain.marvelrun.admin.event.query.assembler.RegistrationOptionResponseAssembler;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.response.EventListResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationOptionResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.EventCategorySouvenirQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.projection.RegistrationOptionProjection;
@@ -44,7 +45,9 @@ import kr.co.teambrain.marvelrun.admin.event.query.repository.EventQueryReposito
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationActionPolicyRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.service.EventQueryService;
 import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationActionPolicyReader;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.EventFormat;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventStatus;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.ParticipantAuthMethod;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -168,7 +171,7 @@ class RegistrationPolicyDetailTest {
         // 기념품 JOIN으로 같은 종목이 반복되는 목록을 구성한다.
         EventQueryRepository events = mock(EventQueryRepository.class);
         EventCategorySouvenirQueryRepository options = mock(EventCategorySouvenirQueryRepository.class);
-        Event storedEvent = mock(Event.class);
+        Event storedEvent = storedEvent(ParticipantAuthMethod.PERSONAL_INFO_PASSWORD, EventFormat.OFFLINE, false, true);
         when(events.findById("event")).thenReturn(Optional.of(storedEvent));
         when(time.currentDateTime()).thenReturn(now);
         when(policies.evaluateNewRegistrationPolicy(storedEvent, now))
@@ -194,8 +197,47 @@ class RegistrationPolicyDetailTest {
         JsonNode selected = new ObjectMapper().valueToTree(response.categories().getFirst().startGroups().getFirst());
         assertThat(selected.size()).isEqualTo(3);
         assertThat(selected.get("description").asText()).isEqualTo("운영자가 저장한 안내문");
+        assertThat(response.eventSettings().participantAuth().method()).isEqualTo(ParticipantAuthMethod.PERSONAL_INFO_PASSWORD);
         verify(groups).findByEventCategoryIdInAndActiveTrueOrderByEventCategoryIdAscSortOrderAsc(List.of("c2", "c1"));
         verifyNoMoreInteractions(groups);
+    }
+
+    /** 대회 목록 항목마다 대회 설정을 식별·확인 종류와 함께 내려주고 내부 배번 순번은 내보내지 않는다. */
+    @Test
+    void eventListExposesEventSettingsWithoutInternalBibSequence() {
+        Event stored = storedEvent(ParticipantAuthMethod.BIB_PHONE_OTP, EventFormat.VIRTUAL, true, false);
+        when(stored.getId()).thenReturn("virtual");
+        when(stored.getNameKr()).thenReturn("버추얼런");
+        when(stored.getEventStatus()).thenReturn(EventStatus.OPEN);
+        when(stored.getRegistStartDate()).thenReturn(start);
+        EventQueryRepository repository = mock(EventQueryRepository.class);
+        when(repository.findAllByOrderByRegistStartDateDesc()).thenReturn(List.of(stored));
+
+        EventListResponse item = new EventQueryService(repository, mock(EventCategoryQueryRepository.class),
+                mock(EventCategorySouvenirQueryRepository.class), new RegistrationOptionResponseAssembler(),
+                policies, time, groups).getEventList().getFirst();
+
+        // enum은 이름 문자열로 나가고 화면이 입력 칸을 정할 종류도 함께 나간다.
+        JsonNode settings = new ObjectMapper().valueToTree(item).get("eventSettings");
+        assertThat(settings.get("eventFormat").asText()).isEqualTo("VIRTUAL");
+        assertThat(settings.get("participantAuth").get("method").asText()).isEqualTo("BIB_PHONE_OTP");
+        assertThat(settings.get("participantAuth").get("identifierType").asText()).isEqualTo("BIB");
+        assertThat(settings.get("participantAuth").get("credentialType").asText()).isEqualTo("PHONE_OTP");
+        assertThat(settings.get("bibAutoIssue").asBoolean()).isTrue();
+        assertThat(settings.get("groupRegistrationEnabled").asBoolean()).isFalse();
+        assertThat(settings.has("lastBibSeq")).isFalse();
+        assertThat(settings.size()).isEqualTo(4);
+    }
+
+    /** 저장된 대회의 설정 컬럼 값을 흉내 낸다. */
+    private static Event storedEvent(ParticipantAuthMethod method, EventFormat format,
+            boolean bibAutoIssue, boolean groupRegistrationEnabled) {
+        Event event = mock(Event.class);
+        when(event.getParticipantAuthMethod()).thenReturn(method);
+        when(event.getEventFormat()).thenReturn(format);
+        when(event.getBibAutoIssue()).thenReturn(bibAutoIssue);
+        when(event.getGroupRegistrationEnabled()).thenReturn(groupRegistrationEnabled);
+        return event;
     }
 
     /** 빈 종목 목록에서는 불필요한 IN 조회를 수행하지 않는다. */
@@ -203,7 +245,7 @@ class RegistrationPolicyDetailTest {
     void optionsSkipGroupReadWhenCategoriesAreEmpty() {
         EventQueryRepository events = mock(EventQueryRepository.class);
         EventCategorySouvenirQueryRepository options = mock(EventCategorySouvenirQueryRepository.class);
-        Event storedEvent = mock(Event.class);
+        Event storedEvent = storedEvent(ParticipantAuthMethod.PERSONAL_INFO_PASSWORD, EventFormat.OFFLINE, false, true);
         when(events.findById("event")).thenReturn(Optional.of(storedEvent));
         when(policies.evaluateNewRegistrationPolicy(eq(storedEvent), any()))
                 .thenReturn(new RegistrationActionPolicyModels.Decision(null));
@@ -241,7 +283,7 @@ class RegistrationPolicyDetailTest {
 
     /** NULL 전역 마감은 관리자 기존 검증과 목록 표시에서도 오류를 만들지 않는다. */
     @Test void nullableDeadlineIsAcceptedAndDisplayedInAdminEventList() {
-        Event stored = Mockito.mock(Event.class);
+        Event stored = storedEvent(ParticipantAuthMethod.PERSONAL_INFO_PASSWORD, EventFormat.OFFLINE, false, true);
         Mockito.when(stored.getId()).thenReturn("e");
         Mockito.when(stored.getNameKr()).thenReturn("테스트 대회");
         Mockito.when(stored.getEventStatus()).thenReturn(EventStatus.OPEN);

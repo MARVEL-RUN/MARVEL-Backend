@@ -5,13 +5,14 @@ import java.math.BigDecimal;
 import java.util.List;
 import kr.co.teambrain.marvelrun.user.discount.query.RegistrationPricingOptionsResponse;
 
-/** 종목·기념품·그룹 선택지와 별도로 신규 접수 정책상 허용 여부를 제공한다. */
+/** 종목·기념품·그룹 선택지와 별도로 신규 접수 정책상 허용 여부와 대회 설정을 제공한다. */
 @JsonInclude(JsonInclude.Include.ALWAYS)
 public record RegistrationOptionResponse(
 
         List<EventCategoryOption> categories,
         boolean registrationAllowed,
-        RegistrationRestrictionReasonResponse registrationReason
+        RegistrationRestrictionReasonResponse registrationReason,
+        EventSettingsResponse eventSettings
 ) {
 
     public record EventCategoryOption(

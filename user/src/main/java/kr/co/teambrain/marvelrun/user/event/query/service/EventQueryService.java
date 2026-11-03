@@ -7,6 +7,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import kr.co.teambrain.marvelrun.user.event.query.assembler.RegistrationOptionResponseAssembler;
+import kr.co.teambrain.marvelrun.user.event.query.dto.response.EventSettingsResponse;
 import kr.co.teambrain.marvelrun.user.event.query.dto.response.RegistrationOptionResponse;
 import kr.co.teambrain.marvelrun.user.discount.query.DiscountQueryService;
 import kr.co.teambrain.marvelrun.user.event.query.repository.EventCategorySouvenirQueryRepository;
@@ -53,6 +54,7 @@ public class EventQueryService {
                 : startGroupRepository.findByEventCategoryIdInAndActiveTrueOrderByEventCategoryIdAscSortOrderAsc(categoryIds);
 
         return discountQueries.appendInternalPricingOptions(eventId,
-                registrationOptionResponseAssembler.assemble(projections, decision, startGroups));
+                registrationOptionResponseAssembler.assemble(projections, decision, startGroups,
+                        EventSettingsResponse.from(event)));
     }
 }

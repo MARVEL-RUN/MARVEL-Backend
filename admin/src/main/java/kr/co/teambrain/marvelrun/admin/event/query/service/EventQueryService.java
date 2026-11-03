@@ -3,6 +3,7 @@ package kr.co.teambrain.marvelrun.admin.event.query.service;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.response.EventCategoryResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.response.EventListResponse;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.response.EventSettingsResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.EventCategoryQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.EventQueryRepository;
 import lombok.RequiredArgsConstructor;
@@ -55,7 +56,7 @@ public class EventQueryService {
                 : startGroupRepository.findByEventCategoryIdInAndActiveTrueOrderByEventCategoryIdAscSortOrderAsc(categoryIds);
 
         // 저장된 안내문과 기존 선택지 순서를 보존한다.
-        return optionAssembler.assemble(projections, decision, groups);
+        return optionAssembler.assemble(projections, decision, groups, EventSettingsResponse.from(event));
     }
 
     /**
@@ -82,6 +83,7 @@ public class EventQueryService {
                 .eventName(event.getNameKr()) // 한글 대회명 사용[cite: 12]
                 .registrationType(event.getEventStatus().name()) // 신청 유형이 없어 EventStatus(OPEN, CLOSED 등)로 임시 대체[cite: 12, 13]
                 .registrationPeriod(registrationPeriod)
+                .eventSettings(EventSettingsResponse.from(event))
                 .build();
     }
 
