@@ -93,4 +93,8 @@ public abstract class EventBase {
     @Column(name = "event_format", nullable = false, length = 20)
     @Enumerated(EnumType.STRING)
     protected EventFormat eventFormat = EventFormat.OFFLINE;
+
+    // 꺼져 있으면 단체 신청 생성과 기존 단체의 구성원 추가를 막는다.
+    @Column(name = "group_registration_enabled", nullable = false)
+    protected Boolean groupRegistrationEnabled = true;
 }
