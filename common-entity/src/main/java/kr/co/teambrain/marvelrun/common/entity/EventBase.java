@@ -2,6 +2,7 @@ package kr.co.teambrain.marvelrun.common.entity;
 
 import jakarta.persistence.*;
 import lombok.Getter;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.EventFormat;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventVisibleStatus;
 import lombok.NoArgsConstructor;
@@ -74,4 +75,20 @@ public abstract class EventBase {
     // 새로 추가되는 필드
     @Column(name = "phone_auth_required", nullable = false)
     protected Boolean phoneAuthRequired = true; // null 방지 초기값 설정
+
+    // participant_auth_method 테이블의 code. 참가자가 자기 신청에 들어오는 방식을 정한다.
+    @Column(name = "participant_auth_method", nullable = false, length = 40)
+    protected String participantAuthMethodCode = "PERSONAL_INFO_PASSWORD";
+
+    // 켜져 있으면 결제 승인 때 배번을 발급한다.
+    @Column(name = "bib_auto_issue", nullable = false)
+    protected Boolean bibAutoIssue = false;
+
+    // 마지막으로 발급한 배번 순번. 대회 행을 잠근 상태에서만 올린다.
+    @Column(name = "last_bib_seq", nullable = false)
+    protected Integer lastBibSeq = 0;
+
+    @Column(name = "event_format", nullable = false, length = 20)
+    @Enumerated(EnumType.STRING)
+    protected EventFormat eventFormat = EventFormat.OFFLINE;
 }
