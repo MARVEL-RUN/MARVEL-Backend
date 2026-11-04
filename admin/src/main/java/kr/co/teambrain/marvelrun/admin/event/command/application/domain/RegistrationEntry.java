@@ -29,4 +29,25 @@ import lombok.experimental.SuperBuilder;
 )
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class RegistrationEntry extends RegistrationEntryBase<Event, Registration, EventCategory> {
+
+    /** 단품 신청의 참가 항목을 신청자 값으로 만든다. 배번은 발급 때 채운다. */
+    public static RegistrationEntry forApplicant(Registration registration) {
+        return RegistrationEntry.builder()
+                .event(registration.getEvent())
+                .registration(registration)
+                .eventCategory(registration.getEventCategory())
+                .name(registration.getName())
+                .phNum(registration.getPhNum())
+                .birth(registration.getBirth())
+                .gender(registration.getGender())
+                .build();
+    }
+
+    /** 받는 사람 값을 신청자 값으로 맞춘다. 배번은 그대로 둔다. */
+    public void followApplicant(Registration registration) {
+        this.name = registration.getName();
+        this.phNum = registration.getPhNum();
+        this.birth = registration.getBirth();
+        this.gender = registration.getGender();
+    }
 }

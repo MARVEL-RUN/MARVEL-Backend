@@ -181,6 +181,9 @@ public enum ErrorCode {
     /** 임시 운영 차단: 종목 상향 변경의 추가 결제 흐름 검증 후 별도 해제한다. */
     ADMIN_ADJUSTMENT_CATEGORY_PRICE_INCREASE_TEMPORARILY_BLOCKED(HttpStatus.CONFLICT,
             "참가비가 올라가는 종목 변경은 현재 임시 중단되었습니다."),
+    /** 임시 운영 차단: 관리자 상품 변경(참가 항목 재구성) 흐름을 만든 뒤 별도 해제한다. */
+    ADMIN_ADJUSTMENT_PRODUCT_CATEGORY_TEMPORARILY_BLOCKED(HttpStatus.CONFLICT,
+            "상품(단품·패키지·옵션) 종목으로, 또는 상품 종목에서 바꾸는 관리자 수정은 현재 임시 중단되었습니다."),
 
     AGE_RESTRICTION_VIOLATION(HttpStatus.BAD_REQUEST, "만 12세 이하(2013년 11월 1일 이후 출생자)는 10Km 코스에 참가할 수 없습니다."),
     GUARDIAN_INFO_REQUIRED(HttpStatus.BAD_REQUEST, "만 12세 이하 참가자로 변경 시 보호자 정보 입력이 필수입니다."),

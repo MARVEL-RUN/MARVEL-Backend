@@ -64,8 +64,10 @@ class RegistrationPasswordResetTest {
     private final RegistrationCommandRepository registrations = mock(RegistrationCommandRepository.class);
     private final OrganizationCommandRepository organizations = mock(OrganizationCommandRepository.class);
     private final EventCategoryStartGroupRepository groupRepository = mock(EventCategoryStartGroupRepository.class);
+    private final RegistrationApplicantEntrySyncService applicantEntries = mock(RegistrationApplicantEntrySyncService.class);
     private final RegistrationCommandService personalService = new RegistrationCommandService(
-            encoder, registrations, mock(AdminUnpaidRegistrationCancellationService.class), new RegistrationStartGroupResolver(groupRepository));
+            encoder, registrations, mock(AdminUnpaidRegistrationCancellationService.class), new RegistrationStartGroupResolver(groupRepository),
+            applicantEntries);
     private final OrganizationCommandService organizationService = new OrganizationCommandService(
             encoder, organizations, registrations);
 
@@ -91,6 +93,8 @@ class RegistrationPasswordResetTest {
                 unselected ? "ignored" : "rear", unselected));
         assertThat(registration.getStartGroupId()).isEqualTo("rear");
         assertThat(registration.isStartGroupUnselected()).isEqualTo(unselected);
+        // 바뀐 신청자 값을 단품 참가 항목에도 맞춘다(단품 여부는 동기화 서비스가 본다).
+        verify(applicantEntries).syncApplicantEntry(registration);
     }
 
     /** 개인·단체 초기화 후 새 원문만 인증되며 요청 record의 원문은 유지된다. */
