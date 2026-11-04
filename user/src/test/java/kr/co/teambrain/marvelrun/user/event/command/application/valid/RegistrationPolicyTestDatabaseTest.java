@@ -53,6 +53,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Import({
         RegistrationPolicyLoader.class,
         RegistrationPolicyValidator.class,
+        RegistrationEntryValidator.class,
         RegistrationApplyValidator.class,
         OrgRegistrationApplyValidator.class,
         EventPaymentPolicyValidator.class

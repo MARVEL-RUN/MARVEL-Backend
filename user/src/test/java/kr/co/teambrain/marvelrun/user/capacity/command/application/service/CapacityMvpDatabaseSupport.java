@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.user.capacity.command.application.service;
 
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationEntryValidator;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.time.*;
@@ -93,6 +94,7 @@ import static org.mockito.Mockito.when;
         RegistrationApplyValidator.class,
         OrgRegistrationApplyValidator.class,
         RegistrationPolicyValidator.class,
+        RegistrationEntryValidator.class,
         RegistrationPolicyLoader.class,
         EventPaymentPolicyValidator.class,
         PaymentCreator.class,

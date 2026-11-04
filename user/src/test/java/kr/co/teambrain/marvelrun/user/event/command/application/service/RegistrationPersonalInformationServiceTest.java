@@ -68,7 +68,8 @@ class RegistrationPersonalInformationServiceTest {
             full, organization, settlement, time, new RegistrationModificationAccessValidator(passwordEncoder, repository), validator,
             new RegistrationModificationClassifier(), new RegistrationPersonalInformationService(validator, repository, entityManager),
             mock(OrgRegistrationModificationAccessValidator.class), mock(OrgRegistrationPersonalInformationValidator.class),
-            mock(OrgRegistrationPersonalInformationService.class), mock(RegistrationActionPolicyService.class));
+            mock(OrgRegistrationPersonalInformationService.class), mock(RegistrationActionPolicyService.class),
+            mock(RegistrationProductModificationService.class));
 
     /** 기존 분기 검증에는 그룹 확정 결과를 전달한다. */
     @BeforeEach

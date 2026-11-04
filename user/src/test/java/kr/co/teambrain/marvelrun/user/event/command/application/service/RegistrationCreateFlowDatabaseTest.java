@@ -1,4 +1,5 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationEntryValidator;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.OrganizationLifecycleService;
 import kr.co.teambrain.marvelrun.user.discount.service.LinkDiscountEligibilityService;
 import kr.co.teambrain.marvelrun.user.discount.service.OrganizationDiscountGuard;
@@ -98,6 +99,7 @@ import static org.mockito.Mockito.when;
         RegistrationApplyValidator.class,
         OrgRegistrationApplyValidator.class,
         RegistrationPolicyValidator.class,
+        RegistrationEntryValidator.class,
         RegistrationPolicyLoader.class,
         EventPaymentPolicyValidator.class,
 

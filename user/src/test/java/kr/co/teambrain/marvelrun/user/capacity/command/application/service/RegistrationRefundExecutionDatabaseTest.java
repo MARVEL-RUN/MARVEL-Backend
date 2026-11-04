@@ -1,4 +1,5 @@
 package kr.co.teambrain.marvelrun.user.capacity.command.application.service;
+import kr.co.teambrain.marvelrun.user.event.command.application.service.RegistrationProductModificationService;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.OrganizationLifecycleService;
 
 import java.math.BigDecimal;
@@ -41,7 +42,7 @@ import static org.mockito.Mockito.*;
 @Import({
         OrganizationLifecycleService.class,
         AdditionalPaymentTargetResolver.class,
-        RegistrationModificationTransactionService.class,
+        RegistrationModificationTransactionService.class, RegistrationProductModificationService.class,
         RefundExecutionLock.class, RefundExecutionTransactionService.class,
         ModificationRefundExecutor.class, ModificationRefundResultReader.class,
         RegistrationInformationPolicyValidator.class, OrgRegistrationPersonalInformationValidator.class,

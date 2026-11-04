@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.user.capacity.command.application.service;
 
+import kr.co.teambrain.marvelrun.user.event.command.application.service.RegistrationProductModificationService;
 import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -64,7 +65,7 @@ import static org.mockito.Mockito.*;
         RegistrationModificationSettlementService.class,
         ReservationCapacityDiffService.class, CapacityModificationService.class, ReservationRemovalService.class,
         ValidationAutoConfiguration.class,
-        AdditionalPaymentTargetResolver.class,RegistrationModificationTransactionService.class,
+        AdditionalPaymentTargetResolver.class,RegistrationModificationTransactionService.class, RegistrationProductModificationService.class,
         RegistrationQueryRepository.class, RegistrationQueryService.class, RegistrationPaymentQueryResolver.class})
 @TestPropertySource(properties = "spring.jpa.properties.hibernate.session_factory.statement_inspector="
         + "kr.co.teambrain.marvelrun.user.capacity.command.application.service.RegistrationPersonalInformationDatabaseTest$SqlCapture")

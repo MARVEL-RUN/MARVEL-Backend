@@ -1,4 +1,5 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationEntryValidator;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.OrganizationLifecycleService;
 import kr.co.teambrain.marvelrun.user.discount.service.LinkDiscountEligibilityService;
 import kr.co.teambrain.marvelrun.user.discount.service.OrganizationDiscountGuard;
@@ -59,6 +60,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         RegistrationPricingService.class,
         RegistrationPolicyLoader.class,
         RegistrationPolicyValidator.class,
+        RegistrationEntryValidator.class,
         RegistrationApplyValidator.class,
         OrgRegistrationApplyValidator.class,
         EventPaymentPolicyValidator.class

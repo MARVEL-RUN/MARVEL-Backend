@@ -182,7 +182,7 @@ class RegistrationPasswordStorageTest {
     private void preparePersonal(RegistrationCreateRequest request) {
         when(time.currentDateTime()).thenReturn(NOW);
         when(personalValidator.validate("event", request, NOW))
-                .thenReturn(new RegistrationCreateContext(event, category, List.of()));
+                .thenReturn(new RegistrationCreateContext(event, category, List.of(), List.of()));
         when(pricing.calculateRegistrationPrice(eq(event), eq(category), eq(request.birth()), eq(false), isNull(), anyList())).thenReturn(new DiscountModels.PriceResult(DiscountModels.Failure.NONE, BigDecimal.TEN, BigDecimal.TEN, BigDecimal.ZERO, List.of()));
     }
 
