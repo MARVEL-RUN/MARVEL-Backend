@@ -138,11 +138,6 @@ public class OrgRegistrationCommandService {
 
         Event event = context.event();
 
-        // 단체 신청을 끈 대회는 단체를 만들지 않는다.
-        if (Boolean.FALSE.equals(event.getGroupRegistrationEnabled())) {
-            throw new CustomException(ErrorCode.GROUP_REGISTRATION_DISABLED);
-        }
-
         // 신규 생성에만 접수 차단 구간을 적용하고 기존 신청 재처리에는 전파하지 않는다.
         actionPolicies.validateNewRegistrationPolicy(event, now);
 

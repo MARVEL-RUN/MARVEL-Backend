@@ -24,6 +24,8 @@ import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyServi
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels.*;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.OrgRegistrationModificationParticipantRequest;
+import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
+import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 
 /**
  * 신청 수정 전체의 트랜잭션 경계를 제공한다.
@@ -113,6 +115,11 @@ public class RegistrationModificationTransactionService {
         organizationInformationValidator.validateInput(request);
         OrgRegistrationModificationAccessContext verified = organizationAccessValidator.validate(
                 eventId, organizationId, request, now);
+        // 단체 신청을 끈 대회에서도 기존 구성원 수정·제거는 허용하고 새 구성원만 잠금 전에 막는다.
+        if (Boolean.FALSE.equals(verified.event().getGroupRegistrationEnabled())
+                && request.registrations().stream().anyMatch(member -> member.registrationId() == null)) {
+            throw new CustomException(ErrorCode.GROUP_REGISTRATION_DISABLED);
+        }
         // 전체 참가자 그룹을 일괄 검증하여 일반 수정과 참가자 추가 모두 같은 값을 사용한다.
         List<RegistrationStartGroupResolver.Selection> selections = startGroups.resolveRegistrationStartGroups(
                 request.registrations().stream().map(member -> new RegistrationStartGroupResolver.Input(

@@ -67,6 +67,11 @@ public class OrgRegistrationApplyValidator
                 now
         );
 
+        // 단체 신청을 끈 대회는 구성원 검증 전에 거절해 무관한 검증 오류가 먼저 나가지 않게 한다.
+        if (Boolean.FALSE.equals(event.getGroupRegistrationEnabled())) {
+            throw new CustomException(ErrorCode.GROUP_REGISTRATION_DISABLED);
+        }
+
         // 참가자의 미래 생년월일 검증에 계속 사용
         LocalDate applicationDate =
                 now.toLocalDate();

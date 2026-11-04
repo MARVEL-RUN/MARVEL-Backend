@@ -1,22 +1,26 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
-import kr.co.teambrain.marvelrun.user.capacity.command.application.service.RegistrationCapacityService;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.EventFormat;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.ParticipantAuthMethod;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
-import kr.co.teambrain.marvelrun.user.discount.service.LinkDiscountEligibilityService;
-import kr.co.teambrain.marvelrun.user.discount.service.OrganizationDiscountGuard;
-import kr.co.teambrain.marvelrun.user.event.command.application.context.OrgRegistrationCreateContext;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.OrgRegistrationModificationAccessContext;
-import kr.co.teambrain.marvelrun.user.event.command.application.context.OrgRegistrationModificationCandidateContext;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
-import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization;
-import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrgRegistrationCreateRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrgRegistrationModificationRequest;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.inner.OrgRegistrationModificationParticipantRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.OrgRegistrationApplyValidator;
-import kr.co.teambrain.marvelrun.user.event.command.application.valid.OrgRegistrationModificationCandidateValidator;
-import kr.co.teambrain.marvelrun.user.event.command.repository.OrganizationCommandRepository;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.OrgRegistrationModificationAccessValidator;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.OrgRegistrationPersonalInformationValidator;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationModificationAccessValidator;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationPersonalInformationValidator;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationPolicyValidator;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.loader.RegistrationPolicyLoader;
+import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategoryCommandRepository;
+import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategorySouvenirCommandRepository;
+import kr.co.teambrain.marvelrun.user.event.command.repository.EventCommandRepository;
+import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,134 +28,145 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.catchThrowable;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.*;
 
-/** 대회의 단체 신청 설정이 단체 생성과 구성원 추가만 막는지 확인한다. DB는 쓰지 않는다. */
+/** 대회의 단체 신청 설정이 단체 생성과 구성원 추가만 막는지 확인한다. 생성은 구성원 검증 전에, 수정은 잠금 전에 막는다. DB는 쓰지 않는다. */
 @ExtendWith(MockitoExtension.class)
 class OrgGroupRegistrationSettingTest {
 
     private static final String EVENT_ID = "event";
     private static final String ORGANIZATION_ID = "organization";
+    /** 다음 단계에 도달했는지만 보려고 그 단계에서 던지게 하는 표시 오류다. */
+    private static final ErrorCode REACHED_NEXT_STEP = ErrorCode.EVENT_NOT_OPEN;
     private final LocalDateTime now = LocalDateTime.of(2026, 11, 4, 12, 0);
 
-    @Mock private RegistrationCapacityService capacity;
+    // 단체 생성 검증기
+    @Mock private RegistrationCommandRepository registrations;
+    @Mock private EventCommandRepository events;
+    @Mock private EventCategoryCommandRepository categories;
+    @Mock private EventCategorySouvenirCommandRepository souvenirs;
+    @Mock private RegistrationPolicyLoader policyLoader;
+    @Mock private RegistrationPolicyValidator policyValidator;
+    @InjectMocks private OrgRegistrationApplyValidator applyValidator;
+
+    // 단체 수정 트랜잭션
+    @Mock private RegistrationStartGroupResolver startGroups;
+    @Mock private RegistrationPersonalModificationService personalService;
+    @Mock private OrgRegistrationModificationService organizationService;
+    @Mock private RegistrationModificationSettlementService settlementService;
     @Mock private ServerTimeProvider time;
-    @Mock private OrgRegistrationApplyValidator applyValidator;
+    @Mock private RegistrationModificationAccessValidator accessValidator;
+    @Mock private RegistrationPersonalInformationValidator informationValidator;
+    @Mock private RegistrationModificationClassifier classifier;
+    @Mock private RegistrationPersonalInformationService informationService;
+    @Mock private OrgRegistrationModificationAccessValidator organizationAccessValidator;
+    @Mock private OrgRegistrationPersonalInformationValidator organizationInformationValidator;
+    @Mock private OrgRegistrationPersonalInformationService organizationInformationService;
     @Mock private RegistrationActionPolicyService actionPolicies;
-    @Mock private LinkDiscountEligibilityService discountEligibility;
-    @Mock private OrganizationCommandRepository organizations;
-    @Mock private OrgRegistrationModificationGuard modificationGuard;
-    @Mock private RegistrationModificationPaymentGuard paymentGuard;
-    @Mock private OrgRegistrationModificationCandidateValidator candidateValidator;
-    @Mock private RegistrationModificationPricingService pricing;
-    @Mock private OrganizationDiscountGuard discountGuard;
+    @InjectMocks private RegistrationModificationTransactionService modifications;
 
-    @InjectMocks private OrgRegistrationCommandService creation;
-    @InjectMocks private OrgRegistrationModificationService modification;
-
-    /** 단체 신청을 끈 대회는 할인 링크 확보나 단체 저장 전에 거절한다. */
+    /** 단체 신청을 끈 대회는 대회 상태 검사 직후, 단체장·구성원 검증 전에 거절한다. */
     @Test
-    void registerRejectsWhenGroupRegistrationDisabled() {
+    void creationRejectsBeforeMemberValidationWhenDisabled() {
         OrgRegistrationCreateRequest request = mock(OrgRegistrationCreateRequest.class);
-        givenCreateContext(request, eventWithGroupRegistration(false));
+        Event event = event(false);
+        when(events.findById(EVENT_ID)).thenReturn(Optional.of(event));
 
-        assertThatThrownBy(() -> creation.register(EVENT_ID, request))
+        assertThatThrownBy(() -> applyValidator.validate(EVENT_ID, request, now))
                 .isInstanceOfSatisfying(CustomException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.GROUP_REGISTRATION_DISABLED));
-        verify(capacity).lockEvent(EVENT_ID);
-        verifyNoInteractions(actionPolicies, discountEligibility, organizations);
+        verify(policyValidator).validateNewRegistrationPeriod(event, now);
+        verifyNoInteractions(request, registrations, categories, souvenirs, policyLoader);
     }
 
-    /** 값이 비어 있으면 컬럼 기본값(허용)으로 보고 다음 단계인 접수 정책 검사로 넘어간다. */
+    /** 값이 비어 있으면 컬럼 기본값(허용)으로 보고 단체장 검증으로 넘어간다. */
     @Test
-    void registerTreatsUnsetSettingAsEnabled() {
+    void creationTreatsUnsetSettingAsEnabled() {
         OrgRegistrationCreateRequest request = mock(OrgRegistrationCreateRequest.class);
-        Event event = eventWithGroupRegistration(null);
-        givenCreateContext(request, event);
-        // 다음 단계에 도달했는지만 보려고 접수 정책 검사에서 멈춘다.
-        doThrow(new CustomException(ErrorCode.EVENT_NOT_OPEN)).when(actionPolicies).validateNewRegistrationPolicy(event, now);
+        when(events.findById(EVENT_ID)).thenReturn(Optional.of(event(null)));
+        when(request.profile()).thenThrow(new CustomException(REACHED_NEXT_STEP));
 
-        assertThatThrownBy(() -> creation.register(EVENT_ID, request))
+        assertThatThrownBy(() -> applyValidator.validate(EVENT_ID, request, now))
                 .isInstanceOfSatisfying(CustomException.class,
-                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.EVENT_NOT_OPEN));
+                        e -> assertThat(e.getErrorCode()).isEqualTo(REACHED_NEXT_STEP));
     }
 
-    /** 단체 신청을 끈 대회에서 새 구성원을 더하는 수정은 가격 계산과 프로필 반영 전에 거절한다. */
+    /** 빌더로 만든 대회도 컬럼 기본값과 같은 설정을 갖는다. */
     @Test
-    void modificationRejectsAddingMemberWhenGroupRegistrationDisabled() {
-        OrgRegistrationModificationRequest request = mock(OrgRegistrationModificationRequest.class);
-        Organization organization = mock(Organization.class);
-        OrgRegistrationModificationAccessContext access = givenAccess(request, organization);
-        givenCandidates(access, eventWithGroupRegistration(false), member(mock(Registration.class)), member(null));
+    void builderKeepsColumnDefaults() {
+        Event event = Event.builder().id(EVENT_ID).build();
 
-        assertThatThrownBy(() -> modification.modifyOrganizationRegistration(EVENT_ID, ORGANIZATION_ID, request, now, access))
+        assertThat(event.getGroupRegistrationEnabled()).isTrue();
+        assertThat(event.getParticipantAuthMethod())
+                .isEqualTo(ParticipantAuthMethod.PERSONAL_INFO_PASSWORD);
+        assertThat(event.getBibAutoIssue()).isFalse();
+        assertThat(event.getLastBibSeq()).isZero();
+        assertThat(event.getEventFormat())
+                .isEqualTo(EventFormat.OFFLINE);
+    }
+
+    /** 단체 신청을 끈 대회에서 새 구성원을 더하는 수정은 그룹 확정·정책 조회·잠금 전에 거절한다. */
+    @Test
+    void modificationRejectsAddingMemberBeforeLocksWhenDisabled() {
+        OrgRegistrationModificationRequest request = givenModification(false, "r1", null);
+
+        assertThatThrownBy(() -> modifications.modifyOrganizationRegistration(EVENT_ID, ORGANIZATION_ID, request))
                 .isInstanceOfSatisfying(CustomException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.GROUP_REGISTRATION_DISABLED));
-        verify(organization, never()).applyProfileModification(any(), any(), any(), any(), any(), any());
-        verifyNoInteractions(pricing);
+        verifyNoInteractions(startGroups, actionPolicies, organizationService,
+                organizationInformationService, settlementService);
     }
 
-    /** 단체 신청을 꺼도 기존 구성원만 남기는 수정은 설정 검사를 지나 가격 계산까지 간다. */
+    /** 단체 신청을 꺼도 기존 구성원만 남기는 수정은 설정 검사를 지나 다음 단계(그룹 확정)로 간다. */
     @Test
-    void modificationKeepsExistingMembersWhenGroupRegistrationDisabled() {
-        OrgRegistrationModificationRequest request = mock(OrgRegistrationModificationRequest.class);
-        when(request.leaderBirth()).thenReturn(LocalDate.of(1990, 1, 1));
-        OrgRegistrationModificationAccessContext access = givenAccess(request, mock(Organization.class));
-        OrgRegistrationModificationCandidateContext candidate =
-                givenCandidates(access, eventWithGroupRegistration(false), member(mock(Registration.class)));
+    void modificationKeepsExistingMembersWhenDisabled() {
+        OrgRegistrationModificationRequest request = givenModification(false, "r1", "r2");
+        when(startGroups.resolveRegistrationStartGroups(anyList())).thenThrow(new CustomException(REACHED_NEXT_STEP));
 
-        // 가격 계산 뒤 단계는 이 테스트의 관심이 아니므로 결과와 무관하게 설정 검사 통과만 본다.
-        Throwable thrown = catchThrowable(
-                () -> modification.modifyOrganizationRegistration(EVENT_ID, ORGANIZATION_ID, request, now, access));
-        if (thrown instanceof CustomException e) {
-            assertThat(e.getErrorCode()).isNotEqualTo(ErrorCode.GROUP_REGISTRATION_DISABLED);
+        assertThatThrownBy(() -> modifications.modifyOrganizationRegistration(EVENT_ID, ORGANIZATION_ID, request))
+                .isInstanceOfSatisfying(CustomException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(REACHED_NEXT_STEP));
+    }
+
+    /** 단체 신청을 켠 대회는 새 구성원이 있어도 설정 검사를 지나간다. */
+    @Test
+    void modificationAllowsAddingMemberWhenEnabled() {
+        OrgRegistrationModificationRequest request = givenModification(true, "r1", null);
+        when(startGroups.resolveRegistrationStartGroups(anyList())).thenThrow(new CustomException(REACHED_NEXT_STEP));
+
+        assertThatThrownBy(() -> modifications.modifyOrganizationRegistration(EVENT_ID, ORGANIZATION_ID, request))
+                .isInstanceOfSatisfying(CustomException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(REACHED_NEXT_STEP));
+    }
+
+    /** registrationId가 null인 항목이 새 구성원이다. */
+    private OrgRegistrationModificationRequest givenModification(boolean enabled, String... registrationIds) {
+        OrgRegistrationModificationRequest request = mock(OrgRegistrationModificationRequest.class);
+        List<OrgRegistrationModificationParticipantRequest> members = new ArrayList<>();
+        for (String registrationId : registrationIds) {
+            OrgRegistrationModificationParticipantRequest member = mock(OrgRegistrationModificationParticipantRequest.class);
+            lenient().when(member.registrationId()).thenReturn(registrationId);
+            members.add(member);
         }
-        verify(pricing).calculateOrganizationRegistrationModificationPrices(candidate);
-    }
+        lenient().when(request.registrations()).thenReturn(members);
 
-    private void givenCreateContext(OrgRegistrationCreateRequest request, Event event) {
+        OrgRegistrationModificationAccessContext verified = mock(OrgRegistrationModificationAccessContext.class);
+        when(verified.event()).thenReturn(event(enabled));
         when(time.currentDateTime()).thenReturn(now);
-        when(applyValidator.validate(EVENT_ID, request, now)).thenReturn(new OrgRegistrationCreateContext(event, List.of()));
+        when(organizationAccessValidator.validate(EVENT_ID, ORGANIZATION_ID, request, now)).thenReturn(verified);
+        return request;
     }
 
-    private OrgRegistrationModificationAccessContext givenAccess(OrgRegistrationModificationRequest request,
-            Organization organization) {
-        OrgRegistrationModificationAccessContext access = mock(OrgRegistrationModificationAccessContext.class);
-        when(access.organization()).thenReturn(organization);
-        // 이미 동의한 단체가 동의를 유지하는 요청이라 동의 처리는 바뀌지 않는다.
-        when(organization.isGuardianConsent()).thenReturn(true);
-        when(request.guardianConsent()).thenReturn(true);
-        return access;
-    }
-
-    private OrgRegistrationModificationCandidateContext givenCandidates(OrgRegistrationModificationAccessContext access,
-            Event event, OrgRegistrationModificationCandidateContext.ParticipantCandidate... members) {
-        OrgRegistrationModificationCandidateContext candidate = mock(OrgRegistrationModificationCandidateContext.class);
-        when(candidate.event()).thenReturn(event);
-        when(candidate.registrations()).thenReturn(List.of(members));
-        when(candidateValidator.validateOrganizationModificationCandidates(access)).thenReturn(candidate);
-        return candidate;
-    }
-
-    /** current가 null이면 새 구성원, 아니면 기존 구성원의 수정 후보다. */
-    private static OrgRegistrationModificationCandidateContext.ParticipantCandidate member(Registration current) {
-        OrgRegistrationModificationCandidateContext.ParticipantCandidate member =
-                mock(OrgRegistrationModificationCandidateContext.ParticipantCandidate.class);
-        lenient().when(member.currentRegistration()).thenReturn(current);
-        return member;
-    }
-
-    private static Event eventWithGroupRegistration(Boolean enabled) {
-        Event event = mock(Event.class);
-        lenient().when(event.getGroupRegistrationEnabled()).thenReturn(enabled);
-        return event;
+    private static Event event(Boolean groupRegistrationEnabled) {
+        return Event.builder().id(EVENT_ID).startDate(LocalDateTime.of(2026, 12, 1, 9, 0))
+                .groupRegistrationEnabled(groupRegistrationEnabled).build();
     }
 }

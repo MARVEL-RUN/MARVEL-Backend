@@ -85,6 +85,8 @@ class RegistrationModificationTest {
         when(event.getStartDate()).thenReturn(EVENT_DATE.atStartOfDay());
         when(event.getRegistStartDate()).thenReturn(NOW.minusDays(1));
         when(event.getRegistDeadline()).thenReturn(NOW.plusDays(1));
+        // mock의 Boolean 기본값은 false라 단체 신청 허용을 명시한다.
+        when(event.getGroupRegistrationEnabled()).thenReturn(true);
 
         when(events.findById(EVENT_ID)).thenReturn(Optional.of(event));
 

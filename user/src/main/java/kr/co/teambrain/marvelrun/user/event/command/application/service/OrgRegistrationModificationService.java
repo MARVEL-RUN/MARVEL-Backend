@@ -128,12 +128,6 @@ public class OrgRegistrationModificationService {
         OrgRegistrationModificationCandidateContext candidate =
                 candidateValidator.validateOrganizationModificationCandidates(access);
 
-        // 단체 신청을 끈 대회에서도 기존 구성원 수정·제거는 허용하고 새 구성원만 막는다.
-        if (Boolean.FALSE.equals(candidate.event().getGroupRegistrationEnabled())
-                && candidate.registrations().stream().anyMatch(c -> c.currentRegistration() == null)) {
-            throw new CustomException(ErrorCode.GROUP_REGISTRATION_DISABLED);
-        }
-
         /** 전체 수정에서도 검증된 단체 프로필을 동일 트랜잭션에 반영한다. */
         access.organization().applyProfileModification(
                 request.leaderName(), request.leaderBirth().toString(), request.leaderPhNum(),
