@@ -7,6 +7,8 @@ import kr.co.teambrain.marvelrun.common.inheritance_enum.ParticipantAuthMethod;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.ParticipantCredentialType;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.ParticipantIdentifierType;
 
+import java.util.Objects;
+
 /** 화면이 대회마다 메뉴와 입력 칸을 정하는 데 쓰는 대회 설정이다. 내부 순번(last_bib_seq)은 내보내지 않는다. */
 @Schema(description = "대회 설정. 화면이 단체 신청 메뉴, 참가자 인증 입력 칸, 배번 안내를 정할 때 사용합니다.")
 public record EventSettingsResponse(
@@ -36,7 +38,9 @@ public record EventSettingsResponse(
     }
 
     public static EventSettingsResponse from(EventBase event) {
-        ParticipantAuthMethod method = event.getParticipantAuthMethod();
+        // 값이 없으면 컬럼 기본값(기존 비밀번호 방식)으로 본다. 기존 API 접근 검사와 같은 기준이다.
+        ParticipantAuthMethod method = Objects.requireNonNullElse(
+                event.getParticipantAuthMethod(), ParticipantAuthMethod.PERSONAL_INFO_PASSWORD);
         return new EventSettingsResponse(
                 event.getEventFormat(),
                 new ParticipantAuth(method, method.getIdentifierType(), method.getCredentialType()),
