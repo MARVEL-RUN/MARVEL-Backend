@@ -8,17 +8,18 @@ import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.policy.EventCategoryRegistrationPolicy;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.policy.EventRegistrationPolicy;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationCreateRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationEntryRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.dto.RegistrationPolicyInput;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 상품 종류에 맞는 참가 항목을 판정한다.
@@ -44,21 +45,20 @@ public class RegistrationEntryValidator {
     /**
      * 저장할 참가 항목을 돌려준다. 참가 항목이 없는 상품이면 빈 목록이다.
      *
-     * @param applicant          신청자 값. eventCategory는 비워 둔다
+     * 단품은 신청자 값을, 패키지는 요청의 받는 사람 값과 신청의 보호자 입력을 쓴다.
+     *
      * @param packageComponents  패키지 하위 종목. 패키지가 아니면 빈 목록
-     * @param guardian           신청의 보호자 입력. birth는 쓰지 않는다
      */
     public List<RegistrationEntryDraft> validate(
             Event event,
             EventCategory category,
             List<EventCategory> packageComponents,
-            RegistrationEntryDraft applicant,
-            List<RegistrationEntryRequest> entries,
+            RegistrationCreateRequest request,
             EventRegistrationPolicy eventPolicy,
             Map<String, EventCategoryRegistrationPolicy> componentPolicies,
-            RegistrationPolicyInput guardian,
             LocalDate applicationDate
     ) {
+        List<RegistrationEntryRequest> entries = request.entries();
         boolean hasEntries = entries != null && !entries.isEmpty();
         ProductType productType = category.getProductType();
 
@@ -74,17 +74,17 @@ public class RegistrationEntryValidator {
                     ErrorCode.PRODUCT_NOT_PURCHASABLE_ALONE,
                     " eventCategoryId=" + category.getId()
             );
-            case SINGLE -> single(category, applicant, hasEntries);
+            case SINGLE -> single(category, request, hasEntries);
             case PACKAGE -> packageEntries(
-                    event, category, packageComponents, entries, hasEntries,
-                    eventPolicy, componentPolicies, guardian, applicationDate
+                    event, category, packageComponents, request, hasEntries,
+                    eventPolicy, componentPolicies, applicationDate
             );
         };
     }
 
     private List<RegistrationEntryDraft> single(
             EventCategory category,
-            RegistrationEntryDraft applicant,
+            RegistrationCreateRequest request,
             boolean hasEntries
     ) {
         if (hasEntries) {
@@ -92,10 +92,10 @@ public class RegistrationEntryValidator {
         }
         return List.of(new RegistrationEntryDraft(
                 category,
-                applicant.name(),
-                applicant.phNum(),
-                applicant.birth(),
-                applicant.gender()
+                request.name(),
+                request.phNum(),
+                request.birth(),
+                request.gender()
         ));
     }
 
@@ -103,15 +103,15 @@ public class RegistrationEntryValidator {
             Event event,
             EventCategory category,
             List<EventCategory> packageComponents,
-            List<RegistrationEntryRequest> entries,
+            RegistrationCreateRequest request,
             boolean hasEntries,
             EventRegistrationPolicy eventPolicy,
             Map<String, EventCategoryRegistrationPolicy> componentPolicies,
-            RegistrationPolicyInput guardian,
             LocalDate applicationDate
     ) {
+        List<RegistrationEntryRequest> entries = request.entries();
         Map<String, EventCategory> components = new LinkedHashMap<>();
-        for (EventCategory component : packageComponents == null ? List.<EventCategory>of() : packageComponents) {
+        for (EventCategory component : packageComponents) {
             if (component.getProductType() != ProductType.SINGLE
                     || !category.getId().equals(component.getParentCategoryId())) {
                 throw configurationError(" 패키지 하위 종목은 그 패키지를 가리키는 단품이어야 합니다."
@@ -126,12 +126,10 @@ public class RegistrationEntryValidator {
             throw invalidEntries(PACKAGE_ENTRIES_REQUIRED);
         }
 
-        Set<String> requestedCategoryIds = new HashSet<>();
-        for (RegistrationEntryRequest entry : entries) {
-            if (!requestedCategoryIds.add(entry.eventCategoryId())) {
-                throw invalidEntries(PACKAGE_ENTRIES_REQUIRED);
-            }
-        }
+        // 개수가 같으므로 겹친 종목이 있으면 집합이 작아져 하위 종목 집합과 달라진다.
+        Set<String> requestedCategoryIds = entries.stream()
+                .map(RegistrationEntryRequest::eventCategoryId)
+                .collect(Collectors.toSet());
         if (!requestedCategoryIds.equals(components.keySet())) {
             throw invalidEntries(PACKAGE_ENTRIES_REQUIRED);
         }
@@ -143,8 +141,8 @@ public class RegistrationEntryValidator {
                             eventPolicy,
                             new RegistrationPolicyInput(
                                     entry.birth(),
-                                    guardian.guardianName(),
-                                    guardian.guardianConsent()
+                                    request.guardianName(),
+                                    request.guardianConsent()
                             ),
                             applicationDate
                     );

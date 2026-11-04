@@ -37,11 +37,7 @@ import java.util.stream.Collectors;
 @Component
 public class RegistrationApplyValidator extends AbstractRegistrationApplyValidator {
 
-    private final EventCategoryCommandRepository eventCategoryCommandRepository;
-
     private final RegistrationEntryValidator registrationEntryValidator;
-
-    private final RegistrationPolicyLoader registrationPolicyLoader;
 
     /**
      * 개인 신청 검증에 필요한 기존 조회·정책 의존성을 연결한다.
@@ -63,9 +59,7 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
                 registrationPolicyLoader,
                 registrationPolicyValidator
         );
-        this.eventCategoryCommandRepository = eventCategoryCommandRepository;
         this.registrationEntryValidator = registrationEntryValidator;
-        this.registrationPolicyLoader = registrationPolicyLoader;
     }
 
 
@@ -159,21 +153,9 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
                         event,
                         eventCategory,
                         packageComponents,
-                        new RegistrationEntryDraft(
-                                null,
-                                request.name(),
-                                request.phNum(),
-                                request.birth(),
-                                request.gender()
-                        ),
-                        request.entries(),
+                        request,
                         policies.eventPolicy(),
                         componentPolicies,
-                        new RegistrationPolicyInput(
-                                request.birth(),
-                                request.guardianName(),
-                                request.guardianConsent()
-                        ),
                         now.toLocalDate()
                 );
 
