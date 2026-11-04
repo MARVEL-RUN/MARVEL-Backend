@@ -146,6 +146,8 @@ class RegistrationModificationTest {
         RegistrationPolicyValidator policyValidator =
                 new RegistrationPolicyValidator();
 
+        when(loader.loadEventPolicy(EVENT_ID)).thenReturn(eventPolicy);
+
         personalCreate = new RegistrationApplyValidator(
                 registrations, events, categories, mappings,
                 loader, policyValidator, new RegistrationEntryValidator(policyValidator)
@@ -714,6 +716,43 @@ class RegistrationModificationTest {
         expectError(
                 ErrorCode.ORGANIZATION_REGISTRATION_DISABLED,
                 () -> groupCreate.validate(EVENT_ID, request, NOW)
+        );
+    }
+
+    /**
+     * 단체 신청을 막은 대회는 종목·기념품을 읽기 전에 거절한다.
+     */
+    @Test
+    void organizationCreationDisabledBeforeSelectionLookup() {
+        when(eventPolicy.getOrganizationRegistrationEnabled()).thenReturn(false);
+        OrgRegistrationCreateRequest request = organizationCreation();
+
+        expectError(
+                ErrorCode.ORGANIZATION_REGISTRATION_DISABLED,
+                () -> groupCreate.validate(EVENT_ID, request, NOW)
+        );
+        verify(mappings, never()).findAllMappingsByCategoryId(any());
+        verify(loader, never()).load(any(), any(), any());
+    }
+
+    /**
+     * 단체 수정으로도 상품 종목에 구성원을 더하거나 옮길 수 없다.
+     */
+    @Test
+    void organizationModificationRejectsProductCategories() {
+        when(category.getProductType()).thenReturn(kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType.SINGLE);
+
+        expectError(
+                ErrorCode.ORGANIZATION_PRODUCT_NOT_ALLOWED,
+                () -> groupModify.validateOrganizationModificationCandidates(
+                        groupContext(
+                                organization("1990-01-01", true),
+                                List.of(),
+                                List.of(participant(
+                                        null, "신규", "1990-01-01", "M"
+                                ))
+                        )
+                )
         );
     }
 

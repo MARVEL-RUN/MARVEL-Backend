@@ -66,11 +66,7 @@ public class RegistrationPolicyLoader {
             Set<String> mappingIds
     ) {
         EventRegistrationPolicy eventPolicy =
-                eventRegistrationPolicyRepository
-                        .findByEventId(eventId)
-                        .orElseThrow(
-                                this::configurationError
-                        );
+                loadEventPolicy(eventId);
 
         Map<String, EventCategoryRegistrationPolicy> categoryPolicies =
                 loadCategoryPolicies(
@@ -89,6 +85,21 @@ public class RegistrationPolicyLoader {
                 categoryPolicies,
                 souvenirPolicies
         );
+    }
+
+    /**
+     * 대회 정책만 조회한다. 대회 정책 행은 반드시 존재해야 한다.
+     *
+     * 종목 선택 전에 대회 단위 정책(단체 신청 허용)을 먼저 볼 때 쓴다.
+     */
+    public EventRegistrationPolicy loadEventPolicy(
+            String eventId
+    ) {
+        return eventRegistrationPolicyRepository
+                .findByEventId(eventId)
+                .orElseThrow(
+                        this::configurationError
+                );
     }
 
     /**
