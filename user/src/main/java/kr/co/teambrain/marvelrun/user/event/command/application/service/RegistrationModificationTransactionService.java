@@ -50,6 +50,7 @@ public class RegistrationModificationTransactionService {
     private final OrgRegistrationPersonalInformationValidator organizationInformationValidator;
     private final OrgRegistrationPersonalInformationService organizationInformationService;
     private final RegistrationActionPolicyService actionPolicies;
+    private final RegistrationProductModificationService productModifications;
 
     /**
      * 개인 신청을 잠금용 부가 조회 전에 분류하고 전체 수정에만 금융 상태 처리를 연결한다.
@@ -71,6 +72,8 @@ public class RegistrationModificationTransactionService {
         request = request.withResolvedStartGroupId(selection.startGroupId());
         RegistrationModificationAccessContext access = new RegistrationModificationAccessContext(
                 verified.event(), verified.registration(), request, now);
+        // 주소 필수 정책과 상품 종목 변경 제한은 수정 종류와 관계없이 먼저 검사한다.
+        productModifications.validate(access.registration(), request);
         RegistrationModificationClassifier.Change change = classifier.classifyPersonal(access.registration(), request);
         // 개인정보 수정은 MODIFY만, 전체 수정은 후속 결제·환불 정책까지 함께 읽는다.
         List<RegistrationActionPolicyInput> policies = change == RegistrationModificationClassifier.Change.FULL
@@ -79,7 +82,9 @@ public class RegistrationModificationTransactionService {
                 : actionPolicies.loadEnabledRegistrationActionPolicies(eventId, RegistrationActionType.MODIFY);
         actionPolicies.validateRegistrationActionPolicy(access.event(), access.registration(), Action.MODIFY, now, policies);
         if (change != RegistrationModificationClassifier.Change.FULL) {
-            return informationService.modify(access, change);
+            RegistrationModificationSettlementResult modified = informationService.modify(access, change);
+            productModifications.syncApplicantEntry(access.registration(), request);
+            return modified;
         }
 
         RegistrationPersonalModificationResult result =
@@ -90,6 +95,7 @@ public class RegistrationModificationTransactionService {
                         now,
                         access.registration().getVersion()
                 );
+        productModifications.syncApplicantEntry(access.registration(), request);
 
         return settlementService.settleRegistrationModification(
                 eventId,
