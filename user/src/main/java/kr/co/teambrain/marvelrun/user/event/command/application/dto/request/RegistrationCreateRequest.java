@@ -64,11 +64,19 @@ public record RegistrationCreateRequest(
         String startGroupId,
         @NotNull Boolean startGroupUnselected,
         @Size(max = 64)
-        String discountLinkCode
+        String discountLinkCode,
+
+        /** 패키지 하위 종목별 받는 사람. 그 밖의 상품은 보내지 않는다. */
+        List<@NotNull @Valid RegistrationEntryRequest> entries
 ) {
     /** 기존 내부 호출부의 일반 신청 입력을 호환한다. */
     public RegistrationCreateRequest(String eventCategoryId, List<@NotNull @Valid SouvenirJson> selectedSouvenirList, String password, String name, String phNum, String birth, GenderClass gender, String address, String addressDetail, Boolean guardianConsent, String guardianName, String guardianPhNum, String guardianRelationship, Boolean termsEssentialAgreed, Boolean termsMarketingAgreed, Boolean termsMarketingChannelAgreed, String email, String startGroupId, Boolean startGroupUnselected) {
         this(eventCategoryId, selectedSouvenirList, password, name, phNum, birth, gender, address, addressDetail, guardianConsent, guardianName, guardianPhNum, guardianRelationship, termsEssentialAgreed, termsMarketingAgreed, termsMarketingChannelAgreed, email, startGroupId, startGroupUnselected, null);
+    }
+
+    /** 참가 항목 입력이 없는 기존 호출부를 호환한다. */
+    public RegistrationCreateRequest(String eventCategoryId, List<@NotNull @Valid SouvenirJson> selectedSouvenirList, String password, String name, String phNum, String birth, GenderClass gender, String address, String addressDetail, Boolean guardianConsent, String guardianName, String guardianPhNum, String guardianRelationship, Boolean termsEssentialAgreed, Boolean termsMarketingAgreed, Boolean termsMarketingChannelAgreed, String email, String startGroupId, Boolean startGroupUnselected, String discountLinkCode) {
+        this(eventCategoryId, selectedSouvenirList, password, name, phNum, birth, gender, address, addressDetail, guardianConsent, guardianName, guardianPhNum, guardianRelationship, termsEssentialAgreed, termsMarketingAgreed, termsMarketingChannelAgreed, email, startGroupId, startGroupUnselected, discountLinkCode, null);
     }
 
     /** 미선택이 아니면 선택 그룹의 식별자를 반드시 전달한다. */

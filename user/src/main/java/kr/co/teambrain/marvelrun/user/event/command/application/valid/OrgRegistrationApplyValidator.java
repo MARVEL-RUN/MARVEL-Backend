@@ -121,6 +121,21 @@ public class OrgRegistrationApplyValidator
                         selections
                 );
 
+        // 대회 정책이 단체 신청을 막으면 참가자 검증 전에 거절한다.
+        registrationPolicyValidator.validateOrganizationRegistrationEnabled(
+                policies.eventPolicy()
+        );
+
+        // 참가 항목을 만드는 상품은 개인 신청으로만 산다. 단체 흐름은 항목을 만들지 않는다.
+        for (EventCategory category : selections.categories().values()) {
+            if (category.getProductType() != null) {
+                throw new CustomException(
+                        ErrorCode.ORGANIZATION_PRODUCT_NOT_ALLOWED,
+                        " eventCategoryId=" + category.getId()
+                );
+            }
+        }
+
         List<OrgRegistrationCreateContext.ParticipantContext> registrationContexts =
                 new ArrayList<>(
                         request.registrations().size()

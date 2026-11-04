@@ -33,6 +33,8 @@ import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.Reg
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategoryCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
+import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationEntryCommandRepository;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.RegistrationEntry;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.PaymentCommandRepository;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentAllocationTarget;
 import lombok.RequiredArgsConstructor;
@@ -70,6 +72,9 @@ public class RegistrationCommandService {
 
     private final EventCategoryCommandRepository
             eventCategoryCommandRepository;
+
+    private final RegistrationEntryCommandRepository
+            registrationEntryCommandRepository;
 
     private final RegistrationCommandRepository
             registrationCommandRepository;
@@ -159,6 +164,15 @@ public class RegistrationCommandService {
 
         Registration savedRegistration =
                 registrationCommandRepository.save(registration);
+
+        // 상품 종류가 정한 코스별 참가 항목을 신청과 함께 저장한다. 기존 대회는 항목이 없다.
+        if (!context.entries().isEmpty()) {
+            registrationEntryCommandRepository.saveAll(
+                    context.entries().stream()
+                            .map(entry -> RegistrationEntry.create(savedRegistration, entry))
+                            .toList()
+            );
+        }
 
         // 신청 저장과 같은 트랜잭션에서 계산 근거와 현재 참조를 보존한다.
         priceCalculations.recordRegistrationPriceCalculation(savedRegistration, discountPrice,

@@ -96,8 +96,10 @@ public class RegistrationPolicyLoader {
      *
      * 출생일 제한이 없는 종목도 정책 행은 존재해야 한다.
      * 제한 없음은 정책 행의 허용 출생일 범위 값으로 표현한다.
+     *
+     * 패키지 하위 종목처럼 선택 종목 밖의 종목 정책이 필요할 때도 이 메서드로 읽는다.
      */
-    private Map<String, EventCategoryRegistrationPolicy> loadCategoryPolicies(
+    public Map<String, EventCategoryRegistrationPolicy> loadCategoryPolicies(
             String eventId,
             Set<String> categoryIds
     ) {

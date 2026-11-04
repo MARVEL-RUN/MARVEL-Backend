@@ -1,15 +1,18 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.valid;
 
+import kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationCreateContext;
+import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationEntryDraft;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationPolicyContext;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.policy.EventCategoryRegistrationPolicy;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationCreateRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.dto.RegistrationPolicyInput;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.loader.RegistrationPolicyLoader;
@@ -25,6 +28,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.valid.dto.Regist
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Registration 생성 신청에 필요한 도메인 객체를 조회하고,
@@ -32,6 +36,12 @@ import java.util.*;
  */
 @Component
 public class RegistrationApplyValidator extends AbstractRegistrationApplyValidator {
+
+    private final EventCategoryCommandRepository eventCategoryCommandRepository;
+
+    private final RegistrationEntryValidator registrationEntryValidator;
+
+    private final RegistrationPolicyLoader registrationPolicyLoader;
 
     /**
      * 개인 신청 검증에 필요한 기존 조회·정책 의존성을 연결한다.
@@ -42,7 +52,8 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
             EventCategoryCommandRepository eventCategoryCommandRepository,
             EventCategorySouvenirCommandRepository eventCategorySouvenirCommandRepository,
             RegistrationPolicyLoader registrationPolicyLoader,
-            RegistrationPolicyValidator registrationPolicyValidator
+            RegistrationPolicyValidator registrationPolicyValidator,
+            RegistrationEntryValidator registrationEntryValidator
     ) {
         super(
                 registrationCommandRepository,
@@ -52,6 +63,9 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
                 registrationPolicyLoader,
                 registrationPolicyValidator
         );
+        this.eventCategoryCommandRepository = eventCategoryCommandRepository;
+        this.registrationEntryValidator = registrationEntryValidator;
+        this.registrationPolicyLoader = registrationPolicyLoader;
     }
 
 
@@ -118,11 +132,77 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
                         now.toLocalDate()
                 );
 
+        registrationPolicyValidator.validateAddress(
+                policies.eventPolicy(),
+                request.address()
+        );
+
+        EventCategory eventCategory =
+                validated.eventCategory();
+
+        List<EventCategory> packageComponents =
+                packageComponents(event, eventCategory);
+
+        // 받는 사람은 자기 하위 종목의 출생일 정책을 따른다. 하위 종목 정책 행도 필수다.
+        Map<String, EventCategoryRegistrationPolicy> componentPolicies =
+                packageComponents.isEmpty()
+                        ? Map.of()
+                        : registrationPolicyLoader.loadCategoryPolicies(
+                                event.getId(),
+                                packageComponents.stream()
+                                        .map(EventCategory::getId)
+                                        .collect(Collectors.toSet())
+                        );
+
+        List<RegistrationEntryDraft> entries =
+                registrationEntryValidator.validate(
+                        event,
+                        eventCategory,
+                        packageComponents,
+                        new RegistrationEntryDraft(
+                                null,
+                                request.name(),
+                                request.phNum(),
+                                request.birth(),
+                                request.gender()
+                        ),
+                        request.entries(),
+                        policies.eventPolicy(),
+                        componentPolicies,
+                        new RegistrationPolicyInput(
+                                request.birth(),
+                                request.guardianName(),
+                                request.guardianConsent()
+                        ),
+                        now.toLocalDate()
+                );
+
         return new RegistrationCreateContext(
                 event,
-                validated.eventCategory(),
-                validated.souvenirJsons()
+                eventCategory,
+                validated.souvenirJsons(),
+                entries
         );
+    }
+
+    /**
+     * 패키지 상품이면 parent_category_id로 그 패키지를 가리키는 하위 종목을 돌려준다.
+     * 단품 판매를 멈춰도(비활성) 패키지 구성은 바뀌지 않으므로 활성 여부는 보지 않는다.
+     * 패키지가 아니면 조회하지 않고 빈 목록을 돌려준다.
+     */
+    private List<EventCategory> packageComponents(
+            Event event,
+            EventCategory eventCategory
+    ) {
+        if (eventCategory.getProductType() != ProductType.PACKAGE) {
+            return List.of();
+        }
+
+        return eventCategoryCommandRepository
+                .findByEvent_IdAndParentCategoryIdOrderByOrderAscIdAsc(
+                        event.getId(),
+                        eventCategory.getId()
+                );
     }
 
     /**
