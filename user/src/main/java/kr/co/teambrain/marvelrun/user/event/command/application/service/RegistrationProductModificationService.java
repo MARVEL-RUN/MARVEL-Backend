@@ -3,6 +3,7 @@ package kr.co.teambrain.marvelrun.user.event.command.application.service;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
+import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationEntryDraft;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.RegistrationEntry;
@@ -15,6 +16,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 /**
  * 개인 수정에서 신청 정책(주소 필수)과 상품 종류(참가 항목)를 지킨다.
@@ -51,7 +54,9 @@ public class RegistrationProductModificationService {
             return;
         }
 
+        // 다른 대회의 종목은 여기서 판정하지 않고 뒤의 기존 종목 검증이 거절하게 둔다.
         boolean targetHasProduct = eventCategoryCommandRepository.findById(request.eventCategoryId())
+                .filter(category -> category.getEvent().getId().equals(current.getEvent().getId()))
                 .map(category -> category.getProductType() != null)
                 .orElse(false);
         if (currentCategory.getProductType() != null || targetHasProduct) {
@@ -62,13 +67,24 @@ public class RegistrationProductModificationService {
         }
     }
 
-    /** 수정 반영 뒤 단품의 참가 항목을 바뀐 신청자 값으로 맞춘다. */
+    /**
+     * 수정 반영 뒤 단품의 참가 항목을 바뀐 신청자 값으로 맞춘다.
+     *
+     * 이미 신청이 있는 종목에 상품 종류를 붙이면 항목이 없을 수 있다.
+     * 그때는 단품 규칙대로 신청자 값으로 항목을 만든다.
+     */
     public void syncApplicantEntry(Registration current, RegistrationModificationRequest request) {
         if (current.getEventCategory().getProductType() != ProductType.SINGLE) {
             return;
         }
 
-        for (RegistrationEntry entry : registrationEntryCommandRepository.findByRegistration_Id(current.getId())) {
+        List<RegistrationEntry> entries = registrationEntryCommandRepository.findByRegistration_Id(current.getId());
+        if (entries.isEmpty()) {
+            registrationEntryCommandRepository.save(RegistrationEntry.create(current, new RegistrationEntryDraft(
+                    current.getEventCategory(), request.name(), request.phNum(), request.birth(), request.gender())));
+            return;
+        }
+        for (RegistrationEntry entry : entries) {
             entry.updateRecipient(request.name(), request.phNum(), request.birth(), request.gender());
         }
     }

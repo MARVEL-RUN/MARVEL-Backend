@@ -72,8 +72,6 @@ public class RegistrationModificationTransactionService {
         request = request.withResolvedStartGroupId(selection.startGroupId());
         RegistrationModificationAccessContext access = new RegistrationModificationAccessContext(
                 verified.event(), verified.registration(), request, now);
-        // 주소 필수 정책과 상품 종목 변경 제한은 수정 종류와 관계없이 먼저 검사한다.
-        productModifications.validate(access.registration(), request);
         RegistrationModificationClassifier.Change change = classifier.classifyPersonal(access.registration(), request);
         // 개인정보 수정은 MODIFY만, 전체 수정은 후속 결제·환불 정책까지 함께 읽는다.
         List<RegistrationActionPolicyInput> policies = change == RegistrationModificationClassifier.Change.FULL
@@ -81,9 +79,14 @@ public class RegistrationModificationTransactionService {
                         List.of(RegistrationActionType.MODIFY, RegistrationActionType.PAYMENT, RegistrationActionType.REFUND))
                 : actionPolicies.loadEnabledRegistrationActionPolicies(eventId, RegistrationActionType.MODIFY);
         actionPolicies.validateRegistrationActionPolicy(access.event(), access.registration(), Action.MODIFY, now, policies);
+        // 주소 필수 정책과 상품 종목 변경 제한은 수정 종류와 관계없이 보되, 상태·기간·외부 결제 검증 뒤에 본다.
+        productModifications.validate(access.registration(), request);
         if (change != RegistrationModificationClassifier.Change.FULL) {
             RegistrationModificationSettlementResult modified = informationService.modify(access, change);
-            productModifications.syncApplicantEntry(access.registration(), request);
+            // 변경 없음은 신청자 값이 그대로라 맞출 것이 없다. version도 올리지 않으므로 항목을 만들면 동시 요청이 겹친다.
+            if (change != RegistrationModificationClassifier.Change.NONE) {
+                productModifications.syncApplicantEntry(access.registration(), request);
+            }
             return modified;
         }
 
