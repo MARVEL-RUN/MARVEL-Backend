@@ -21,7 +21,8 @@ import java.time.LocalDate;
  * 대회 공통 참가신청 정책.
  *
  * 대회당 한 건을 사용한다.
- * 보호자 이름과 법정대리인 동의가 필요한 출생일 기준을 저장한다.
+ * 보호자 이름과 법정대리인 동의가 필요한 출생일 기준,
+ * 주소 필수 여부, 단체 신청 허용 여부를 저장한다.
  */
 @Getter
 @Entity
@@ -52,4 +53,12 @@ public class EventRegistrationPolicy {
      */
     @Column(name = "guardian_required_birth_from", nullable = false)
     private LocalDate guardianRequiredBirthFrom;
+
+    /** 개인 신청에 배송받을 주소를 반드시 받는다. */
+    @Column(name = "address_required", nullable = false)
+    private Boolean addressRequired;
+
+    /** 단체 신청을 받는다. */
+    @Column(name = "organization_registration_enabled", nullable = false)
+    private Boolean organizationRegistrationEnabled;
 }
