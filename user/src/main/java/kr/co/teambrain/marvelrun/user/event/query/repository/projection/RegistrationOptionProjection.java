@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.query.repository.projection;
 
+import kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType;
+
 import java.math.BigDecimal;
 
 public interface RegistrationOptionProjection {
@@ -13,6 +15,10 @@ public interface RegistrationOptionProjection {
     BigDecimal getEventCategoryAmount();
 
     Boolean getEventCategoryIsActive();
+
+    ProductType getEventCategoryProductType();
+
+    String getEventCategoryParentCategoryId();
 
 
     Long getSouvenirOrder();

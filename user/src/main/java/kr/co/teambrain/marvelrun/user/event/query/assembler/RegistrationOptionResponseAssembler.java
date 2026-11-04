@@ -1,6 +1,8 @@
 package kr.co.teambrain.marvelrun.user.event.query.assembler;
 
 
+import kr.co.teambrain.marvelrun.common.inheritance_enum.EventFormat;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType;
 import kr.co.teambrain.marvelrun.user.event.query.dto.response.RegistrationOptionResponse;
 import kr.co.teambrain.marvelrun.user.event.query.dto.response.RegistrationRestrictionReasonResponse;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels;
@@ -25,7 +27,10 @@ public class RegistrationOptionResponseAssembler {
     public RegistrationOptionResponse assemble(
             List<RegistrationOptionProjection> projections,
             RegistrationActionPolicyModels.Decision registrationDecision,
-            List<EventCategoryStartGroup> startGroups
+            List<EventCategoryStartGroup> startGroups,
+            EventFormat eventFormat,
+            boolean addressRequired,
+            boolean organizationRegistrationEnabled
     ) {
 
         Map<String, CategoryAccumulator> categoryMap =
@@ -85,7 +90,10 @@ public class RegistrationOptionResponseAssembler {
         return new RegistrationOptionResponse(
                 categories,
                 registrationDecision.allowed(),
-                RegistrationRestrictionReasonResponse.fromDecision(registrationDecision)
+                RegistrationRestrictionReasonResponse.fromDecision(registrationDecision),
+                eventFormat,
+                addressRequired,
+                organizationRegistrationEnabled
         );
     }
 
@@ -106,7 +114,9 @@ public class RegistrationOptionResponseAssembler {
                 categoryNameParts.distance(),
                 categoryNameParts.categoryName(),
                 projection.getEventCategoryIsActive(),
-                projection.getEventCategoryAmount()
+                projection.getEventCategoryAmount(),
+                projection.getEventCategoryProductType(),
+                projection.getEventCategoryParentCategoryId()
         );
     }
 
@@ -295,6 +305,10 @@ public class RegistrationOptionResponseAssembler {
 
         private final BigDecimal amount;
 
+        private final ProductType productType;
+
+        private final String parentCategoryId;
+
 
         /*
          * Repository의 souvenir.order ASC 결과를
@@ -315,7 +329,9 @@ public class RegistrationOptionResponseAssembler {
                 String distance,
                 String categoryName,
                 Boolean isActive,
-                BigDecimal amount
+                BigDecimal amount,
+                ProductType productType,
+                String parentCategoryId
         ) {
 
             this.order = order;
@@ -324,6 +340,8 @@ public class RegistrationOptionResponseAssembler {
             this.categoryName = categoryName;
             this.isActive = isActive;
             this.amount = amount;
+            this.productType = productType;
+            this.parentCategoryId = parentCategoryId;
         }
 
 
@@ -354,7 +372,9 @@ public class RegistrationOptionResponseAssembler {
                     List.copyOf(
                             souvenirMap.values()
                     ),
-                    List.copyOf(startGroups)
+                    List.copyOf(startGroups),
+                    productType,
+                    parentCategoryId
             );
         }
     }
