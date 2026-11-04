@@ -7,6 +7,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.Orga
 import kr.co.teambrain.marvelrun.user.event.command.application.service.RegistrationPasswordChangeService;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrgRegistrationCreateRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.OrgRegistrationCommandService;
+import kr.co.teambrain.marvelrun.user.common.security.filter.RequiresPersonalInfoPassword;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -35,6 +36,7 @@ public class OrgRegistrationCommandController {
     private final RegistrationPasswordChangeService passwordChangeService;
 
     /** 단체 계정의 비밀번호를 변경하고 성공 시 본문 없이 응답한다. */
+    @RequiresPersonalInfoPassword
     @PatchMapping("/organizations/{organizationId}/password")
     public ResponseEntity<Void> changePassword(
             @PathVariable("eventId") String eventId,
@@ -57,6 +59,7 @@ public class OrgRegistrationCommandController {
      * /api prefix는 Edge Nginx/Spring context 경로에서 붙고,
      * Controller 자체에는 /api를 중복 선언하지 않는다.
      */
+    @RequiresPersonalInfoPassword
     @PostMapping("/registrations/organization")
     @Operation(summary = "단체 신청", description = "단체 계정·대표자 정보와 참가자별 신청 정보를 받아 단체 참가신청을 생성합니다. 단체 신청 결과와 결제 진행에 필요한 정보를 반환합니다.")
     public ResponseEntity<OrgRegistrationCreateResponse> registerOrganization(
@@ -75,6 +78,7 @@ public class OrgRegistrationCommandController {
                 .body(response);
     }
 
+    @RequiresPersonalInfoPassword
     @GetMapping("/registrations/organization/duplicate-id-check")
     public ResponseEntity<?> duplicateIdCheck(
             @PathVariable String eventId,
@@ -85,6 +89,7 @@ public class OrgRegistrationCommandController {
                 .body(orgRegistrationCommandService.checkExistsLoginId(loginId, eventId));
     }
 
+    @RequiresPersonalInfoPassword
     @GetMapping("/registrations/organization/duplicate-name-check")
     public ResponseEntity<?> duplicateNameCheck(
             @PathVariable String eventId,

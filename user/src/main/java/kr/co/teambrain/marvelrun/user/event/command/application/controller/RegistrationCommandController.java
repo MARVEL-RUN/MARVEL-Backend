@@ -7,6 +7,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.service.Registra
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationCreateRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.RegistrationCreateResponse;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.RegistrationCommandService;
+import kr.co.teambrain.marvelrun.user.common.security.filter.RequiresPersonalInfoPassword;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -24,6 +25,7 @@ public class RegistrationCommandController {
     private final RegistrationPasswordChangeService passwordChangeService;
 
     /** 개인 신청의 비밀번호를 변경하고 성공 시 본문 없이 응답한다. */
+    @RequiresPersonalInfoPassword
     @PatchMapping("/{eventId}/registrations/{registrationId}/password")
     public ResponseEntity<Void> changePassword(
             @PathVariable("eventId") String eventId,
@@ -38,6 +40,7 @@ public class RegistrationCommandController {
 
     /** 개인 신청 정보와 선택한 그룹을 검증하여 접수한다. */
     @Operation(summary = "개인 신청", description = "참가자의 인적사항, 종목·기념품·그룹 선택 및 약관 동의 정보를 받아 개인 참가신청을 생성합니다. 신청 결과와 결제 진행에 필요한 정보를 반환합니다.")
+    @RequiresPersonalInfoPassword
     @PostMapping("/{eventId}/registrations")
     public ResponseEntity<RegistrationCreateResponse> register(
             @PathVariable String eventId,

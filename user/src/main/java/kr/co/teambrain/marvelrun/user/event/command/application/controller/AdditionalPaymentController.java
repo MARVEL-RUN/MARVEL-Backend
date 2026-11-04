@@ -5,6 +5,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.dto.Registration
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrganizationAccessRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationAccessRequest;
 import kr.co.teambrain.marvelrun.user.payment.command.application.AdditionalPaymentPreparationService;
+import kr.co.teambrain.marvelrun.user.common.security.filter.RequiresPersonalInfoPassword;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
@@ -18,6 +19,7 @@ public class AdditionalPaymentController {
     private final AdditionalPaymentPreparationService service;
 
     /** 개인 추가금 주문을 생성/재사용한다. 실제 승인은 기존 공통 승인 API로 진행한다. */
+    @RequiresPersonalInfoPassword
     @PostMapping("/registrations/{registrationId}/payments/additional/prepare")
     public ResponseEntity<Order> personal(@PathVariable("eventId") String eventId,
             @PathVariable("registrationId") String registrationId, @Valid @RequestBody RegistrationAccessRequest access) {
@@ -25,6 +27,7 @@ public class AdditionalPaymentController {
     }
 
     /** 단체장의 본인확인 후 확정 구성원의 추가금만 한 주문으로 준비한다. */
+    @RequiresPersonalInfoPassword
     @PostMapping("/organizations/{organizationId}/payments/additional/prepare")
     public ResponseEntity<Order> organization(@PathVariable("eventId") String eventId,
             @PathVariable("organizationId") String organizationId, @Valid @RequestBody OrganizationAccessRequest access) {

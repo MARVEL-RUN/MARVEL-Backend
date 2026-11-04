@@ -14,7 +14,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(participantAuthMethodInterceptor)
-                .addPathPatterns(ParticipantAuthMethodInterceptor.PATH_PATTERNS);
+        // 검사 대상은 인터셉터가 메서드 표시로 고르므로 경로를 제한하지 않는다.
+        registry.addInterceptor(participantAuthMethodInterceptor);
     }
 }

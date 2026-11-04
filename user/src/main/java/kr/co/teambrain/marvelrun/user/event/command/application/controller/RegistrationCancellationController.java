@@ -5,6 +5,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.dto.Registration
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrganizationAccessRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationAccessRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.RegistrationCancellationCommandService;
+import kr.co.teambrain.marvelrun.user.common.security.filter.RequiresPersonalInfoPassword;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -21,6 +22,7 @@ public class RegistrationCancellationController {
     private final RegistrationCancellationCommandService service;
 
     /** 개인 신청의 현재 본인확인 정보로 참가 취소를 요청한다. */
+    @RequiresPersonalInfoPassword
     @PostMapping("/registrations/{registrationId}/cancellation")
     public ResponseEntity<RegistrationModificationSettlementResult> personal(
             @PathVariable("eventId") String eventId,
@@ -30,6 +32,7 @@ public class RegistrationCancellationController {
     }
 
     /** 인증된 단체의 현재 활성 구성원 전체를 취소한다. 일부 제거는 기존 수정 API를 사용한다. */
+    @RequiresPersonalInfoPassword
     @PostMapping("/organizations/{organizationId}/cancellation")
     public ResponseEntity<RegistrationModificationSettlementResult> organization(
             @PathVariable("eventId") String eventId,

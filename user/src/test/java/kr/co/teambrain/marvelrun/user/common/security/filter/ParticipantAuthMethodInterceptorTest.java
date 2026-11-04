@@ -2,6 +2,7 @@ package kr.co.teambrain.marvelrun.user.common.security.filter;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.ParticipantAuthMethod;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.GlobalExceptionHandler;
+import kr.co.teambrain.marvelrun.user.common.security.config.WebMvcConfig;
 import kr.co.teambrain.marvelrun.user.discount.query.DiscountQueryController;
 import kr.co.teambrain.marvelrun.user.discount.query.DiscountQueryService;
 import kr.co.teambrain.marvelrun.user.event.command.application.controller.AdditionalPaymentController;
@@ -9,6 +10,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.controller.OrgRe
 import kr.co.teambrain.marvelrun.user.event.command.application.controller.RegistrationCancellationController;
 import kr.co.teambrain.marvelrun.user.event.command.application.controller.RegistrationCommandController;
 import kr.co.teambrain.marvelrun.user.event.command.application.controller.RegistrationModificationController;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationAccessRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.*;
 import kr.co.teambrain.marvelrun.user.event.query.controller.EventQueryController;
 import kr.co.teambrain.marvelrun.user.event.query.controller.OrgRegistrationQueryController;
@@ -20,13 +22,23 @@ import kr.co.teambrain.marvelrun.user.payment.command.application.AdditionalPaym
 import kr.co.teambrain.marvelrun.user.payment.command.application.PaymentRetryPreparationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.config.BeanDefinition;
+import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
+import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.core.type.filter.AnnotationTypeFilter;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.method.HandlerMethod;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 
+import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -93,8 +105,7 @@ class ParticipantAuthMethodInterceptorTest {
                         new OrgRegistrationCommandController(organizationCreation, mock(RegistrationPasswordChangeService.class)),
                         new EventQueryController(mock(EventQueryService.class)),
                         new DiscountQueryController(mock(DiscountQueryService.class)))
-                .addMappedInterceptors(ParticipantAuthMethodInterceptor.PATH_PATTERNS.toArray(String[]::new),
-                        new ParticipantAuthMethodInterceptor(events))
+                .addInterceptors(new ParticipantAuthMethodInterceptor(events))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
@@ -134,13 +145,59 @@ class ParticipantAuthMethodInterceptorTest {
         verify(events, never()).findParticipantAuthMethodById(any());
     }
 
-    /** 경로 변수가 없으면 대회를 조회하지 않고 통과시킨다. */
+    /** 표시가 붙은 API라도 경로 변수가 없으면 대회를 조회하지 않고 통과시킨다. */
     @Test
     void passesWithoutEventIdVariable() throws Exception {
         ParticipantAuthMethodInterceptor interceptor = new ParticipantAuthMethodInterceptor(events);
-        assertThat(interceptor.preHandle(new MockHttpServletRequest(), new MockHttpServletResponse(), new Object()))
+        HandlerMethod guarded = new HandlerMethod(new RegistrationQueryController(queries),
+                RegistrationQueryController.class.getMethod("lookup", String.class, RegistrationAccessRequest.class));
+        assertThat(interceptor.preHandle(new MockHttpServletRequest(), new MockHttpServletResponse(), guarded))
                 .isTrue();
         verify(events, never()).findParticipantAuthMethodById(any());
+    }
+
+    /**
+     * 표시는 18개 API에만 붙고, 모두 경로에 {eventId}가 있어야 한다.
+     * 경로 변수가 없으면 인터셉터가 검사 없이 통과시키므로 여기서 미리 막는다.
+     */
+    @Test
+    void guardedHandlersAreExactlyTheEighteenEventScopedApis() throws Exception {
+        ClassPathScanningCandidateComponentProvider scanner = new ClassPathScanningCandidateComponentProvider(false);
+        scanner.addIncludeFilter(new AnnotationTypeFilter(RestController.class));
+        List<String> guardedPaths = new ArrayList<>();
+        for (BeanDefinition candidate : scanner.findCandidateComponents("kr.co.teambrain.marvelrun.user")) {
+            Class<?> controller = Class.forName(candidate.getBeanClassName());
+            RequestMapping classMapping = AnnotatedElementUtils.findMergedAnnotation(controller, RequestMapping.class);
+            String prefix = classMapping == null || classMapping.path().length == 0 ? "" : classMapping.path()[0];
+            for (Method method : controller.getDeclaredMethods()) {
+                if (!method.isAnnotationPresent(RequiresPersonalInfoPassword.class)) {
+                    continue;
+                }
+                RequestMapping mapping = AnnotatedElementUtils.findMergedAnnotation(method, RequestMapping.class);
+                assertThat(mapping).as(method.toString()).isNotNull();
+                guardedPaths.add(prefix + (mapping.path().length == 0 ? "" : mapping.path()[0]));
+            }
+        }
+
+        assertThat(guardedPaths).hasSize(PASSWORD_ENDPOINTS.size());
+        assertThat(guardedPaths).allSatisfy(path -> assertThat(path).contains("{eventId}"));
+    }
+
+    /** 실제 설정이 인터셉터를 경로 제한 없이 등록한다. */
+    @Test
+    void webMvcConfigRegistersInterceptor() {
+        ParticipantAuthMethodInterceptor interceptor = new ParticipantAuthMethodInterceptor(events);
+        ExposedInterceptorRegistry registry = new ExposedInterceptorRegistry();
+
+        new WebMvcConfig(interceptor).addInterceptors(registry);
+
+        assertThat(registry.registered()).containsExactly(interceptor);
+    }
+
+    private static class ExposedInterceptorRegistry extends InterceptorRegistry {
+        List<Object> registered() {
+            return getInterceptors();
+        }
     }
 
     private record Endpoint(HttpMethod method, String path) {
