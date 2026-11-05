@@ -21,6 +21,7 @@ import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
+import kr.co.teambrain.marvelrun.user.event.command.application.service.PackageUpgradeApplier;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels.*;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
@@ -74,6 +75,8 @@ public class PaymentConfirmTransactionService {
 
     private final PaymentAllocationCommandRepository
             paymentAllocationCommandRepository;
+
+    private final PackageUpgradeApplier packageUpgradeApplier;
 
     /**
      * Tx1.
@@ -164,6 +167,8 @@ public class PaymentConfirmTransactionService {
          */
 
         validateAllocationsBeforeConfirm(payment, allocations, event);
+        // 상향 결제라면 승인 뒤 적용할 수 있는지 Toss 호출 전에 확인한다.
+        packageUpgradeApplier.validateBeforeConfirm(payment, allocations);
         List<RegistrationActionPolicyInput> policies = actionPolicies.loadEnabledRegistrationActionPolicies(event.getId(), RegistrationActionType.PAYMENT);
         // 주문 귀속 인원 전체를 함께 평가하여 목록 순서에 따른 오류 차이를 없앤다.
         actionPolicies.validateRegistrationActionsPolicy(event,
@@ -379,6 +384,12 @@ public class PaymentConfirmTransactionService {
         payment.completeConfirm(
                 tossResponse
         );
+
+        /*
+         * 상향 결제면 납부액 반영 전에 종목·참가 항목·정원을 패키지로 바꾼다.
+         * 상향 대기가 없는 결제는 아무것도 바뀌지 않는다.
+         */
+        packageUpgradeApplier.applyIfPending(payment, allocations, now);
 
         /*
          * 개인 결제는 해당 신청 한 건에

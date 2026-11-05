@@ -11,6 +11,8 @@ import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationSta
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.upgrade.PackageUpgradeStatus;
+import kr.co.teambrain.marvelrun.user.event.command.repository.PackageUpgradeCommandRepository;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.domain.Reservation;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
@@ -56,6 +58,7 @@ public class AdditionalPaymentPreparationService {
     private final PaymentConfirmationAllocationSupport confirmation;
     private final PaymentCreator creator;
     private final PaymentAllocationCreator allocationCreator;
+    private final PackageUpgradeCommandRepository packageUpgrades;
 
     /** 생년월일이 정정되었다면 정정 후 현재 값으로 본인확인한다. */
     public Order preparePersonal(String eventId, String registrationId, RegistrationAccessRequest access) {
@@ -66,6 +69,20 @@ public class AdditionalPaymentPreparationService {
             throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
         }
         RegistrationAccessVerifier.verifyPersonal(registration, access, passwordEncoder);
+        // 상향 결제는 로그인한 참가자만 상향 화면에서 진행한다.
+        if (packageUpgrades.findByRegistrationForUpdate(registrationId, PackageUpgradeStatus.PENDING).isPresent()) {
+            throw new CustomException(ErrorCode.PACKAGE_UPGRADE_LOGIN_REQUIRED);
+        }
+        return prepareAdditionalPaymentOrder(locked, List.of(registration), null);
+    }
+
+    /**
+     * 상향 흐름 전용. 호출자가 대회 → 결제 → 신청 순으로 이미 잠갔다.
+     * 공개 준비와 같은 규칙으로 부족액 주문을 만들거나, 같은 금액의 READY 주문을 재사용한다.
+     */
+    public Order prepareLockedPackageUpgrade(List<Payment> locked, Registration registration) {
+        for (Payment payment : locked) { payment.validateRegistrationModificationAllowed(); }
+        refunds.validate(locked);
         return prepareAdditionalPaymentOrder(locked, List.of(registration), null);
     }
 

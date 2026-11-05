@@ -54,6 +54,7 @@ public class RegistrationCancellationTransactionService {
     private final PaymentCancelCommandRepository cancellations;
     private final ServerTimeProvider time;
     private final RegistrationActionPolicyService actionPolicies;
+    private final PackageUpgradeCapacitySupport packageUpgrades;
 
     /** 개인 신청을 현재 정보로 인증하며 단체 구성원의 개인 취소 진입을 차단한다. */
     @Transactional
@@ -113,6 +114,8 @@ public class RegistrationCancellationTransactionService {
         for (Registration member : active) { validateActive(member); }
         List<String> activeIds = active.stream().map(Registration::getId).sorted().toList();
         removal.releaseAll(event.getId(), activeIds, now);
+        // 상향이 따로 잡아 둔 held는 예약 반환에 들어 있지 않으므로 함께 돌려준다.
+        packageUpgrades.cancelPendingForCanceledRegistrations(activeIds, now);
         for (Registration member : active) { member.cancelParticipation(); }
         RegistrationModificationSettlementResult settled = settlement.settleRegistrationModification(event.getId(), organizationId, activeIds, now, policies);
         entityManager.flush();

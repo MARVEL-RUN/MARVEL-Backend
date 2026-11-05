@@ -101,7 +101,11 @@ import static org.mockito.Mockito.when;
         PaymentOrderIdGenerator.class,
         PaymentConfirmTransactionService.class,
         PaymentConfirmService.class,
-        TossConfirmFailureClassifier.class
+        TossConfirmFailureClassifier.class,
+        kr.co.teambrain.marvelrun.user.event.command.application.service.PackageUpgradeApplier.class,
+        kr.co.teambrain.marvelrun.user.event.command.application.service.PackageUpgradeCapacitySupport.class,
+        CapacityModificationService.class,
+        ReservationCapacityDiffService.class
 })
 abstract class CapacityMvpDatabaseSupport {
 

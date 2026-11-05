@@ -1,4 +1,6 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
+
+import kr.co.teambrain.marvelrun.user.event.command.repository.PackageUpgradeCommandRepository;
 import kr.co.teambrain.marvelrun.user.discount.service.RegistrationPriceCalculationRecorder;
 
 import jakarta.persistence.EntityManager;
@@ -92,7 +94,8 @@ class RegistrationPersonalModificationServiceTest {
                     capacityModificationService,
                     registrationRepository,
                     paymentGuard,
-                    entityManager
+                    entityManager,
+                    mock(PackageUpgradeCommandRepository.class)
             );
 
     private final LocalDateTime now =
