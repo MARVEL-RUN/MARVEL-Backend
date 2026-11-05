@@ -1,6 +1,5 @@
 package kr.co.teambrain.marvelrun.admin.event.command.application.service;
 
-import kr.co.teambrain.marvelrun.admin.capacity.command.application.service.RegistrationCapacityService;
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
@@ -49,7 +48,6 @@ class VirtualRoundServiceTest {
 
     @Mock ServerTimeProvider serverTimeProvider;
     @Mock EventCommandRepository eventRepository;
-    @Mock RegistrationCapacityService capacityService;
     @Mock RegistrationActionPolicyReader policyReader;
     @Mock RegistrationActionPolicyCommandRepository policyRepository;
 
@@ -58,9 +56,9 @@ class VirtualRoundServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new VirtualRoundService(serverTimeProvider, eventRepository, capacityService, policyReader, policyRepository);
+        service = new VirtualRoundService(serverTimeProvider, eventRepository, policyReader, policyRepository);
         when(serverTimeProvider.currentDateTime()).thenReturn(LocalDateTime.of(2026, 11, 5, 10, 0));
-        when(capacityService.lockRegistrationEvent(EVENT_ID)).thenReturn(event);
+        when(eventRepository.findByIdForUpdate(EVENT_ID)).thenReturn(java.util.Optional.of(event));
         when(event.getEventFormat()).thenReturn(EventFormat.VIRTUAL);
         when(event.getRegistStartDate()).thenReturn(T1);
         when(event.getRegistDeadline()).thenReturn(END);
@@ -180,5 +178,40 @@ class VirtualRoundServiceTest {
         // 새 2차수 세 행 + 차수 사이 REGIST + 마지막 뒤 REGIST
         assertThat(saved.getValue()).hasSize(5);
         assertThat(saved.getValue()).noneMatch(r -> r.getRegistrationStartAt().equals(T1) && r.getActionType() != RegistrationActionType.REGIST);
+    }
+
+    /** 진행 중인 차수를 빼거나 시작을 옮기면 거절하고 정책 행을 건드리지 않는다. */
+    @Test
+    void startedRoundMustKeepItsStart() {
+        when(serverTimeProvider.currentDateTime()).thenReturn(T3.plusHours(1));
+        List<RegistrationActionPolicyInput> rows = new ArrayList<>(inputs(T1, T2));
+        rows.addAll(inputs(T3, T4));
+        when(policyReader.loadEnabledRegistrationActionPolicies(eq(EVENT_ID), any(java.util.Collection.class))).thenReturn(rows);
+
+        assertError(request(T1, T2), ErrorCode.VIRTUAL_ROUND_STARTED_IMMUTABLE);
+        assertError(request(T1, T2, T3.plusDays(1), T4), ErrorCode.VIRTUAL_ROUND_STARTED_IMMUTABLE);
+    }
+
+    /** 진행 중인 차수의 마감은 지금보다 뒤라면 옮길 수 있다. */
+    @Test
+    void startedRoundCanMoveItsDeadline() {
+        when(serverTimeProvider.currentDateTime()).thenReturn(T3.plusHours(1));
+        List<RegistrationActionPolicyInput> rows = new ArrayList<>(inputs(T1, T2));
+        rows.addAll(inputs(T3, T4));
+        when(policyReader.loadEnabledRegistrationActionPolicies(eq(EVENT_ID), any(java.util.Collection.class))).thenReturn(rows);
+
+        service.replaceRounds(EVENT_ID, request(T1, T2, T3, T4.plusDays(1)));
+
+        verify(policyRepository).saveAll(any());
+    }
+
+    /** 세 작업이 맞지 않는 차수 행이 있으면 어느 행도 지우지 않고 거절한다. */
+    @Test
+    void rejectsRowsOutsideRounds() {
+        List<RegistrationActionPolicyInput> rows = new ArrayList<>(inputs(T1, T2));
+        rows.add(new RegistrationActionPolicyInput("x", EVENT_ID, Action.PAYMENT, T3, T4, T4, true));
+        when(policyReader.loadEnabledRegistrationActionPolicies(eq(EVENT_ID), any(java.util.Collection.class))).thenReturn(rows);
+
+        assertError(request(T1, T2, T3, T4), ErrorCode.VIRTUAL_ROUND_POLICY_INCONSISTENT);
     }
 }

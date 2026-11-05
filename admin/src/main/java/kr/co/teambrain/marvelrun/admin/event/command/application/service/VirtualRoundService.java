@@ -1,6 +1,5 @@
 package kr.co.teambrain.marvelrun.admin.event.command.application.service;
 
-import kr.co.teambrain.marvelrun.admin.capacity.command.application.service.RegistrationCapacityService;
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
@@ -10,6 +9,7 @@ import kr.co.teambrain.marvelrun.admin.event.command.application.dto.VirtualRoun
 import kr.co.teambrain.marvelrun.admin.event.command.application.dto.VirtualRoundsResponse;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.EventCommandRepository;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationActionPolicyCommandRepository;
+import kr.co.teambrain.marvelrun.admin.event.policy.RegistrationActionPolicyModels.RegistrationActionPolicyInput;
 import kr.co.teambrain.marvelrun.admin.event.policy.VirtualRounds;
 import kr.co.teambrain.marvelrun.admin.event.policy.VirtualRounds.Range;
 import kr.co.teambrain.marvelrun.admin.event.policy.VirtualRounds.Round;
@@ -31,15 +31,12 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class VirtualRoundService {
-    private static final List<RegistrationActionType> ROUND_ACTIONS =
-            List.of(RegistrationActionType.MODIFY, RegistrationActionType.PAYMENT, RegistrationActionType.REFUND);
     private static final List<RegistrationActionType> ALL_ACTIONS =
             List.of(RegistrationActionType.REGIST, RegistrationActionType.MODIFY,
                     RegistrationActionType.PAYMENT, RegistrationActionType.REFUND);
 
     private final ServerTimeProvider serverTimeProvider;
     private final EventCommandRepository eventRepository;
-    private final RegistrationCapacityService capacityService;
     private final RegistrationActionPolicyReader policyReader;
     private final RegistrationActionPolicyCommandRepository policyRepository;
 
@@ -56,14 +53,20 @@ public class VirtualRoundService {
     @Transactional
     public VirtualRoundsResponse replaceRounds(String eventId, VirtualRoundsRequest request) {
         LocalDateTime now = serverTimeProvider.currentDateTime();
-        Event event = capacityService.lockRegistrationEvent(eventId);
+        Event event = eventRepository.findByIdForUpdate(eventId)
+                .orElseThrow(() -> new CustomException(ErrorCode.EVENT_NOT_FOUND));
         requireVirtual(event);
         LocalDateTime registDeadline = event.getRegistDeadline();
         if (registDeadline == null) {
             throw new CustomException(ErrorCode.VIRTUAL_ROUND_INVALID);
         }
 
-        List<Round> existing = loadRounds(eventId);
+        // 차수로 묶이지 않는 행이 있으면 어느 행이 마감 차수의 것인지 알 수 없으므로 아무것도 지우지 않는다.
+        List<RegistrationActionPolicyInput> policies = loadPolicies(eventId);
+        if (VirtualRounds.hasRowOutsideRounds(policies)) {
+            throw new CustomException(ErrorCode.VIRTUAL_ROUND_POLICY_INCONSISTENT);
+        }
+        List<Round> existing = VirtualRounds.fromPolicies(policies);
         List<Range> requested = request.rounds().stream().map(r -> new Range(r.startAt(), r.deadline())).toList();
         List<Range> rounds = VirtualRounds.validateRequest(requested, existing, event.getRegistStartDate(), registDeadline, now);
 
@@ -78,7 +81,7 @@ public class VirtualRoundService {
         List<RegistrationActionPolicy> inserting = new ArrayList<>();
         for (Range range : rounds) {
             if (closed.contains(range)) { continue; }
-            for (RegistrationActionType type : ROUND_ACTIONS) {
+            for (RegistrationActionType type : VirtualRounds.ROUND_ACTION_TYPES) {
                 inserting.add(policy(eventId, type, range.startAt(), range.deadline(), range.deadline()));
             }
         }
@@ -93,7 +96,7 @@ public class VirtualRoundService {
 
     /** 마감된 차수의 활성 MODIFY·PAYMENT·REFUND 행인지 판정한다. */
     private boolean isClosedRoundRow(RegistrationActionPolicy row, List<Round> closedRounds) {
-        return row.isEnabled() && ROUND_ACTIONS.contains(row.getActionType())
+        return row.isEnabled() && VirtualRounds.ROUND_ACTION_TYPES.contains(row.getActionType())
                 && closedRounds.stream().anyMatch(round -> round.startAt().equals(row.getRegistrationStartAt())
                         && round.endAt().equals(row.getRegistrationEndAt())
                         && round.deadline().equals(row.getEffectiveFrom()));
@@ -106,7 +109,11 @@ public class VirtualRoundService {
     }
 
     private List<Round> loadRounds(String eventId) {
-        return VirtualRounds.fromPolicies(policyReader.loadEnabledRegistrationActionPolicies(eventId, ROUND_ACTIONS));
+        return VirtualRounds.fromPolicies(loadPolicies(eventId));
+    }
+
+    private List<RegistrationActionPolicyInput> loadPolicies(String eventId) {
+        return policyReader.loadEnabledRegistrationActionPolicies(eventId, VirtualRounds.ROUND_ACTION_TYPES);
     }
 
     private void requireVirtual(Event event) {

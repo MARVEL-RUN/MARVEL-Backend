@@ -4,6 +4,7 @@ import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.event.policy.RegistrationActionPolicyModels.Action;
 import kr.co.teambrain.marvelrun.admin.event.policy.RegistrationActionPolicyModels.RegistrationActionPolicyInput;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -26,10 +27,17 @@ public final class VirtualRounds {
 
     private static final Set<Action> ROUND_ACTIONS = EnumSet.of(Action.MODIFY, Action.PAYMENT, Action.REFUND);
 
+    /** 차수를 이루는 정책 행의 작업 종류다. 차수를 읽는 곳은 모두 이 목록으로 정책 행을 읽는다. */
+    public static final List<RegistrationActionType> ROUND_ACTION_TYPES =
+            List.of(RegistrationActionType.MODIFY, RegistrationActionType.PAYMENT, RegistrationActionType.REFUND);
+
     /** 차수 번호는 신청 시작 순서(1부터)이며 마감(deadline)은 적용 개시 시각이다. 구간은 [startAt, endAt)이다. */
     public record Round(int number, LocalDateTime startAt, LocalDateTime endAt, LocalDateTime deadline) {
         /** 기준 시각이 마감 시각 이후면 마감된 차수다. */
         public boolean closed(LocalDateTime now) { return !now.isBefore(deadline); }
+
+        /** 신청 시작이 지났고 아직 마감 전이면 진행 중인 차수다. */
+        public boolean inProgress(LocalDateTime now) { return !now.isBefore(startAt) && !closed(now); }
     }
 
     /** 차수 변경 요청의 한 차수이거나 계산된 구간이다. */
@@ -57,6 +65,16 @@ public final class VirtualRounds {
         return rounds;
     }
 
+    /** 활성 MODIFY·PAYMENT·REFUND 행 가운데 세 작업이 모두 있는 차수 묶음에 들지 않는 행이 있으면 true다. */
+    public static boolean hasRowOutsideRounds(List<RegistrationActionPolicyInput> policies) {
+        List<Round> rounds = fromPolicies(policies);
+        return policies.stream()
+                .filter(policy -> policy.enabled() && ROUND_ACTIONS.contains(policy.action()))
+                .anyMatch(policy -> rounds.stream().noneMatch(round -> round.startAt().equals(policy.registrationStart())
+                        && round.endAt().equals(policy.registrationEnd())
+                        && round.deadline().equals(policy.effectiveFrom())));
+    }
+
     /** 마감 시각이 같은 차수가 정확히 하나일 때만 돌려주고 아니면 VIRTUAL_ROUND_NOT_FOUND다. */
     public static Round requireByDeadline(List<Round> rounds, LocalDateTime deadline) {
         List<Round> matched = rounds.stream().filter(round -> round.deadline().equals(deadline)).toList();
@@ -70,6 +88,7 @@ public final class VirtualRounds {
      * 요청 차수를 시작 순으로 정렬해 검증한 목록을 돌려준다.
      * 시작이 마감보다 앞서야 하고, 차수끼리 겹치지 않으며, 첫 시작은 접수 시작 이전이고 모든 마감은 접수 마감 이내여야 한다.
      * 이미 마감된 기존 차수는 같은 값으로 요청에 있어야 하고(VIRTUAL_ROUND_CLOSED_IMMUTABLE),
+     * 진행 중인 기존 차수는 같은 시작 시각으로 요청에 있어야 한다(VIRTUAL_ROUND_STARTED_IMMUTABLE). 마감은 바꿀 수 있다.
      * 새로 만들거나 바꾼 차수의 마감이 현재 이전이어도 VIRTUAL_ROUND_CLOSED_IMMUTABLE이다.
      */
     public static List<Range> validateRequest(List<Range> requested, List<Round> existing,
@@ -82,6 +101,12 @@ public final class VirtualRounds {
         for (Round round : existing) {
             if (round.closed(now) && !sorted.contains(new Range(round.startAt(), round.deadline()))) {
                 throw new CustomException(ErrorCode.VIRTUAL_ROUND_CLOSED_IMMUTABLE);
+            }
+        }
+        // 신청이 들어오기 시작한 차수는 빼거나 시작을 옮길 수 없다. 옮기면 이미 들어온 신청이 차수 밖으로 빠진다.
+        for (Round round : existing) {
+            if (round.inProgress(now) && sorted.stream().noneMatch(range -> range.startAt().equals(round.startAt()))) {
+                throw new CustomException(ErrorCode.VIRTUAL_ROUND_STARTED_IMMUTABLE);
             }
         }
         for (int i = 0; i < sorted.size(); i++) {

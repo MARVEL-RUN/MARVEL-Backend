@@ -93,4 +93,41 @@ class VirtualRoundsTest {
 
         assertThat(sorted).containsExactly(new Range(T1, T2), new Range(T3, T4));
     }
+
+    /** 진행 중인 차수는 같은 시작으로 남아야 하고 마감은 바꿀 수 있다. */
+    @Test
+    void validateProtectsStartedRound() {
+        List<RegistrationActionPolicyInput> rows = new ArrayList<>(round(T1, T2));
+        rows.addAll(round(T3, T4));
+        List<Round> existing = VirtualRounds.fromPolicies(rows);
+        LocalDateTime now = T3.plusHours(1);
+
+        assertThatThrownBy(() -> VirtualRounds.validateRequest(List.of(new Range(T1, T2)), existing, T1, END, now))
+                .isInstanceOfSatisfying(CustomException.class, e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.VIRTUAL_ROUND_STARTED_IMMUTABLE));
+        assertThatThrownBy(() -> VirtualRounds.validateRequest(List.of(new Range(T1, T2), new Range(T3.plusDays(1), T4)), existing, T1, END, now))
+                .isInstanceOfSatisfying(CustomException.class, e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.VIRTUAL_ROUND_STARTED_IMMUTABLE));
+        assertThat(VirtualRounds.validateRequest(List.of(new Range(T1, T2), new Range(T3, END)), existing, T1, END, now))
+                .containsExactly(new Range(T1, T2), new Range(T3, END));
+    }
+
+    /** 시작 전 차수는 옮기거나 뺄 수 있다. */
+    @Test
+    void validateAllowsChangingFutureRound() {
+        List<Round> existing = VirtualRounds.fromPolicies(round(T3, T4));
+
+        assertThat(VirtualRounds.validateRequest(List.of(new Range(T1, T2)), existing, T1, END, T1)).hasSize(1);
+    }
+
+    /** 세 작업이 맞는 행만 있으면 false, 차수로 묶이지 않는 켜진 행이 있으면 true다. 꺼진 행과 REGIST 행은 보지 않는다. */
+    @Test
+    void detectsRowsOutsideRounds() {
+        List<RegistrationActionPolicyInput> rows = new ArrayList<>(round(T1, T2));
+        rows.add(row(Action.REGIST, T2, T3, T2, true));
+        rows.add(row(Action.MODIFY, T3, T4, T4, false));
+        assertThat(VirtualRounds.hasRowOutsideRounds(rows)).isFalse();
+
+        rows.add(row(Action.PAYMENT, T3, T4, T4, true));
+        assertThat(VirtualRounds.hasRowOutsideRounds(rows)).isTrue();
+    }
+
 }

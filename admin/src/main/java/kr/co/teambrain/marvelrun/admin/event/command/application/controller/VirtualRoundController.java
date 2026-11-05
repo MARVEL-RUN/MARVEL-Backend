@@ -26,7 +26,10 @@ public class VirtualRoundController {
     }
 
     @Operation(summary = "차수 교체",
-            description = "차수 전체를 요청 값으로 교체합니다. 마감된 차수는 같은 값으로 포함해야 하며 바꿀 수 없습니다. 차수 사이 구간은 신규 신청 차단 구간으로 자동 생성합니다.")
+            description = "차수 전체를 요청 값으로 교체합니다. 마감된 차수는 같은 값으로 포함해야 하며 바꿀 수 없습니다. "
+                    + "진행 중인 차수는 같은 시작 시각으로 포함해야 하며 마감만 바꿀 수 있습니다. "
+                    + "차수 사이와 마지막 마감 뒤의 신규 신청 차단(REGIST) 행은 이 API가 지우고 다시 만듭니다. "
+                    + "MODIFY·PAYMENT·REFUND 세 행이 맞지 않는 정책 행이 있으면 아무것도 바꾸지 않고 거절합니다.")
     @PutMapping
     public ResponseEntity<VirtualRoundsResponse> replaceRounds(
             @PathVariable("eventId") String eventId,

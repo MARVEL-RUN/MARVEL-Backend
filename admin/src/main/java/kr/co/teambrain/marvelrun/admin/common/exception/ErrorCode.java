@@ -212,6 +212,11 @@ public enum ErrorCode {
     VIRTUAL_ROUND_INVALID(HttpStatus.BAD_REQUEST, "차수 구간을 확인해 주세요. 시작은 마감보다 앞서야 하고 차수끼리 겹칠 수 없으며 접수 기간 안이어야 합니다."),
     /** 마감된 차수를 바꾸거나 이미 지난 마감 시각으로 차수를 만드는 경우이다. */
     VIRTUAL_ROUND_CLOSED_IMMUTABLE(HttpStatus.CONFLICT, "이미 마감된 차수는 바꾸거나 새로 만들 수 없습니다."),
+    /** 신청이 들어오기 시작한 차수를 빼거나 시작 시각을 옮기는 경우이다. */
+    VIRTUAL_ROUND_STARTED_IMMUTABLE(HttpStatus.CONFLICT, "이미 시작한 차수는 지우거나 시작 시각을 바꿀 수 없습니다."),
+    /** 켜진 MODIFY·PAYMENT·REFUND 행 가운데 차수로 묶이지 않는 행이 있는 경우이다. */
+    VIRTUAL_ROUND_POLICY_INCONSISTENT(HttpStatus.CONFLICT,
+            "차수 정책 행이 MODIFY·PAYMENT·REFUND 세 개씩 맞지 않습니다. 정책 행을 먼저 확인해 주세요."),
     /** 마감 시각에 해당하는 차수가 없는 경우이다. */
     VIRTUAL_ROUND_NOT_FOUND(HttpStatus.BAD_REQUEST, "마감 시각에 해당하는 차수를 찾을 수 없습니다."),
     /** 아직 마감되지 않은 차수의 배번을 발급하려는 경우이다. */

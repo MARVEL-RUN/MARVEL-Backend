@@ -1,6 +1,5 @@
 package kr.co.teambrain.marvelrun.admin.event;
 
-import kr.co.teambrain.marvelrun.admin.capacity.command.application.service.RegistrationCapacityService;
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
@@ -38,7 +37,7 @@ import static org.mockito.Mockito.when;
         "spring.jpa.hibernate.ddl-auto=none", "spring.sql.init.mode=never",
         "spring.flyway.enabled=false", "spring.liquibase.enabled=false"})
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({VirtualRoundService.class, RegistrationCapacityService.class, RegistrationActionPolicyReader.class})
+@Import({VirtualRoundService.class, RegistrationActionPolicyReader.class})
 class VirtualRoundDatabaseTest {
     private static final LocalDateTime T1 = LocalDateTime.of(2026, 11, 1, 0, 0);
     private static final LocalDateTime T2 = LocalDateTime.of(2026, 11, 20, 17, 0);
