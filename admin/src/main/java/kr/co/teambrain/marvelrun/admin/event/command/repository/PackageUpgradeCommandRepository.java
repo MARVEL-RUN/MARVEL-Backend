@@ -26,7 +26,8 @@ public interface PackageUpgradeCommandRepository extends JpaRepository<PackageUp
     );
 
     /**
-     * 마감 시각 전에 신청한 신청의 남은 상향 대기 id. 일괄 취소가 건마다 따로 잠가 처리한다.
+     * 마감 시각 전에 신청한 신청의 남은 상향 대기 id를 afterId 뒤부터 id 순으로 읽는다(키셋 커서).
+     * 일괄 취소가 건마다 따로 잠가 처리한다. 실패한 건은 PENDING으로 남지만 커서가 넘어가므로 다시 고르지 않는다.
      * 승인 중·결과 미확인 결제가 걸린 건은 빼서, 앞쪽에 막힌 건이 뒤쪽 처리를 가로막지 않게 한다.
      */
     @Query("""
@@ -34,25 +35,29 @@ public interface PackageUpgradeCommandRepository extends JpaRepository<PackageUp
             where u.event.id = :eventId
               and u.status = :status
               and u.registration.registrationDate < :deadline
+              and u.id > :afterId
               and not exists (
                   select p.id from Payment p
                   where p.registration = u.registration and p.processStatus in :blocked
               )
-            order by u.createdAt, u.id
+            order by u.id
             """)
     List<String> findCancelableIdsBefore(
             @Param("eventId") String eventId,
             @Param("status") PackageUpgradeStatus status,
             @Param("deadline") LocalDateTime deadline,
+            @Param("afterId") String afterId,
             @Param("blocked") Collection<PaymentProcessStatus> blocked,
             Pageable pageable
     );
 
+    /** afterId 뒤에 남은 취소할 수 있는 상향 대기 수. */
     @Query("""
             select count(u) from PackageUpgrade u
             where u.event.id = :eventId
               and u.status = :status
               and u.registration.registrationDate < :deadline
+              and u.id > :afterId
               and not exists (
                   select p.id from Payment p
                   where p.registration = u.registration and p.processStatus in :blocked
@@ -62,6 +67,7 @@ public interface PackageUpgradeCommandRepository extends JpaRepository<PackageUp
             @Param("eventId") String eventId,
             @Param("status") PackageUpgradeStatus status,
             @Param("deadline") LocalDateTime deadline,
+            @Param("afterId") String afterId,
             @Param("blocked") Collection<PaymentProcessStatus> blocked
     );
 
@@ -81,19 +87,5 @@ public interface PackageUpgradeCommandRepository extends JpaRepository<PackageUp
             @Param("status") PackageUpgradeStatus status,
             @Param("deadline") LocalDateTime deadline,
             @Param("blocked") Collection<PaymentProcessStatus> blocked
-    );
-
-    /** 관리자 대기 목록. 신청·대상 패키지를 함께 읽는다. */
-    @Query("""
-            select u from PackageUpgrade u
-            join fetch u.registration r
-            join fetch u.targetCategory
-            where u.event.id = :eventId
-              and u.status = :status
-            order by u.createdAt, u.id
-            """)
-    List<PackageUpgrade> findAllForAdminList(
-            @Param("eventId") String eventId,
-            @Param("status") PackageUpgradeStatus status
     );
 }

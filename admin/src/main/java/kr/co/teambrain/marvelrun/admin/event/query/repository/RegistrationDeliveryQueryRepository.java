@@ -60,7 +60,8 @@ public class RegistrationDeliveryQueryRepository {
                 r.event_category_id,c.name category_name,r.souvenir_json,
                 case when r.organization_id is null then r.address else o.address end address,
                 case when r.organization_id is null then r.address_detail else o.address_detail end address_detail,
-                r.registration_date,f.approved_at,r.contract_amount,r.paid_amount
+                r.registration_date,f.approved_at,r.contract_amount,r.paid_amount,
+                exists(select 1 from package_upgrade u where u.registration_id=r.id and u.status='PENDING') pending_upgrade
             from eligible e join registration r on r.id=e.id
             left join first_approval f on f.registration_id=r.id
             left join organization o on o.id=r.organization_id and o.event_id=r.event_id
@@ -76,7 +77,7 @@ public class RegistrationDeliveryQueryRepository {
                 rs.getString("gender"), rs.getString("organization_id"), rs.getString("group_name"), rs.getString("event_category_id"),
                 rs.getString("category_name"), rs.getString("souvenir_json"), rs.getString("address"),
                 rs.getString("address_detail"), time(rs,"registration_date"),time(rs,"approved_at"),
-                rs.getBigDecimal("contract_amount"),rs.getBigDecimal("paid_amount")));
+                rs.getBigDecimal("contract_amount"),rs.getBigDecimal("paid_amount"),rs.getBoolean("pending_upgrade")));
     }
 
     /** 참가자별 금융 귀속을 읽는다. 환불 귀속 없는 단체 취소는 추정하지 않고 미확정으로 표시한다. */

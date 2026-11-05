@@ -35,7 +35,8 @@ public class RegistrationDeliveryClassifier {
 
         // 미정산 상태와 기간 판정 불가를 서로 다른 사유로 남긴다.
         List<String> reasons = new ArrayList<>();
-        if ("ADDITIONAL_PAYMENT_REQUIRED".equals(row.status())) { reasons.add("추가결제 필요"); }
+        // 단품 → 패키지 상향 대기는 단품 결제를 마친 신청이다. 상향 차액은 미납으로 보지 않는다.
+        if ("ADDITIONAL_PAYMENT_REQUIRED".equals(row.status()) && !row.pendingUpgrade()) { reasons.add("추가결제 필요"); }
         if ("PARTIAL_REFUND_REQUIRED".equals(row.status())) { reasons.add("부분환불 필요"); }
         if (row.firstApprovedUtc() == null) { reasons.add("최초 승인일 확인 불가·기간 판정 불가"); }
         if (unresolved) { reasons.add("결제·환불 처리 중 또는 결과·귀속 미확정"); }

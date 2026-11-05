@@ -56,9 +56,11 @@ public class AdminPackageUpgradeBatchService {
         LocalDateTime now = time.currentDateTime();
         LocalDateTime deadline = request == null ? null : request.deadline();
         validate(eventId, deadline, now);
+        // id는 빈 문자열보다 크므로 커서가 없으면 처음부터 고른다.
+        String afterId = request.afterUpgradeId() == null ? "" : request.afterUpgradeId();
 
         List<String> ids = upgrades.findCancelableIdsBefore(
-                eventId, PackageUpgradeStatus.PENDING, deadline, BLOCKED, PageRequest.of(0, BATCH_SIZE));
+                eventId, PackageUpgradeStatus.PENDING, deadline, afterId, BLOCKED, PageRequest.of(0, BATCH_SIZE));
         List<PackageUpgradeCancellationResult> results = new ArrayList<>();
         int canceled = 0;
         for (String upgradeId : ids) {
@@ -76,11 +78,12 @@ public class AdminPackageUpgradeBatchService {
                 results.add(PackageUpgradeCancellationResult.failed(upgradeId, ErrorCode.INTERNAL_SERVER_ERROR.getMessage()));
             }
         }
-        long remaining = upgrades.countCancelableBefore(eventId, PackageUpgradeStatus.PENDING, deadline, BLOCKED);
+        String lastId = ids.isEmpty() ? afterId : ids.getLast();
+        long remaining = upgrades.countCancelableBefore(eventId, PackageUpgradeStatus.PENDING, deadline, lastId, BLOCKED);
         long blocked = upgrades.countBlockedBefore(eventId, PackageUpgradeStatus.PENDING, deadline, BLOCKED);
         int failed = (int) results.stream().filter(r -> !r.canceled()).count();
         return new PackageUpgradeBatchCancellationResponse(deadline, results.size(), canceled, failed, remaining,
-                blocked, results);
+                blocked, remaining == 0 ? null : lastId, results);
     }
 
     /** 버추얼런 대회이고, 마감 시각이 실제 차수 마감이며, 그 시각이 이미 지났을 때만 돌린다. */

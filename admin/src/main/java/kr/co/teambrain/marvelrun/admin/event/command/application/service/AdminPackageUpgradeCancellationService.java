@@ -1,6 +1,9 @@
 package kr.co.teambrain.marvelrun.admin.event.command.application.service;
 
+import kr.co.teambrain.marvelrun.admin.capacity.command.application.domain.Reservation;
+import kr.co.teambrain.marvelrun.admin.capacity.command.application.service.ReservationHistoryRecorder;
 import kr.co.teambrain.marvelrun.admin.capacity.command.repository.CapacityCommandRepository;
+import kr.co.teambrain.marvelrun.admin.capacity.command.repository.ReservationItemCommandRepository;
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
@@ -12,7 +15,9 @@ import kr.co.teambrain.marvelrun.admin.event.command.repository.PackageUpgradeCo
 import kr.co.teambrain.marvelrun.admin.payment.command.AdminRefundLockRepository;
 import kr.co.teambrain.marvelrun.admin.payment.command.AdminRefundLockedScope.PaymentRow;
 import kr.co.teambrain.marvelrun.admin.payment.command.AdminRefundPreparationStore;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
 import kr.co.teambrain.marvelrun.common.json_object.PackageUpgradeHeldCapacity;
+import kr.co.teambrain.marvelrun.common.json_object.ReservationHistoryEntry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -24,8 +29,9 @@ import java.util.List;
 /**
  * 관리자가 결제하지 않은 상향 대기를 취소한다.
  *
- * 사용자 앱 상향 흐름과 같은 순서로 잠근다: 대회 → 결제 → 신청 → 상향 대기 → 정원.
+ * 사용자 앱 상향 흐름과 같은 순서로 잠근다: 대회 → 결제 → 신청 → 상향 대기 → 예약 → 정원.
  * READY 상향 주문은 무효로 하고, 잡아 둔 held를 돌려주고, 계약금액을 단품 가격으로 되돌린다.
+ * 계약금액·상태 변경은 예약 이력(MODIFY, 구성은 그대로)으로 남긴다.
  * 승인 중이거나 결과를 모르는 결제가 있으면 건드리지 않는다(Toss 결과를 먼저 확인해야 한다).
  */
 @Service
@@ -36,6 +42,8 @@ public class AdminPackageUpgradeCancellationService {
     private final AdminRefundPreparationStore store;
     private final CapacityCommandRepository capacities;
     private final PackageUpgradeCommandRepository upgrades;
+    private final ReservationItemCommandRepository reservationItems;
+    private final ReservationHistoryRecorder historyRecorder;
     private final ServerTimeProvider time;
 
     /** 단건 취소 API. */
@@ -80,6 +88,13 @@ public class AdminPackageUpgradeCancellationService {
             return PackageUpgradeCancellationResult.skipped(upgrade, registration, "이미 끝난 상향입니다. status=" + upgrade.getStatus());
         }
 
+        List<Reservation> reservations = store.reservations(List.of(registrationId));
+        if (reservations.size() != 1 || reservations.get(0).getStatus() != ReservationStatus.CONSUMED) {
+            throw new CustomException(ErrorCode.RESERVATION_STATE_CONFLICT,
+                    " 상향 취소는 결제를 마친 예약에만 할 수 있습니다. registrationId=" + registrationId);
+        }
+        Reservation reservation = reservations.get(0);
+
         for (PaymentRow row : payments) {
             store.current(Payment.class, row.id()).invalidateForRegistrationModification();
         }
@@ -89,7 +104,14 @@ public class AdminPackageUpgradeCancellationService {
                         " 상향 held 반환 실패. upgradeId=" + upgradeId + ", capacityId=" + held.capacityId());
             }
         }
+        List<ReservationHistoryEntry.Item> composition = reservationItems
+                .findAllocations(List.of(reservation.getId())).stream()
+                .map(allocation -> new ReservationHistoryEntry.Item(allocation.capacityId(), allocation.quantity()))
+                .toList();
+        historyRecorder.appendReservationHistorySnapshot(reservation, ReservationHistoryEntry.Action.MODIFY, now, null,
+                "관리자 패키지 상향 취소: 계약금액에서 차액 제외", composition);
         registration.cancelPackageUpgradeByAdmin(upgrade.getAmount());
+        historyRecorder.completeReservationModificationSnapshot(reservation);
         upgrade.cancelByAdmin(now);
         store.flush();
         return PackageUpgradeCancellationResult.canceled(upgrade, registration);

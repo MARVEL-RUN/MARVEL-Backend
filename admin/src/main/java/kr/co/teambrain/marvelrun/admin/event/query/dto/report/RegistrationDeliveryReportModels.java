@@ -16,7 +16,16 @@ public final class RegistrationDeliveryReportModels {
     public record Candidate(String id, String status, boolean deleted, String name, String birth, String phone,
             String gender, String organizationId, String groupName, String categoryId, String categoryName, String souvenirsJson,
             String address, String addressDetail, LocalDateTime registrationAt, LocalDateTime firstApprovedUtc,
-            BigDecimal contractAmount, BigDecimal paidAmount) { }
+            BigDecimal contractAmount, BigDecimal paidAmount, boolean pendingUpgrade) {
+        /** 단품 → 패키지 상향 대기가 없는 신청. 기존 호출부는 이 생성자를 그대로 쓴다. */
+        public Candidate(String id, String status, boolean deleted, String name, String birth, String phone,
+                String gender, String organizationId, String groupName, String categoryId, String categoryName, String souvenirsJson,
+                String address, String addressDetail, LocalDateTime registrationAt, LocalDateTime firstApprovedUtc,
+                BigDecimal contractAmount, BigDecimal paidAmount) {
+            this(id, status, deleted, name, birth, phone, gender, organizationId, groupName, categoryId, categoryName,
+                    souvenirsJson, address, addressDetail, registrationAt, firstApprovedUtc, contractAmount, paidAmount, false);
+        }
+    }
 
     /** 개별 신청에 귀속되는 결제·환불 증거다. 단체 전체 금액을 사용하지 않는다. */
     public record PaymentFact(String registrationId, String paymentId, String purpose, String processStatus,
