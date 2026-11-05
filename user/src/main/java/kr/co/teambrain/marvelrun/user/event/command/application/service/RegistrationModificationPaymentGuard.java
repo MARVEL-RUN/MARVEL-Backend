@@ -1,5 +1,9 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import kr.co.teambrain.marvelrun.common.inheritance_enum.upgrade.PackageUpgradeStatus;
+import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
+import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
+import kr.co.teambrain.marvelrun.user.event.command.repository.PackageUpgradeCommandRepository;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.PaymentCommandRepository;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +29,7 @@ public class RegistrationModificationPaymentGuard {
 
     private final PaymentCommandRepository paymentRepository;
     private final PaymentRefundConflictGuard refundGuard;
+    private final PackageUpgradeCommandRepository packageUpgrades;
 
     /**
      * 개인 신청 관련 Payment를 잠근다.
@@ -77,6 +82,16 @@ public class RegistrationModificationPaymentGuard {
             payment.validateRegistrationModificationAllowed();
         }
         refundGuard.validate(lockedPayments);
+    }
+
+    /**
+     * 진행 중인 단품 → 패키지 상향이 있으면 거절한다.
+     * 상향 대기 신청은 계약금액에 차액이 들어 있어 일반 추가 결제·재결제·전체 수정이 이를 깨뜨린다.
+     */
+    public void rejectPendingPackageUpgrade(String registrationId, ErrorCode errorCode) {
+        if (packageUpgrades.findByRegistrationForUpdate(registrationId, PackageUpgradeStatus.PENDING).isPresent()) {
+            throw new CustomException(errorCode);
+        }
     }
 
     /** 충돌 검사가 끝난 전체 수정의 READY 주문만 무효화한다. */

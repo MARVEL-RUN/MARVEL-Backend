@@ -1,8 +1,6 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
 import kr.co.teambrain.marvelrun.common.discount.model.RegistrationPriceCalculationSnapshot;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.upgrade.PackageUpgradeStatus;
-import kr.co.teambrain.marvelrun.user.event.command.repository.PackageUpgradeCommandRepository;
 import kr.co.teambrain.marvelrun.user.discount.service.RegistrationPriceCalculationRecorder;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
@@ -67,7 +65,6 @@ public class RegistrationPersonalModificationService {
 
     private final RegistrationModificationPaymentGuard paymentGuard;
     private final EntityManager entityManager;
-    private final PackageUpgradeCommandRepository packageUpgrades;
 
     /**
      * 개인 신청의 변경 후보를 검증하고 실제 신청에 반영한다.
@@ -112,9 +109,7 @@ public class RegistrationPersonalModificationService {
                 );
 
         // 전체 수정은 계약금액을 가격으로 다시 계산해 상향의 차액을 지운다. 상향을 먼저 끝내거나 취소해야 한다.
-        if (packageUpgrades.findByRegistrationForUpdate(registrationId, PackageUpgradeStatus.PENDING).isPresent()) {
-            throw new CustomException(ErrorCode.PACKAGE_UPGRADE_IN_PROGRESS);
-        }
+        paymentGuard.rejectPendingPackageUpgrade(registrationId, ErrorCode.PACKAGE_UPGRADE_IN_PROGRESS);
 
         if (comparedVersion != null) {
             Registration current = registrationRepository.findById(registrationId)

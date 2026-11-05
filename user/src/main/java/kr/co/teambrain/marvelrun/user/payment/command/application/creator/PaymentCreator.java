@@ -260,6 +260,20 @@ public class PaymentCreator {
             BigDecimal amount,
             String correlationId
     ) {
+        return createAdditionalPayment(registration, amount, correlationId, null);
+    }
+
+    /**
+     * 주문명을 지정해 개인 추가 주문을 생성한다. null이면 기존 개인 주문명(대회명 - 종목명)을 쓴다.
+     * 단품 → 패키지 상향은 패키지 이름으로 지어 단품 결제와 구분한다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Payment createAdditionalPayment(
+            Registration registration,
+            BigDecimal amount,
+            String correlationId,
+            String orderName
+    ) {
         validateAdditionalAmount(amount);
         if (registration == null || registration.getId() == null
                 || registration.isSoftDeleted()
@@ -275,7 +289,7 @@ public class PaymentCreator {
         Payment payment = Payment.createInitial(
                 registration,
                 paymentOrderIdGenerator.generate(),
-                createOrderName(registration),
+                orderName == null ? createOrderName(registration) : orderName,
                 amount,
                 PaymentPurpose.ADDITIONAL_PAYMENT,
                 UUID.randomUUID().toString()

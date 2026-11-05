@@ -1,5 +1,9 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
+import kr.co.teambrain.marvelrun.common.discount.model.RegistrationPriceCalculationSnapshot;
+import kr.co.teambrain.marvelrun.user.discount.service.RegistrationPriceCalculationRecorder;
+import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationEntryDraft;
 import jakarta.persistence.EntityManager;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType;
@@ -54,6 +58,8 @@ class PackageUpgradeApplierTest {
     @Mock private PackageUpgradeCapacitySupport capacitySupport;
     @Mock private CapacityModificationService capacityModificationService;
     @Mock private ReservationHistoryRecorder historyRecorder;
+    @Mock private PackageUpgradePricing pricing;
+    @Mock private RegistrationPriceCalculationRecorder priceCalculations;
     @Mock private Payment payment;
     @Mock private PaymentAllocation allocation;
 
@@ -65,7 +71,7 @@ class PackageUpgradeApplierTest {
 
     private PackageUpgradeApplier applier() {
         return new PackageUpgradeApplier(entityManager, upgradeRepository, entryRepository, capacitySupport,
-                capacityModificationService, historyRecorder);
+                capacityModificationService, historyRecorder, pricing, priceCalculations);
     }
 
     /** 최초 결제나 단체 결제는 상향 대기를 찾지도 않는다. */
@@ -118,16 +124,104 @@ class PackageUpgradeApplierTest {
         PackageUpgrade upgrade = upgrade(registration);
         when(upgradeRepository.findByRegistrationForUpdate("registration", PackageUpgradeStatus.PENDING))
                 .thenReturn(Optional.of(upgrade));
+        singleEntry(registration);
         Reservation reservation = mock(Reservation.class);
         when(capacitySupport.lockConsumedReservation(registration)).thenReturn(reservation);
         when(capacitySupport.packageDiff(registration, pkg, reservation)).thenReturn(new CapacityRequirementDiff(
                 "reservation", ReservationStatus.CONSUMED, 1L,
                 List.of(new CapacityRequirementDiff.Item("cap-new", 0, 1, 1, 0, 0))));
 
+        // 참가자가 스스로 풀 수 있도록 응답 문구에 해결 방법을 담는다.
+        assertThatThrownBy(() -> applier().validateBeforeConfirm(payment, List.of(allocation)))
+                .isInstanceOf(CustomException.class)
+                .satisfies(e -> {
+                    assertThat(((CustomException) e).getErrorCode()).isEqualTo(ErrorCode.PACKAGE_UPGRADE_STATE_CONFLICT);
+                    assertThat(((CustomException) e).getResponseMessage()).contains("상향을 취소한 뒤 다시 요청");
+                });
+        verify(capacitySupport, never()).validatePreheldMove(any(), any(), any());
+    }
+
+    /** 참가 항목이 단품 하나가 아니면 승인 뒤 패키지 항목이 어긋나므로 Toss 호출 전에 막는다. */
+    @Test
+    void rejectsWhenEntriesAreNotSingleBeforeConfirm() {
+        Registration registration = upgrading();
+        additionalPayment(registration);
+        when(allocation.getAllocatedAmount()).thenReturn(DIFF);
+        when(upgradeRepository.findByRegistrationForUpdate("registration", PackageUpgradeStatus.PENDING))
+                .thenReturn(Optional.of(upgrade(registration)));
+        when(entryRepository.findByRegistration_Id("registration")).thenReturn(List.of());
+
         assertThatThrownBy(() -> applier().validateBeforeConfirm(payment, List.of(allocation)))
                 .isInstanceOf(CustomException.class)
                 .extracting(e -> ((CustomException) e).getErrorCode())
                 .isEqualTo(ErrorCode.PACKAGE_UPGRADE_STATE_CONFLICT);
+        verifyNoInteractions(capacitySupport, pricing);
+    }
+
+    /** 정원 숫자 검사에서 막히면 가격 계산까지 가지 않는다. */
+    @Test
+    void rejectsShortCapacityCountersBeforeConfirm() {
+        Registration registration = upgrading();
+        additionalPayment(registration);
+        when(allocation.getAllocatedAmount()).thenReturn(DIFF);
+        PackageUpgrade upgrade = upgrade(registration);
+        when(upgradeRepository.findByRegistrationForUpdate("registration", PackageUpgradeStatus.PENDING))
+                .thenReturn(Optional.of(upgrade));
+        singleEntry(registration);
+        Reservation reservation = mock(Reservation.class);
+        CapacityRequirementDiff diff = matchingDiff();
+        when(capacitySupport.lockConsumedReservation(registration)).thenReturn(reservation);
+        when(capacitySupport.packageDiff(registration, pkg, reservation)).thenReturn(diff);
+        doThrow(new CustomException(ErrorCode.CAPACITY_COUNTER_MISMATCH))
+                .when(capacitySupport).validatePreheldMove("event", diff, upgrade);
+
+        assertThatThrownBy(() -> applier().validateBeforeConfirm(payment, List.of(allocation)))
+                .isInstanceOf(CustomException.class)
+                .extracting(e -> ((CustomException) e).getErrorCode())
+                .isEqualTo(ErrorCode.CAPACITY_COUNTER_MISMATCH);
+        verifyNoInteractions(pricing);
+    }
+
+    /** 패키지 가격 계산이 상향 계약금액과 다르면 승인 뒤 가격 기록이 실패하므로 Toss 호출 전에 막는다. */
+    @Test
+    void rejectsPriceMismatchBeforeConfirm() {
+        Registration registration = upgrading();
+        additionalPayment(registration);
+        when(allocation.getAllocatedAmount()).thenReturn(DIFF);
+        PackageUpgrade upgrade = upgrade(registration);
+        when(upgradeRepository.findByRegistrationForUpdate("registration", PackageUpgradeStatus.PENDING))
+                .thenReturn(Optional.of(upgrade));
+        singleEntry(registration);
+        Reservation reservation = mock(Reservation.class);
+        when(capacitySupport.lockConsumedReservation(registration)).thenReturn(reservation);
+        when(capacitySupport.packageDiff(registration, pkg, reservation)).thenReturn(matchingDiff());
+        when(pricing.calculate(registration, pkg)).thenReturn(price("80000"));
+
+        assertThatThrownBy(() -> applier().validateBeforeConfirm(payment, List.of(allocation)))
+                .isInstanceOf(CustomException.class)
+                .extracting(e -> ((CustomException) e).getErrorCode())
+                .isEqualTo(ErrorCode.PACKAGE_UPGRADE_STATE_CONFLICT);
+    }
+
+    /** 단품 하나, 정원 숫자, 가격이 모두 맞으면 통과한다. */
+    @Test
+    void passesBeforeConfirmWhenApplicable() {
+        Registration registration = upgrading();
+        additionalPayment(registration);
+        when(allocation.getAllocatedAmount()).thenReturn(DIFF);
+        PackageUpgrade upgrade = upgrade(registration);
+        when(upgradeRepository.findByRegistrationForUpdate("registration", PackageUpgradeStatus.PENDING))
+                .thenReturn(Optional.of(upgrade));
+        singleEntry(registration);
+        Reservation reservation = mock(Reservation.class);
+        CapacityRequirementDiff diff = matchingDiff();
+        when(capacitySupport.lockConsumedReservation(registration)).thenReturn(reservation);
+        when(capacitySupport.packageDiff(registration, pkg, reservation)).thenReturn(diff);
+        when(pricing.calculate(registration, pkg)).thenReturn(price("75000"));
+
+        applier().validateBeforeConfirm(payment, List.of(allocation));
+
+        verify(capacitySupport).validatePreheldMove("event", diff, upgrade);
     }
 
     /** 잡아 둔 held를 확정으로 옮겨 예약을 패키지 구성으로 바꾸고, 종목·항목·상향 상태를 바꾼다. */
@@ -144,15 +238,21 @@ class PackageUpgradeApplierTest {
         when(capacitySupport.lockConsumedReservation(registration)).thenReturn(reservation);
         when(capacitySupport.packageDiff(registration, pkg, reservation)).thenReturn(diff);
         when(entityManager.find(EventCategory.class, "xmen")).thenReturn(xmen);
+        DiscountModels.PriceResult price = price("75000");
+        when(pricing.calculate(registration, pkg)).thenReturn(price);
 
         applier().applyIfPending(payment, List.of(allocation), NOW);
 
-        InOrder order = inOrder(capacitySupport, capacityModificationService, historyRecorder, entryRepository);
+        InOrder order = inOrder(capacitySupport, capacityModificationService, historyRecorder, priceCalculations,
+                entryRepository);
         // 잡아 둔 held를 돌려주지 않고 그대로 확정으로 옮긴다.
         order.verify(capacityModificationService).confirmPreheldReservationMove(
                 "event", diff, java.util.Map.of("cap-package", 1), NOW);
         verify(capacitySupport, never()).releaseHeld(any(), any());
         order.verify(historyRecorder).completeReservationModificationSnapshot(reservation);
+        // 패키지 기준 가격 계산을 상향 사유로 남긴다.
+        order.verify(priceCalculations).recordRegistrationPriceCalculation(registration, price,
+                RegistrationPriceCalculationSnapshot.Reason.PACKAGE_UPGRADED);
         ArgumentCaptor<RegistrationEntry> saved = ArgumentCaptor.forClass(RegistrationEntry.class);
         order.verify(entryRepository).save(saved.capture());
         assertThat(saved.getValue().getEventCategory()).isSameAs(xmen);
@@ -178,6 +278,22 @@ class PackageUpgradeApplierTest {
         return PackageUpgrade.create(registration, pkg, DIFF,
                 List.of(new PackageUpgradeEntry("xmen", "받는사람", "010-1111-2222", "1990-01-01", GenderClass.F)),
                 List.of(new PackageUpgradeHeldCapacity("cap-package", 1)));
+    }
+
+    private void singleEntry(Registration registration) {
+        when(entryRepository.findByRegistration_Id("registration")).thenReturn(List.of(RegistrationEntry.create(
+                registration, new RegistrationEntryDraft(avengers, "신청자", "010-0000-0000", "1990-01-01", GenderClass.M))));
+    }
+
+    /** 요청 때 잡은 held(cap-package 1)와 같은 증가분. */
+    private static CapacityRequirementDiff matchingDiff() {
+        return new CapacityRequirementDiff("reservation", ReservationStatus.CONSUMED, 1L,
+                List.of(new CapacityRequirementDiff.Item("cap-package", 0, 1, 1, 0, 0)));
+    }
+
+    private static DiscountModels.PriceResult price(String amount) {
+        return new DiscountModels.PriceResult(DiscountModels.Failure.NONE, new BigDecimal(amount), new BigDecimal(amount),
+                BigDecimal.ZERO, List.of());
     }
 
     private static EventCategory single(String id) {

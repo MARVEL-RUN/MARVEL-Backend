@@ -6,13 +6,17 @@ import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationSta
 import kr.co.teambrain.marvelrun.common.inheritance_enum.upgrade.PackageUpgradeStatus;
 import kr.co.teambrain.marvelrun.user.event.command.repository.PackageUpgradeCommandRepository;
 import kr.co.teambrain.marvelrun.common.json_object.PackageUpgradeHeldCapacity;
+import kr.co.teambrain.marvelrun.common.json_object.ReservationHistoryEntry;
+import kr.co.teambrain.marvelrun.user.capacity.command.application.domain.Capacity;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.domain.Reservation;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.dto.CapacityRequirementDiff;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.dto.CapacityRequirementInput;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.CapacityRequirementResolver;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationCapacityDiffService;
+import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationHistoryRecorder;
 import kr.co.teambrain.marvelrun.user.capacity.command.repository.CapacityCommandRepository;
 import kr.co.teambrain.marvelrun.user.capacity.command.repository.ReservationCommandRepository;
+import kr.co.teambrain.marvelrun.user.capacity.command.repository.ReservationItemCommandRepository;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
@@ -47,6 +51,8 @@ public class PackageUpgradeCapacitySupport {
     private final ReservationCapacityDiffService diffService;
     private final CapacityCommandRepository capacityRepository;
     private final PackageUpgradeCommandRepository upgradeRepository;
+    private final ReservationItemCommandRepository reservationItemRepository;
+    private final ReservationHistoryRecorder historyRecorder;
 
     /** 신청의 확정 예약을 잠가 돌려준다. 상향은 결제를 마친(CONSUMED) 예약만 대상이다. */
     public Reservation lockConsumedReservation(Registration registration) {
@@ -75,6 +81,52 @@ public class PackageUpgradeCapacitySupport {
         );
         Map<String, Integer> requirements = requirementResolver.resolveAll(eventId, List.of(input)).get(0);
         return diffService.compareAll(List.of(reservation), Map.of(reservation.getId(), requirements)).get(0);
+    }
+
+    /**
+     * 상향 요청·취소처럼 예약 구성은 그대로 두고 계약금액·상태만 바꿀 때 예약 이력을 남긴다.
+     * 지금 구성으로 MODIFY 이력을 붙이고(변경 전 신청 값), 변경을 적용한 뒤 변경 후 신청 값을 연결한다.
+     */
+    public void recordAmountChange(Reservation reservation, LocalDateTime now, String reason, Runnable change) {
+        List<ReservationHistoryEntry.Item> composition = reservationItemRepository
+                .findAllocations(List.of(reservation.getId())).stream()
+                .map(allocation -> new ReservationHistoryEntry.Item(allocation.capacityId(), allocation.quantity()))
+                .toList();
+        historyRecorder.appendReservationHistorySnapshot(reservation, ReservationHistoryEntry.Action.MODIFY,
+                now, null, reason, composition);
+        change.run();
+        historyRecorder.completeReservationModificationSnapshot(reservation);
+    }
+
+    /**
+     * 승인 전에 정원 숫자로 승인 뒤 이동이 성공하는지 본다. 행은 Capacity ID 순으로 잠근다.
+     * 늘어나는 행은 잡아 둔 held가, 줄어드는 행은 확정 수량이 모자라면 실패한다.
+     */
+    public void validatePreheldMove(String eventId, CapacityRequirementDiff diff, PackageUpgrade upgrade) {
+        Map<String, Integer> held = heldQuantities(upgrade);
+        Map<String, Integer> decreases = new TreeMap<>();
+        for (CapacityRequirementDiff.Item item : diff.items()) {
+            if (item.decrease() > 0) {
+                decreases.put(item.capacityId(), item.decrease());
+            }
+        }
+        TreeMap<String, Boolean> ids = new TreeMap<>();
+        held.keySet().forEach(id -> ids.put(id, true));
+        decreases.keySet().forEach(id -> ids.put(id, true));
+        for (String capacityId : ids.keySet()) {
+            Capacity capacity = entityManager.find(Capacity.class, capacityId);
+            if (capacity != null) {
+                entityManager.refresh(capacity, LockModeType.PESSIMISTIC_WRITE);
+            }
+            boolean valid = capacity != null
+                    && capacity.getEvent() != null && eventId.equals(capacity.getEvent().getId())
+                    && capacity.getHeldCount() >= held.getOrDefault(capacityId, 0)
+                    && capacity.getConfirmedCount() >= decreases.getOrDefault(capacityId, 0);
+            if (!valid) {
+                throw new CustomException(ErrorCode.CAPACITY_COUNTER_MISMATCH,
+                        " 상향 승인 전 정원 수량이 맞지 않습니다. upgradeId=" + upgrade.getId() + ", capacityId=" + capacityId);
+            }
+        }
     }
 
     /** 차이 가운데 늘어나는 행과 수량. */

@@ -1,6 +1,8 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
 import jakarta.persistence.EntityManager;
+import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
+import kr.co.teambrain.marvelrun.common.discount.model.RegistrationPriceCalculationSnapshot;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
@@ -12,6 +14,7 @@ import kr.co.teambrain.marvelrun.user.capacity.command.application.service.Capac
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationHistoryRecorder;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
+import kr.co.teambrain.marvelrun.user.discount.service.RegistrationPriceCalculationRecorder;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationEntryDraft;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.PackageUpgrade;
@@ -49,17 +52,38 @@ public class PackageUpgradeApplier {
     private final PackageUpgradeCapacitySupport capacitySupport;
     private final CapacityModificationService capacityModificationService;
     private final ReservationHistoryRecorder historyRecorder;
+    private final PackageUpgradePricing pricing;
+    private final RegistrationPriceCalculationRecorder priceCalculations;
 
-    /** 1차 트랜잭션: Toss 승인 전에 상향을 적용할 수 있는지 본다. */
+    /**
+     * 1차 트랜잭션: Toss 승인 전에 상향을 적용할 수 있는지 본다.
+     * 2차 트랜잭션에서 실패할 수 있는 조건(참가 항목, 정원 숫자, 가격 기록)을 여기서 먼저 막는다.
+     */
     public void validateBeforeConfirm(Payment payment, List<PaymentAllocation> allocations) {
         pendingUpgrade(payment, allocations).ifPresent(upgrade -> {
             validateApplicable(upgrade, allocations.get(0));
-            // 상향 대기 중 정원 연결이 바뀌었으면 승인 전에 막는다. 참가자는 상향을 취소하고 다시 요청한다.
             Registration registration = allocations.get(0).getRegistration();
+
+            // 단품 신청은 참가 항목이 지금 단품 하나뿐이어야 패키지 하위 종목 나머지를 더해 완성된다.
+            List<RegistrationEntry> entries = entryRepository.findByRegistration_Id(registration.getId());
+            if (entries.size() != 1
+                    || !Objects.equals(entries.get(0).getEventCategory().getId(), registration.getEventCategory().getId())) {
+                throw stateConflict(upgrade, " 상향 전 참가 항목이 단품 하나가 아닙니다. entryCount=" + entries.size());
+            }
+
+            // 상향 대기 중 정원 연결이 바뀌었으면 승인 전에 막는다. 참가자는 상향을 취소하고 다시 요청한다.
             Reservation reservation = capacitySupport.lockConsumedReservation(registration);
             CapacityRequirementDiff diff = capacitySupport.packageDiff(registration, upgrade.getTargetCategory(), reservation);
             if (!PackageUpgradeCapacitySupport.increases(diff).equals(PackageUpgradeCapacitySupport.heldQuantities(upgrade))) {
-                throw stateConflict(upgrade, " 상향 대기 중 정원 구성이 바뀌었습니다. 상향을 취소한 뒤 다시 요청해야 합니다.");
+                throw CustomException.withResponseMessage(ErrorCode.PACKAGE_UPGRADE_STATE_CONFLICT,
+                        "상향을 기다리는 동안 패키지 구성이 바뀌었습니다. 상향을 취소한 뒤 다시 요청해주세요.");
+            }
+            capacitySupport.validatePreheldMove(registration.getEvent().getId(), diff, upgrade);
+
+            // 승인 때 남길 가격 계산이 상향 뒤 계약금액과 같아야 기록이 실패하지 않는다.
+            DiscountModels.PriceResult price = pricing.calculate(registration, upgrade.getTargetCategory());
+            if (price.finalAmount().compareTo(registration.getContractAmount()) != 0) {
+                throw stateConflict(upgrade, " 패키지 가격 계산이 상향 계약금액과 다릅니다. finalAmount=" + price.finalAmount());
             }
         });
     }
@@ -86,6 +110,10 @@ public class PackageUpgradeApplier {
 
         registration.applyPackageUpgrade(packageCategory);
         historyRecorder.completeReservationModificationSnapshot(reservation);
+        // 패키지 가격(정가 − 단품 결제금액 = 차액)의 근거를 패키지 기준 가격 계산으로 남긴다.
+        priceCalculations.recordRegistrationPriceCalculation(registration,
+                pricing.calculate(registration, packageCategory),
+                RegistrationPriceCalculationSnapshot.Reason.PACKAGE_UPGRADED);
 
         for (PackageUpgradeEntry added : upgrade.getAddedEntries()) {
             EventCategory component = entityManager.find(EventCategory.class, added.eventCategoryId());

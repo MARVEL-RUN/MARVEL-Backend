@@ -2,6 +2,7 @@ package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
+import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
@@ -63,6 +64,7 @@ public class PackageUpgradeCommandService {
     private final PackageUpgradeCommandRepository upgradeRepository;
     private final PackageUpgradeCapacitySupport capacitySupport;
     private final AdditionalPaymentPreparationService additionalPayments;
+    private final PackageUpgradePricing pricing;
 
     /** 상향을 요청하고 차액 결제창 정보를 돌려준다. */
     @Transactional
@@ -78,6 +80,7 @@ public class PackageUpgradeCommandService {
         }
         if (registration.getStatus() != RegistrationStatus.CONFIRMED
                 || registration.getContractAmount() == null
+                || registration.getPaidAmount() == null
                 || registration.getContractAmount().compareTo(registration.getPaidAmount()) != 0) {
             throw CustomException.withResponseMessage(ErrorCode.PACKAGE_UPGRADE_NOT_ALLOWED,
                     "결제를 마친 신청만 패키지로 상향할 수 있습니다.");
@@ -120,7 +123,9 @@ public class PackageUpgradeCommandService {
                 now.toLocalDate()
         );
 
-        BigDecimal amount = packageCategory.getAmount().subtract(registration.getContractAmount());
+        // 차액은 신청 때와 같은 가격 계산으로 정한 패키지 가격에서 지금 계약금액(= 결제금액)을 뺀 값이다.
+        DiscountModels.PriceResult price = pricing.calculate(registration, packageCategory);
+        BigDecimal amount = price.finalAmount().subtract(registration.getContractAmount());
         if (amount.signum() <= 0) {
             throw new CustomException(ErrorCode.REGISTRATION_POLICY_CONFIGURATION_ERROR,
                     " 패키지 가격이 지금 계약금액보다 크지 않습니다. registrationId=" + registrationId);
@@ -133,7 +138,8 @@ public class PackageUpgradeCommandService {
         CapacityRequirementDiff diff = capacitySupport.packageDiff(registration, packageCategory, reservation);
         List<PackageUpgradeHeldCapacity> held = capacitySupport.holdIncreases(event.getId(), diff, now);
 
-        registration.startPackageUpgrade(amount);
+        capacitySupport.recordAmountChange(reservation, now, "패키지 상향 요청: 계약금액에 차액 추가",
+                () -> registration.startPackageUpgrade(amount));
         PackageUpgrade upgrade = upgradeRepository.save(PackageUpgrade.create(
                 registration,
                 packageCategory,
@@ -143,7 +149,7 @@ public class PackageUpgradeCommandService {
         ));
         entityManager.flush();
 
-        Order order = additionalPayments.prepareLockedPackageUpgrade(locked.payments(), registration);
+        Order order = additionalPayments.prepareLockedPackageUpgrade(locked.payments(), registration, packageCategory, now);
         upgrade.linkPayment(order.paymentId());
         return PackageUpgradeOrderResponse.of(upgrade.getId(), packageCategory.getId(), packageCategory.getName(), order);
     }
@@ -151,11 +157,14 @@ public class PackageUpgradeCommandService {
     /** 결제창을 다시 연다. 같은 금액의 READY 주문이 있으면 그 주문을 그대로 쓴다. */
     @Transactional
     public PackageUpgradeOrderResponse preparePayment(String registrationId) {
+        LocalDateTime now = time.currentDateTime();
         Locked locked = lock(registrationId);
         PackageUpgrade upgrade = upgradeRepository
                 .findByRegistrationForUpdate(registrationId, PackageUpgradeStatus.PENDING)
                 .orElseThrow(() -> new CustomException(ErrorCode.PACKAGE_UPGRADE_NOT_FOUND));
-        Order order = additionalPayments.prepareLockedPackageUpgrade(locked.payments(), locked.registration());
+        Order order = additionalPayments.prepareLockedPackageUpgrade(locked.payments(), locked.registration(),
+                upgrade.getTargetCategory(), now);
+        upgrade.linkPayment(order.paymentId());
         return PackageUpgradeOrderResponse.of(upgrade.getId(), upgrade.getTargetCategory().getId(),
                 upgrade.getTargetCategory().getName(), order);
     }
@@ -171,8 +180,10 @@ public class PackageUpgradeCommandService {
 
         // 승인 중이거나 결과를 모르는 상향 결제가 있으면 막고, READY 주문은 무효로 한다.
         paymentGuard.prepareLockedPayments(locked.payments());
+        Reservation reservation = capacitySupport.lockConsumedReservation(locked.registration());
         capacitySupport.releaseHeld(upgrade, now);
-        locked.registration().cancelPackageUpgrade(upgrade.getAmount());
+        capacitySupport.recordAmountChange(reservation, now, "패키지 상향 취소: 계약금액에서 차액 제외",
+                () -> locked.registration().cancelPackageUpgrade(upgrade.getAmount()));
         upgrade.cancel(now);
         entityManager.flush();
     }

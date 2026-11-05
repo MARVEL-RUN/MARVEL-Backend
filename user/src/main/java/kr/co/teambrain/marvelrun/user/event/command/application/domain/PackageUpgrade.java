@@ -43,11 +43,9 @@ public class PackageUpgrade extends PackageUpgradeBase<Event, Registration, Even
                 .build();
     }
 
-    /** 상향 요청이 만든 첫 주문을 남긴다. 이후 재결제 주문은 신청 id로 따라간다. */
+    /** 결제창을 열 때마다 이번에 쓰는 상향 주문을 남긴다. 관리자 목록이 이 주문으로 결제 상태를 보여 준다. */
     public void linkPayment(String paymentId) {
-        if (this.paymentId == null) {
-            this.paymentId = paymentId;
-        }
+        this.paymentId = paymentId;
     }
 
     public void complete(LocalDateTime now) {

@@ -1,8 +1,7 @@
 package kr.co.teambrain.marvelrun.user.payment.command.application;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.upgrade.PackageUpgradeStatus;
-import kr.co.teambrain.marvelrun.user.event.command.repository.PackageUpgradeCommandRepository;
+import kr.co.teambrain.marvelrun.user.event.command.application.service.RegistrationModificationPaymentGuard;
 
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels.*;
@@ -52,7 +51,7 @@ public class PaymentRetryPreparationService {
     private final EventPaymentPolicyValidator policyValidator;
     private final ServerTimeProvider time;
     private final EntityManager entityManager;
-    private final PackageUpgradeCommandRepository packageUpgrades;
+    private final RegistrationModificationPaymentGuard upgradeGuard;
 
     /** 개인 주문의 소유권과 대회를 현재 DB 값으로 검증하고 결제창 정보를 반환한다. */
     @Transactional
@@ -72,9 +71,7 @@ public class PaymentRetryPreparationService {
         }
         RegistrationAccessVerifier.verifyPersonal(registration, access, passwordEncoder);
         // 상향 결제는 로그인한 참가자만 상향 화면에서 진행한다.
-        if (packageUpgrades.findByRegistrationForUpdate(registrationId, PackageUpgradeStatus.PENDING).isPresent()) {
-            throw new CustomException(ErrorCode.PACKAGE_UPGRADE_LOGIN_REQUIRED);
-        }
+        upgradeGuard.rejectPendingPackageUpgrade(registrationId, ErrorCode.PACKAGE_UPGRADE_LOGIN_REQUIRED);
         return preparePaymentRetryOrder(original, locked, registration.getEvent());
     }
 

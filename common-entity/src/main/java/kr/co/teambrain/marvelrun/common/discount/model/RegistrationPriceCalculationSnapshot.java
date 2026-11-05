@@ -16,6 +16,7 @@ public record RegistrationPriceCalculationSnapshot(
     public enum Reason {
         REGISTRATION_CREATED,
         REGISTRATION_MODIFIED,
-        ADMIN_ADJUSTED
+        ADMIN_ADJUSTED,
+        PACKAGE_UPGRADED
     }
 }

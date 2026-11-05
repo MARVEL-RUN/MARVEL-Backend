@@ -11,18 +11,18 @@ import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationSta
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.upgrade.PackageUpgradeStatus;
-import kr.co.teambrain.marvelrun.user.event.command.repository.PackageUpgradeCommandRepository;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.domain.Reservation;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult.Order;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrganizationAccessRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationAccessRequest;
+import kr.co.teambrain.marvelrun.user.event.command.application.service.RegistrationModificationPaymentGuard;
 import kr.co.teambrain.marvelrun.user.event.command.application.support.OrganizationLockSupport;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationAccessVerifier;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels.*;
@@ -58,10 +58,11 @@ public class AdditionalPaymentPreparationService {
     private final PaymentConfirmationAllocationSupport confirmation;
     private final PaymentCreator creator;
     private final PaymentAllocationCreator allocationCreator;
-    private final PackageUpgradeCommandRepository packageUpgrades;
+    private final RegistrationModificationPaymentGuard upgradeGuard;
 
     /** 생년월일이 정정되었다면 정정 후 현재 값으로 본인확인한다. */
     public Order preparePersonal(String eventId, String registrationId, RegistrationAccessRequest access) {
+        LocalDateTime now = time.currentDateTime();
         lockEvent(eventId);
         List<Payment> locked = lockPayments(eventId, null, registrationId);
         Registration registration = current(Registration.class, registrationId);
@@ -70,24 +71,26 @@ public class AdditionalPaymentPreparationService {
         }
         RegistrationAccessVerifier.verifyPersonal(registration, access, passwordEncoder);
         // 상향 결제는 로그인한 참가자만 상향 화면에서 진행한다.
-        if (packageUpgrades.findByRegistrationForUpdate(registrationId, PackageUpgradeStatus.PENDING).isPresent()) {
-            throw new CustomException(ErrorCode.PACKAGE_UPGRADE_LOGIN_REQUIRED);
-        }
-        return prepareAdditionalPaymentOrder(locked, List.of(registration), null);
+        upgradeGuard.rejectPendingPackageUpgrade(registrationId, ErrorCode.PACKAGE_UPGRADE_LOGIN_REQUIRED);
+        return prepareAdditionalPaymentOrder(locked, List.of(registration), null, now, null);
     }
 
     /**
      * 상향 흐름 전용. 호출자가 대회 → 결제 → 신청 순으로 이미 잠갔다.
      * 공개 준비와 같은 규칙으로 부족액 주문을 만들거나, 같은 금액의 READY 주문을 재사용한다.
+     * 새 주문의 이름은 단품이 아니라 상향할 패키지 이름으로 짓는다.
      */
-    public Order prepareLockedPackageUpgrade(List<Payment> locked, Registration registration) {
+    public Order prepareLockedPackageUpgrade(List<Payment> locked, Registration registration,
+            EventCategory packageCategory, LocalDateTime now) {
         for (Payment payment : locked) { payment.validateRegistrationModificationAllowed(); }
         refunds.validate(locked);
-        return prepareAdditionalPaymentOrder(locked, List.of(registration), null);
+        String orderName = registration.getEvent().getNameKr() + " - " + packageCategory.getName();
+        return prepareAdditionalPaymentOrder(locked, List.of(registration), null, now, orderName);
     }
 
     /** 단체장은 확정된 구성원 중 추가 납부가 남은 인원들의 금액만 한 주문으로 납부한다. */
     public Order prepareOrganization(String eventId, String organizationId, OrganizationAccessRequest access) {
+        LocalDateTime now = time.currentDateTime();
         lockEvent(eventId);
         Organization organization = entityManager.find(Organization.class, organizationId);
         if (organization == null) { throw new CustomException(ErrorCode.ORGANIZATION_ACCESS_DENIED); }
@@ -108,7 +111,7 @@ public class AdditionalPaymentPreparationService {
             throw new CustomException(ErrorCode.PAYMENT_NOT_CONFIRMABLE, " 추가 결제 대상이 100명을 초과합니다. 관리자에게 문의해 주세요.");
         }
         for (Registration target : targets) { entityManager.refresh(target, LockModeType.PESSIMISTIC_WRITE); }
-        return prepareAdditionalPaymentOrder(locked, targets, organization);
+        return prepareAdditionalPaymentOrder(locked, targets, organization, now, null);
     }
 
     /** 진행 중 거래는 차단하고 잠금 현재값만 사용한다. */
@@ -125,13 +128,16 @@ public class AdditionalPaymentPreparationService {
         return locked;
     }
 
-    /** 같은 부족액의 READY 주문은 재사용한다. 다른 READY 주문이 있으면 임의 폐기하지 않는다. */
-    private Order prepareAdditionalPaymentOrder(List<Payment> locked, List<Registration> registrations, Organization organization) {
+    /**
+     * 같은 부족액의 READY 주문은 재사용한다. 다른 READY 주문이 있으면 임의 폐기하지 않는다.
+     * orderName이 null이면 개인 주문은 기존 이름(대회명 - 종목명)을 쓴다.
+     */
+    private Order prepareAdditionalPaymentOrder(List<Payment> locked, List<Registration> registrations,
+            Organization organization, LocalDateTime now, String orderName) {
         // 외부 결제 신청은 기존 주문 재사용과 신규 추가 결제 준비 모두 허용하지 않는다.
         registrations.forEach(Registration::validateOnlineRegistrationProcessingAllowed);
 
         if (registrations.isEmpty()) { throw new CustomException(ErrorCode.PAYMENT_NOT_CONFIRMABLE, " 추가 납부할 금액이 없습니다."); }
-        LocalDateTime now = time.currentDateTime();
         Event event = registrations.getFirst().getEvent();
         List<RegistrationActionPolicyInput> policies = actionPolicies.loadEnabledRegistrationActionPolicies(event.getId(), RegistrationActionType.PAYMENT);
         // 실제 추가결제 귀속 전체에 같은 대표 사유 우선순위를 적용한다.
@@ -172,7 +178,7 @@ public class AdditionalPaymentPreparationService {
         BigDecimal amount = due.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
         String correlationId = UUID.randomUUID().toString();
         Payment created = organization == null
-                ? creator.createAdditionalPayment(registrations.getFirst(), amount, correlationId)
+                ? creator.createAdditionalPayment(registrations.getFirst(), amount, correlationId, orderName)
                 : creator.createAdditionalPayment(organization, amount, correlationId);
         List<PaymentAllocationTarget> shares = registrations.stream()
                 .map(r -> new PaymentAllocationTarget(r, due.get(r.getId()), PaymentPurpose.ADDITIONAL_PAYMENT)).toList();
