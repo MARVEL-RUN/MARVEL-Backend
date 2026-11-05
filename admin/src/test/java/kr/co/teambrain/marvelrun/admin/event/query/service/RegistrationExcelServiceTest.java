@@ -6,12 +6,10 @@ import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Root;
-import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.RegistrationEntry;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationSearchCondition;
-import kr.co.teambrain.marvelrun.admin.event.query.repository.EventQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationEntryQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.SouvenirQueryRepository;
@@ -30,7 +28,6 @@ import org.springframework.mock.web.MockHttpServletResponse;
 
 import java.io.ByteArrayInputStream;
 import java.util.List;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -45,10 +42,9 @@ import static org.mockito.Mockito.when;
 class RegistrationExcelServiceTest {
 
     private final RegistrationQueryRepository repository = mock(RegistrationQueryRepository.class);
-    private final EventQueryRepository eventRepository = mock(EventQueryRepository.class);
     private final RegistrationEntryQueryRepository entryRepository = mock(RegistrationEntryQueryRepository.class);
     private final RegistrationExcelService service = new RegistrationExcelService(
-            repository, mock(SouvenirQueryRepository.class), eventRepository, entryRepository);
+            repository, mock(SouvenirQueryRepository.class), entryRepository);
 
     /** 선택 ID 유무에 따른 삭제 필터와 대회·검색·단체 조건 및 정렬 계약을 검증한다. */
     @ParameterizedTest
@@ -151,9 +147,7 @@ class RegistrationExcelServiceTest {
     @Test
     @SuppressWarnings("unchecked")
     void offlineKeepsTwentyEightColumnsWithoutEntryQuery() throws Exception {
-        Event event = mock(Event.class);
-        when(event.getEventFormat()).thenReturn(EventFormat.OFFLINE);
-        when(eventRepository.findById("event-1")).thenReturn(Optional.of(event));
+        when(repository.findEventFormatById("event-1")).thenReturn(EventFormat.OFFLINE);
         Registration registration = Registration.builder().id("r1").name("참가자").build();
         when(repository.findAll(any(Specification.class), any(Sort.class))).thenReturn(List.of(registration));
         MockHttpServletResponse response = new MockHttpServletResponse();
@@ -171,9 +165,7 @@ class RegistrationExcelServiceTest {
     @Test
     @SuppressWarnings("unchecked")
     void virtualAppendsBibAndEntryColumns() throws Exception {
-        Event event = mock(Event.class);
-        when(event.getEventFormat()).thenReturn(EventFormat.VIRTUAL);
-        when(eventRepository.findById("event-1")).thenReturn(Optional.of(event));
+        when(repository.findEventFormatById("event-1")).thenReturn(EventFormat.VIRTUAL);
         Registration registration = Registration.builder().id("r1").name("참가자").build();
         Registration single = Registration.builder().id("r2").name("단품").build();
         Registration empty = Registration.builder().id("r3").name("항목없음").build();

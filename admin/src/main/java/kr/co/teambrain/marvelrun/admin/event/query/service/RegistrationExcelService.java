@@ -4,11 +4,10 @@ import jakarta.persistence.criteria.JoinType;
 import jakarta.servlet.http.HttpServletResponse;
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
-import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.RegistrationEntry;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationSearchCondition;
-import kr.co.teambrain.marvelrun.admin.event.query.repository.EventQueryRepository;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualRosterModels;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationEntryQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.SouvenirQueryRepository;
@@ -44,14 +43,11 @@ public class RegistrationExcelService {
 
     private final RegistrationQueryRepository registrationQueryRepository;
     private final SouvenirQueryRepository souvenirQueryRepository;
-    private final EventQueryRepository eventQueryRepository;
     private final RegistrationEntryQueryRepository entryRepository;
 
     private static final int ENTRY_CHUNK_SIZE = 1000;
     /** 버추얼 대회에만 끝에 덧붙이는 열이다. */
     private static final String[] VIRTUAL_HEADERS = {"배번", "참가 항목"};
-    /** 종목명 앞에 붙은 "5km | " 같은 거리 접두어다. */
-    private static final Pattern DISTANCE_PREFIX = Pattern.compile("^\\s*\\d[\\d.,]*\\s*[A-Za-z]*\\s*\\|\\s*");
 
     private static final Pattern CONTROL_CHARACTERS =
             Pattern.compile("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]");
@@ -99,8 +95,7 @@ public class RegistrationExcelService {
         );
         Map<String, String> souvenirNames = loadSouvenirNames(registrations);
         // 버추얼 대회만 참가 항목을 읽는다. 대회가 없거나 형식이 비어 있으면 기존 오프라인 출력이다.
-        boolean virtual = eventQueryRepository.findById(condition.eventId())
-                .map(Event::getEventFormat).orElse(null) == EventFormat.VIRTUAL;
+        boolean virtual = registrationQueryRepository.findEventFormatById(condition.eventId()) == EventFormat.VIRTUAL;
         Map<String, List<RegistrationEntry>> entries = virtual ? loadEntries(registrations) : null;
         writeWorkbook(registrations, souvenirNames, entries, response);
     }
@@ -150,8 +145,7 @@ public class RegistrationExcelService {
     /** "종목명 이름"을 " | "로 잇는다. 종목명에서 거리 접두어는 뺀다. */
     private String entryText(List<RegistrationEntry> entries) {
         return entries.stream()
-                .map(entry -> DISTANCE_PREFIX.matcher(entry.getEventCategory().getName()).replaceFirst("")
-                        + " " + entry.getName())
+                .map(entry -> VirtualRosterModels.stripDistance(entry.getEventCategory().getName()) + " " + entry.getName())
                 .collect(Collectors.joining(" | "));
     }
 
