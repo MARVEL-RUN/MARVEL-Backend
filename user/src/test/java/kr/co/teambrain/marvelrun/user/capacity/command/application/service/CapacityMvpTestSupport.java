@@ -131,6 +131,8 @@ import static org.mockito.Mockito.*;
         AdditionalPaymentTargetResolver.class,
         kr.co.teambrain.marvelrun.user.event.command.application.service.PackageUpgradeApplier.class,
         kr.co.teambrain.marvelrun.user.event.command.application.service.PackageUpgradeCapacitySupport.class,
+        kr.co.teambrain.marvelrun.user.event.command.application.service.PackageUpgradePricing.class,
+        kr.co.teambrain.marvelrun.user.event.command.application.service.RegistrationModificationPaymentGuard.class,
         CapacityModificationService.class,
         ReservationCapacityDiffService.class
 })
