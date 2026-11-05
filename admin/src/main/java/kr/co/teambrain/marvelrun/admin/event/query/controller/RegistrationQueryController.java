@@ -8,6 +8,7 @@ import kr.co.teambrain.marvelrun.admin.event.query.service.RegistrationQueryServ
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import lombok.RequiredArgsConstructor;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -52,6 +53,9 @@ public class RegistrationQueryController {
             @RequestParam(required = false) String startGroupCode,
             @RequestParam(required = false) Boolean startGroupUnselected,
 
+            @Parameter(description = "발급된 배번과 정확히 일치하는 신청만 조회한다. 버추얼 대회에서 쓴다.")
+            @RequestParam(required = false) String bibNumber,
+
             @RequestParam(
                     defaultValue = "0"
             )
@@ -80,7 +84,7 @@ public class RegistrationQueryController {
                 type,
                 eventCategoryId,
                 status,
-                keyword, startGroupCode, startGroupUnselected, referenceFilterId
+                keyword, startGroupCode, startGroupUnselected, referenceFilterId, bibNumber
         );
 
         return ResponseEntity.ok(

@@ -9,6 +9,8 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import kr.co.teambrain.marvelrun.common.inheritance_enum.EventFormat;
+
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -17,6 +19,10 @@ public interface RegistrationQueryRepository extends JpaRepository<Registration,
 
     // 특정 단체의 유효한(softDeleted=false) 회원 수 카운트
     long countByOrganizationIdAndSoftDeletedFalse(String organizationId);
+
+    /** 대회 진행 방식만 읽는다. 대회가 없으면 null이다. */
+    @Query("select e.eventFormat from Event e where e.id = :eventId")
+    EventFormat findEventFormatById(@Param("eventId") String eventId);
 
     @EntityGraph(attributePaths = {"eventCategory"})
     List<Registration> findByOrganizationIdAndSoftDeletedFalse(String organizationId);

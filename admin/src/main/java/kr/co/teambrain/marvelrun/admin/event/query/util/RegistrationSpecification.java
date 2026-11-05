@@ -9,6 +9,7 @@ import jakarta.persistence.criteria.Predicate;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.RegistrationEntry;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationSearchCondition;
 import kr.co.teambrain.marvelrun.common.entity.OrganizationBase;
 import org.springframework.data.jpa.domain.Specification;
@@ -78,6 +79,19 @@ public class RegistrationSpecification {
                 groupIds.select(group.get("id"))
                         .where(cb.equal(group.get("code"), condition.startGroupCode()));
                 predicates.add(root.get("startGroupId").in(groupIds));
+            }
+            // 참가 항목의 발급 배번과 정확히 일치하는 신청만 찾는다. 키워드 검색에는 섞지 않는다.
+            if (StringUtils.hasText(condition.bibNumber())) {
+                Subquery<String> registrationIds = query.subquery(String.class);
+                Root<RegistrationEntry> entry = registrationIds.from(RegistrationEntry.class);
+                List<Predicate> entryPredicates = new ArrayList<>();
+                entryPredicates.add(cb.equal(entry.get("bibNumber"), condition.bibNumber().trim()));
+                if (StringUtils.hasText(condition.eventId())) {
+                    entryPredicates.add(cb.equal(entry.get("event").get("id"), condition.eventId()));
+                }
+                registrationIds.select(entry.get("registration").get("id"))
+                        .where(entryPredicates.toArray(new Predicate[0]));
+                predicates.add(root.get("id").in(registrationIds));
             }
             if (condition.startGroupUnselected() != null) {
                 predicates.add(cb.equal(root.get("startGroupUnselected"), condition.startGroupUnselected()));

@@ -16,6 +16,7 @@ import kr.co.teambrain.marvelrun.admin.event.query.report.RegistrationDailyRepor
 import kr.co.teambrain.marvelrun.admin.event.query.dto.PaymentDailyCountRow;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.PaymentDailyGraphResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationStatDto;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.EventFormat;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentMethod;
@@ -129,6 +130,54 @@ class RegistrationDailyReportServiceTest {
             assertThat(statistics.getEventStatistics("event").childStats().stream()
                     .filter(row -> row.classification().equals("입금자(합계)"))
                     .findFirst().orElseThrow().totalCount()).isEqualTo(expectedPaid);
+        }
+    }
+
+    /** 버추얼 대회는 아동 행·제목 없이 합계만 쓰고, 이상한 생년월일도 실패하지 않으며 합계는 오프라인 계산과 같다. */
+    @Test
+    void virtualEventWritesOnlyTotalRowsAndIgnoresBirth() throws IOException {
+        LocalDate opened = LocalDate.of(2026, 10, 5);
+        LocalDate endDate = LocalDate.of(2026, 10, 8);
+        Event event = reportEvent(opened);
+        when(event.getEventFormat()).thenReturn(EventFormat.VIRTUAL);
+        ServerTimeProvider time = mock(ServerTimeProvider.class);
+        when(time.currentDateTime()).thenReturn(LocalDateTime.of(2026, 10, 8, 12, 0));
+        EventCategoryQueryRepository categories = mock(EventCategoryQueryRepository.class);
+        EventCategory category = mock(EventCategory.class);
+        when(category.getName()).thenReturn("A");
+        when(categories.findAllByEvent_IdOrderByOrderDesc("event")).thenReturn(List.of(category));
+        RegistrationDailyReportQueryRepository repository = mock(RegistrationDailyReportQueryRepository.class);
+        BigDecimal amount = new BigDecimal("40000");
+        // 아동 기준일 이후, 형식이 틀린 값, 비어 있는 값이 섞여도 모두 센다.
+        when(repository.findReportRows("event", opened.atStartOfDay(), endDate.plusDays(1).atStartOfDay()))
+                .thenReturn(List.of(
+                        new RegistrationDailyReportRow(RegistrationStatus.CONFIRMED, "2014-01-01", "A",
+                                amount, opened.atTime(10, 0), opened.plusDays(1).atStartOfDay()),
+                        new RegistrationDailyReportRow(RegistrationStatus.CONFIRMED, "invalid", "A",
+                                amount, opened.atTime(11, 0), opened.plusDays(2).atStartOfDay()),
+                        new RegistrationDailyReportRow(RegistrationStatus.CONFIRMED, null, "A",
+                                amount, opened.atTime(12, 0), null)));
+        RegistrationDailyReportService service = new RegistrationDailyReportService(time, categories,
+                mock(EventCommandRepository.class), mock(RegistrationQueryRepository.class), repository);
+
+        SXSSFWorkbook workbook = service.getDailyPaymenterExcelReport(event, opened, endDate);
+        try (workbook) {
+            for (String sheetName : List.of("누계", "일자별")) {
+                Sheet sheet = workbook.getSheet(sheetName);
+                List<String> firstColumn = new java.util.ArrayList<>();
+                for (Row row : sheet) {
+                    if (row.getCell(0) != null) {
+                        firstColumn.add(row.getCell(0).getStringCellValue());
+                    }
+                }
+                assertThat(firstColumn).noneMatch(value -> value.contains("아동") || value.contains("일반"));
+                assertThat(firstColumn).contains("신청자(합계)", "입금자(합계)");
+            }
+            assertThat(totals(workbook.getSheet("누계"), "신청자(합계)")).containsExactly(3.0);
+            assertThat(totals(workbook.getSheet("누계"), "입금자(합계)")).containsExactly(2.0);
+            assertThat(totals(workbook.getSheet("일자별"), "입금자(합계)")).containsExactly(0.0, 1.0, 1.0, 0.0);
+        } finally {
+            workbook.dispose();
         }
     }
 
