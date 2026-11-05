@@ -22,6 +22,7 @@ import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.PackageUpgrade;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.RegistrationItem;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -66,18 +67,26 @@ public class PackageUpgradeCapacitySupport {
         return reservation;
     }
 
-    /** 신청을 패키지로 바꿨을 때 필요한 정원과 지금 예약 상세의 차이. */
+    /**
+     * 신청의 단품 줄 하나를 패키지로 바꿨을 때 필요한 정원과 지금 예약 상세의 차이.
+     * 상향은 구매 줄이 하나뿐인 단품 신청만 하므로 그 줄의 패키지 구성이 신청 전체의 필요량이다.
+     *
+     * @param participants 상향 뒤 참가 항목 수(패키지 하위 종목 수). 전체 정원을 이만큼 쓴다.
+     */
     public CapacityRequirementDiff packageDiff(
-            Registration registration,
+            RegistrationItem item,
             EventCategory packageCategory,
+            int participants,
             Reservation reservation
     ) {
+        Registration registration = item.getRegistration();
         String eventId = registration.getEvent().getId();
         CapacityRequirementInput input = CapacityRequirementInput.fromCandidate(
                 packageCategory.getId(),
                 registration.getBirth(),
                 registration.getEvent().getStartDate().toLocalDate(),
-                registration.getSouvenirJson() == null ? List.of() : registration.getSouvenirJson()
+                item.getSouvenirJson() == null ? List.of() : item.getSouvenirJson(),
+                participants
         );
         Map<String, Integer> requirements = requirementResolver.resolveAll(eventId, List.of(input)).get(0);
         return diffService.compareAll(List.of(reservation), Map.of(reservation.getId(), requirements)).get(0);

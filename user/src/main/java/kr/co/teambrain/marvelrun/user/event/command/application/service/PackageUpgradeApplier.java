@@ -20,8 +20,10 @@ import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCate
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.PackageUpgrade;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.RegistrationEntry;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.RegistrationItem;
 import kr.co.teambrain.marvelrun.user.event.command.repository.PackageUpgradeCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationEntryCommandRepository;
+import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationItemCommandRepository;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.PaymentAllocation;
 import lombok.RequiredArgsConstructor;
@@ -54,6 +56,7 @@ public class PackageUpgradeApplier {
     private final ReservationHistoryRecorder historyRecorder;
     private final PackageUpgradePricing pricing;
     private final RegistrationPriceCalculationRecorder priceCalculations;
+    private final RegistrationItemCommandRepository itemRepository;
 
     /**
      * 1차 트랜잭션: Toss 승인 전에 상향을 적용할 수 있는지 본다.
@@ -70,10 +73,12 @@ public class PackageUpgradeApplier {
                     || !Objects.equals(entries.get(0).getEventCategory().getId(), registration.getEventCategory().getId())) {
                 throw stateConflict(upgrade, " 상향 전 참가 항목이 단품 하나가 아닙니다. entryCount=" + entries.size());
             }
+            RegistrationItem item = singleItem(upgrade, registration);
 
             // 상향 대기 중 정원 연결이 바뀌었으면 승인 전에 막는다. 참가자는 상향을 취소하고 다시 요청한다.
             Reservation reservation = capacitySupport.lockConsumedReservation(registration);
-            CapacityRequirementDiff diff = capacitySupport.packageDiff(registration, upgrade.getTargetCategory(), reservation);
+            CapacityRequirementDiff diff = capacitySupport.packageDiff(
+                    item, upgrade.getTargetCategory(), participantsAfter(upgrade), reservation);
             if (!PackageUpgradeCapacitySupport.increases(diff).equals(PackageUpgradeCapacitySupport.heldQuantities(upgrade))) {
                 throw CustomException.withResponseMessage(ErrorCode.PACKAGE_UPGRADE_STATE_CONFLICT,
                         "상향을 기다리는 동안 패키지 구성이 바뀌었습니다. 상향을 취소한 뒤 다시 요청해주세요.");
@@ -100,19 +105,22 @@ public class PackageUpgradeApplier {
 
         String eventId = registration.getEvent().getId();
         EventCategory packageCategory = upgrade.getTargetCategory();
+        RegistrationItem item = singleItem(upgrade, registration);
 
         // 요청 때 잡아 둔 held를 그대로 확정으로 옮긴다. 새로 확보하지 않으므로 Toss 승인 뒤 정원 부족으로 실패하지 않는다.
-        // 원래 단품 CATEGORY처럼 줄어드는 행은 확정 수량에서 돌려준다.
+        // 원래 단품 CATEGORY처럼 줄어드는 행은 확정 수량에서 돌려준다. 전체 정원은 늘어난 사람 수만큼 더 쓴다.
         Reservation reservation = capacitySupport.lockConsumedReservation(registration);
-        CapacityRequirementDiff diff = capacitySupport.packageDiff(registration, packageCategory, reservation);
+        CapacityRequirementDiff diff = capacitySupport.packageDiff(
+                item, packageCategory, participantsAfter(upgrade), reservation);
         capacityModificationService.confirmPreheldReservationMove(
                 eventId, diff, PackageUpgradeCapacitySupport.heldQuantities(upgrade), now);
 
+        // 패키지 가격(정가 − 단품 결제금액 = 차액)의 근거를 패키지 기준 가격 계산으로 남긴다. 구매 줄도 패키지로 바꾼다.
+        DiscountModels.PriceResult packagePrice = pricing.calculate(registration, packageCategory);
         registration.applyPackageUpgrade(packageCategory);
+        item.applyPackageUpgrade(packageCategory, packagePrice.finalAmount());
         historyRecorder.completeReservationModificationSnapshot(reservation);
-        // 패키지 가격(정가 − 단품 결제금액 = 차액)의 근거를 패키지 기준 가격 계산으로 남긴다.
-        priceCalculations.recordRegistrationPriceCalculation(registration,
-                pricing.calculate(registration, packageCategory),
+        priceCalculations.recordRegistrationPriceCalculation(registration, packagePrice,
                 RegistrationPriceCalculationSnapshot.Reason.PACKAGE_UPGRADED);
 
         for (PackageUpgradeEntry added : upgrade.getAddedEntries()) {
@@ -120,7 +128,7 @@ public class PackageUpgradeApplier {
             if (component == null || !Objects.equals(component.getParentCategoryId(), packageCategory.getId())) {
                 throw stateConflict(upgrade, " 더할 참가 항목의 종목이 패키지 구성이 아닙니다.");
             }
-            entryRepository.save(RegistrationEntry.create(registration, new RegistrationEntryDraft(
+            entryRepository.save(RegistrationEntry.create(item, new RegistrationEntryDraft(
                     component, added.name(), added.phNum(), added.birth(), added.gender())));
         }
 
@@ -157,6 +165,21 @@ public class PackageUpgradeApplier {
         if (!valid) {
             throw stateConflict(upgrade, " 상향 결제를 적용할 신청 상태가 아닙니다.");
         }
+    }
+
+    /** 상향할 단품 구매 줄. 신청에 줄이 하나뿐이고 그 줄이 신청 종목(단품)이어야 한다. */
+    private RegistrationItem singleItem(PackageUpgrade upgrade, Registration registration) {
+        List<RegistrationItem> items = itemRepository.findByRegistration_IdOrderBySortOrderAsc(registration.getId());
+        if (items.size() != 1
+                || !Objects.equals(items.get(0).getEventCategory().getId(), registration.getEventCategory().getId())) {
+            throw stateConflict(upgrade, " 상향할 구매 줄이 단품 하나가 아닙니다. itemCount=" + items.size());
+        }
+        return items.get(0);
+    }
+
+    /** 상향 뒤 참가 항목 수. 지금 단품 항목 하나에 더할 항목을 더한다. */
+    private static int participantsAfter(PackageUpgrade upgrade) {
+        return upgrade.getAddedEntries().size() + 1;
     }
 
     private static CustomException stateConflict(PackageUpgrade upgrade, String diagnostic) {
