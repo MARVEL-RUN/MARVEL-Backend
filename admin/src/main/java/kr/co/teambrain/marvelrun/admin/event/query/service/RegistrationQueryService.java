@@ -20,6 +20,11 @@ import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationStatDto;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.response.EventStatisticsResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.response.LeaderInfoResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationDetailResponse;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.response.PackageUpgradeSummaryResponse;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationEntryResponse;
+import kr.co.teambrain.marvelrun.admin.event.command.repository.PackageUpgradeCommandRepository;
+import kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationEntryCommandRepository;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.upgrade.PackageUpgradeStatus;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationListResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.PaymentQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
@@ -56,6 +61,8 @@ public class RegistrationQueryService {
     private final PaymentQueryRepository paymentQueryRepository;
 
     private final SouvenirQueryRepository souvenirQueryRepository;
+    private final RegistrationEntryCommandRepository entryRepository;
+    private final PackageUpgradeCommandRepository packageUpgrades;
     private static final LocalDate CHILD_CUTOFF_DATE = LocalDate.of(2013, 11, 1);
 
     /** 현재 페이지의 그룹 코드를 일괄 조회하고 기존 정렬·건수를 유지한다. */
@@ -241,6 +248,10 @@ public class RegistrationQueryService {
                 ? payment.getPaymentMethod().name() : "-";
 
         return RegistrationDetailResponse.builder()
+                .entries(entryRepository.findByRegistration_Id(registration.getId()).stream()
+                        .map(RegistrationEntryResponse::from).toList())
+                .packageUpgrade(packageUpgrades.findAllByRegistrations(List.of(registration.getId()), PackageUpgradeStatus.PENDING)
+                        .stream().findFirst().map(PackageUpgradeSummaryResponse::from).orElse(null))
                 .referenceFilter(referenceFilters.loadReferenceFilterSummaries(Collections.singletonList(registration.getReferenceFilterId())).get(registration.getReferenceFilterId()))
                 .startGroupId(registration.getStartGroupId())
                 .startGroupCode(startGroupCode)
