@@ -1,8 +1,5 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.domain;
 
-import jakarta.persistence.AttributeOverride;
-import jakarta.persistence.AttributeOverrides;
-import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
@@ -19,10 +16,6 @@ import lombok.experimental.SuperBuilder;
 @Getter
 @Entity
 @SuperBuilder
-@AttributeOverrides({
-        @AttributeOverride(name = "bibNumber", column = @Column(name = "bib_number", length = 20, updatable = false)),
-        @AttributeOverride(name = "bibIssuedAt", column = @Column(name = "bib_issued_at", updatable = false))
-})
 @Table(
         name = "registration_entry",
         uniqueConstraints = {

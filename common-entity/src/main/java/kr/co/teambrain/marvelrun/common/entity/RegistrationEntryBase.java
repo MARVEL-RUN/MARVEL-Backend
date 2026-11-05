@@ -17,6 +17,7 @@ import java.time.LocalDateTime;
  * 단품은 그 종목과 신청자 값으로 1개, 패키지는 하위 종목마다 받는 사람 값으로 1개씩 둔다.
  * 배번·기록증 이름은 받는 사람 이름이다. 배송지는 신청 행의 주소 하나를 쓴다.
  * 신청이 삭제되면 항목도 함께 무효이므로 따로 삭제 표시를 두지 않는다.
+ * 배번은 관리자 발급(JDBC)만 쓴다. 엔티티 수정이 먼저 읽어 둔 빈 배번으로 되쓰지 않도록 두 배번 컬럼은 UPDATE에서 뺀다.
  *
  * @param <E> 대회 타입
  * @param <R> 신청 타입
@@ -62,10 +63,10 @@ public abstract class RegistrationEntryBase<
     @Enumerated(EnumType.STRING)
     protected GenderClass gender;
 
-    @Column(name = "bib_number", length = 20)
+    @Column(name = "bib_number", length = 20, updatable = false)
     protected String bibNumber;
 
-    @Column(name = "bib_issued_at")
+    @Column(name = "bib_issued_at", updatable = false)
     protected LocalDateTime bibIssuedAt;
 
     @CreationTimestamp
