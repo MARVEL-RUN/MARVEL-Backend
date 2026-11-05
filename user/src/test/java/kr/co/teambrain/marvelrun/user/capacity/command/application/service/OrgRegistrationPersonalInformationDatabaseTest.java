@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.user.capacity.command.application.service;
 
+import kr.co.teambrain.marvelrun.user.event.command.application.service.RegistrationProductModificationService;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.concurrent.*;
@@ -47,7 +48,7 @@ import static org.mockito.Mockito.*;
         OrgRegistrationPersonalInformationService.class, OrgRegistrationModificationGuard.class,
         RegistrationModificationPaymentGuard.class, RegistrationModificationPricingService.class,
         RegistrationPersonalModificationService.class, OrgRegistrationModificationService.class,
-        RegistrationModificationSettlementService.class, RegistrationModificationTransactionService.class,
+        RegistrationModificationSettlementService.class, RegistrationModificationTransactionService.class, RegistrationProductModificationService.class,
         ReservationCapacityDiffService.class, CapacityModificationService.class, ReservationRemovalService.class,
         AdditionalPaymentTargetResolver.class,
         ValidationAutoConfiguration.class})

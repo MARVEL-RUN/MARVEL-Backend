@@ -66,11 +66,7 @@ public class RegistrationPolicyLoader {
             Set<String> mappingIds
     ) {
         EventRegistrationPolicy eventPolicy =
-                eventRegistrationPolicyRepository
-                        .findByEventId(eventId)
-                        .orElseThrow(
-                                this::configurationError
-                        );
+                loadEventPolicy(eventId);
 
         Map<String, EventCategoryRegistrationPolicy> categoryPolicies =
                 loadCategoryPolicies(
@@ -92,12 +88,29 @@ public class RegistrationPolicyLoader {
     }
 
     /**
+     * 대회 정책만 조회한다. 대회 정책 행은 반드시 존재해야 한다.
+     *
+     * 종목 선택 전에 대회 단위 정책(단체 신청 허용)을 먼저 볼 때 쓴다.
+     */
+    public EventRegistrationPolicy loadEventPolicy(
+            String eventId
+    ) {
+        return eventRegistrationPolicyRepository
+                .findByEventId(eventId)
+                .orElseThrow(
+                        this::configurationError
+                );
+    }
+
+    /**
      * 요청에 포함된 종목의 정책을 한 번에 조회한다.
      *
      * 출생일 제한이 없는 종목도 정책 행은 존재해야 한다.
      * 제한 없음은 정책 행의 허용 출생일 범위 값으로 표현한다.
+     *
+     * 패키지 하위 종목처럼 선택 종목 밖의 종목 정책이 필요할 때도 이 메서드로 읽는다.
      */
-    private Map<String, EventCategoryRegistrationPolicy> loadCategoryPolicies(
+    public Map<String, EventCategoryRegistrationPolicy> loadCategoryPolicies(
             String eventId,
             Set<String> categoryIds
     ) {

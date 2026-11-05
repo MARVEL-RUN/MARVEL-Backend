@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.user.capacity.command.application.service;
 
+import kr.co.teambrain.marvelrun.user.event.command.application.service.RegistrationProductModificationService;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
 
 import java.math.BigDecimal;
@@ -73,7 +74,7 @@ import static org.mockito.Mockito.*;
         RegistrationPersonalInformationService.class,
         RegistrationPersonalInformationValidator.class,
         RegistrationUniqueInfoValidator.class,
-        RegistrationModificationTransactionService.class,
+        RegistrationModificationTransactionService.class, RegistrationProductModificationService.class,
         ValidationAutoConfiguration.class
 })
 class RegistrationModificationDatabaseTest

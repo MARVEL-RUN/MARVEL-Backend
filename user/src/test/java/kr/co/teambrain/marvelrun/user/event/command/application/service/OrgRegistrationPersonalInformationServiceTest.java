@@ -61,7 +61,8 @@ class OrgRegistrationPersonalInformationServiceTest {
             mock(RegistrationPersonalInformationValidator.class), new RegistrationModificationClassifier(),
             mock(RegistrationPersonalInformationService.class), access, validator,
             new OrgRegistrationPersonalInformationService(new OrgRegistrationModificationGuard(entityManager, repository, access),
-                    validator, repository), mock(RegistrationActionPolicyService.class));
+                    validator, repository), mock(RegistrationActionPolicyService.class),
+            mock(RegistrationProductModificationService.class));
     private Organization organization;
     private List<Registration> members;
 

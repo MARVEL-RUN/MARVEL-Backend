@@ -12,6 +12,9 @@ public record RegistrationCreateContext(
 
         EventCategory eventCategory,
 
-        List<SouvenirJson> souvenirJsons
+        List<SouvenirJson> souvenirJsons,
+
+        /** 저장할 참가 항목. 참가 항목이 없는 상품이면 빈 목록 */
+        List<RegistrationEntryDraft> entries
 ) {
 }

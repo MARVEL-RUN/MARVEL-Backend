@@ -67,6 +67,13 @@ public class OrgRegistrationApplyValidator
                 now
         );
 
+        // 대회 정책이 단체 신청을 막으면 종목·참가자 검증 전에 거절한다.
+        registrationPolicyValidator.validateOrganizationRegistrationEnabled(
+                registrationPolicyLoader.loadEventPolicy(
+                        event.getId()
+                )
+        );
+
         // 참가자의 미래 생년월일 검증에 계속 사용
         LocalDate applicationDate =
                 now.toLocalDate();
@@ -114,6 +121,10 @@ public class OrgRegistrationApplyValidator
                         event,
                         requestedSouvenirIdsByCategory
                 );
+
+        validateOrganizationCategories(
+                selections
+        );
 
         RegistrationPolicyContext policies =
                 loadPolicies(

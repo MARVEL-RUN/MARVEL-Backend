@@ -41,6 +41,7 @@ public class RegistrationCommandService {
     private final RegistrationCommandRepository registrationCommandRepository;
     private final AdminUnpaidRegistrationCancellationService unpaidCancellation;
     private final RegistrationStartGroupResolver startGroups;
+    private final RegistrationApplicantEntrySyncService applicantEntries;
 
     /**
      * 개인 신청 비밀번호를 해시로 변환하여 초기화한다.
@@ -127,6 +128,7 @@ public class RegistrationCommandService {
                 request.guardianRelationship(),
                 LocalDateTime.now()
         );
+        applicantEntries.syncApplicantEntry(registration);
     }
 
     /** 미결제 취소의 금융 잠금·주문 무효화·자원 반환을 하나의 트랜잭션으로 위임한다. */

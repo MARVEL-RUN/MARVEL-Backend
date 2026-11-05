@@ -17,6 +17,12 @@ public enum ErrorCode {
     REGISTRATION_DISCOUNT_LINK_UNAVAILABLE(HttpStatus.BAD_REQUEST, "현재 신청에 사용할 수 없는 할인 링크입니다. 안내를 확인한 후 대회 메인에서 일반 접수를 진행해주세요."),
     INVALID_START_GROUP_SELECTION(HttpStatus.BAD_REQUEST, "해당 종목에서 선택할 수 있는 그룹을 지정해주세요."),
     START_GROUP_CONFIGURATION_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "종목의 출발 그룹 설정을 확인해주세요."),
+    REGISTRATION_ADDRESS_REQUIRED(HttpStatus.BAD_REQUEST, "배송받을 주소를 입력해주세요."),
+    INVALID_REGISTRATION_ENTRIES(HttpStatus.BAD_REQUEST, "종목별 받는 사람 정보를 확인해주세요."),
+    PRODUCT_NOT_PURCHASABLE_ALONE(HttpStatus.BAD_REQUEST, "단독으로 구매할 수 없는 상품입니다."),
+    ORGANIZATION_REGISTRATION_DISABLED(HttpStatus.BAD_REQUEST, "이 대회는 단체 신청을 받지 않습니다."),
+    ORGANIZATION_PRODUCT_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "이 상품은 단체 신청으로 구매할 수 없습니다."),
+    REGISTRATION_PRODUCT_CHANGE_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "이 상품은 종목을 바꿀 수 없습니다. 취소한 뒤 다시 신청해주세요."),
 
     EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED(
             HttpStatus.CONFLICT,

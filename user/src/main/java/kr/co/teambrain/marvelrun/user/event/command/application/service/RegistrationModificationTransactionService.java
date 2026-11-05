@@ -50,6 +50,7 @@ public class RegistrationModificationTransactionService {
     private final OrgRegistrationPersonalInformationValidator organizationInformationValidator;
     private final OrgRegistrationPersonalInformationService organizationInformationService;
     private final RegistrationActionPolicyService actionPolicies;
+    private final RegistrationProductModificationService productModifications;
 
     /**
      * 개인 신청을 잠금용 부가 조회 전에 분류하고 전체 수정에만 금융 상태 처리를 연결한다.
@@ -78,8 +79,15 @@ public class RegistrationModificationTransactionService {
                         List.of(RegistrationActionType.MODIFY, RegistrationActionType.PAYMENT, RegistrationActionType.REFUND))
                 : actionPolicies.loadEnabledRegistrationActionPolicies(eventId, RegistrationActionType.MODIFY);
         actionPolicies.validateRegistrationActionPolicy(access.event(), access.registration(), Action.MODIFY, now, policies);
+        // 주소 필수 정책과 상품 종목 변경 제한은 수정 종류와 관계없이 보되, 상태·기간·외부 결제 검증 뒤에 본다.
+        productModifications.validate(access.registration(), request);
         if (change != RegistrationModificationClassifier.Change.FULL) {
-            return informationService.modify(access, change);
+            RegistrationModificationSettlementResult modified = informationService.modify(access, change);
+            // 변경 없음은 신청자 값이 그대로라 맞출 것이 없다. version도 올리지 않으므로 항목을 만들면 동시 요청이 겹친다.
+            if (change != RegistrationModificationClassifier.Change.NONE) {
+                productModifications.syncApplicantEntry(access.registration(), request);
+            }
+            return modified;
         }
 
         RegistrationPersonalModificationResult result =
@@ -90,6 +98,7 @@ public class RegistrationModificationTransactionService {
                         now,
                         access.registration().getVersion()
                 );
+        productModifications.syncApplicantEntry(access.registration(), request);
 
         return settlementService.settleRegistrationModification(
                 eventId,

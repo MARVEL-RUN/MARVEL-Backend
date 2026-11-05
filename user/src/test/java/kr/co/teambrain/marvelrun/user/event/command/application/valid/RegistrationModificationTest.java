@@ -59,6 +59,7 @@ class RegistrationModificationTest {
     private Event event;
     private EventCategory category;
     private EventCategoryRegistrationPolicy categoryPolicy;
+    private EventRegistrationPolicy eventPolicy;
 
     private RegistrationApplyValidator personalCreate;
     private OrgRegistrationApplyValidator groupCreate;
@@ -111,12 +112,14 @@ class RegistrationModificationTest {
         when(mappings.findAllMappingsByCategoryId(CATEGORY_ID))
                 .thenReturn(List.of(mapping));
 
-        EventRegistrationPolicy eventPolicy =
+        eventPolicy =
                 mock(EventRegistrationPolicy.class);
 
         when(eventPolicy.getEvent()).thenReturn(event);
         when(eventPolicy.getGuardianRequiredBirthFrom())
                 .thenReturn(LocalDate.of(2012, 11, 2));
+        when(eventPolicy.getAddressRequired()).thenReturn(false);
+        when(eventPolicy.getOrganizationRegistrationEnabled()).thenReturn(true);
 
         when(categoryPolicy.getEventCategory()).thenReturn(category);
 
@@ -143,9 +146,11 @@ class RegistrationModificationTest {
         RegistrationPolicyValidator policyValidator =
                 new RegistrationPolicyValidator();
 
+        when(loader.loadEventPolicy(EVENT_ID)).thenReturn(eventPolicy);
+
         personalCreate = new RegistrationApplyValidator(
                 registrations, events, categories, mappings,
-                loader, policyValidator
+                loader, policyValidator, new RegistrationEntryValidator(policyValidator)
         );
 
         groupCreate = new OrgRegistrationApplyValidator(
@@ -622,6 +627,152 @@ class RegistrationModificationTest {
         verify(registrations, never()).existsByEventIdAndUniqueInfo(
                 EVENT_ID, "뒤참가자", PHONE, "1990-01-01"
         );
+    }
+
+    /**
+     * 대회 정책이 주소를 필수로 두면 주소 없는 개인 신청을 거절한다.
+     */
+    @Test
+    void personalCreationRequiresAddressWhenPolicyRequiresIt() {
+        when(eventPolicy.getAddressRequired()).thenReturn(true);
+        var request = personalRequest("1990-01-01", "M", null, false);
+        RegistrationCreateRequest withoutAddress = new RegistrationCreateRequest(request.eventCategoryId(),
+                request.selectedSouvenirList(), "password", request.name(), request.phNum(), request.birth(),
+                request.gender(), " ", null, null, null, null, null, true, false, false, null, "group", false);
+
+        expectError(
+                ErrorCode.REGISTRATION_ADDRESS_REQUIRED,
+                () -> personalCreate.validate(EVENT_ID, withoutAddress, NOW)
+        );
+        assertThatCode(() -> personalCreate.validate(EVENT_ID, creationRequest(request), NOW))
+                .doesNotThrowAnyException();
+    }
+
+    /**
+     * 상품 종류가 없는 기존 종목은 참가 항목을 만들지 않는다.
+     */
+    @Test
+    void personalCreationWithoutProductTypeCreatesNoEntries() {
+        var created = personalCreate.validate(
+                EVENT_ID,
+                creationRequest(personalRequest("1990-01-01", "M", null, false)),
+                NOW
+        );
+
+        assertThat(created.entries()).isEmpty();
+        verify(categories, never()).findByEvent_IdAndParentCategoryIdOrderByOrderAscIdAsc(any(), any());
+    }
+
+    /**
+     * 패키지는 parent_category_id로 패키지를 가리키는 하위 종목으로 받는 사람을 검사한다.
+     */
+    @Test
+    void personalCreationOfPackageUsesChildCategories() {
+        when(category.getProductType()).thenReturn(kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType.PACKAGE);
+        EventCategory single = mock(EventCategory.class);
+        when(single.getId()).thenReturn("avengers");
+        when(single.getProductType()).thenReturn(kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType.SINGLE);
+        when(single.getParentCategoryId()).thenReturn(CATEGORY_ID);
+        when(single.getIsActive()).thenReturn(false);
+        when(categories.findByEvent_IdAndParentCategoryIdOrderByOrderAscIdAsc(EVENT_ID, CATEGORY_ID))
+                .thenReturn(List.of(single));
+        EventCategoryRegistrationPolicy singlePolicy = mock(EventCategoryRegistrationPolicy.class);
+        when(singlePolicy.getEventCategory()).thenReturn(single);
+        when(loader.loadCategoryPolicies(EVENT_ID, Set.of("avengers")))
+                .thenReturn(Map.of("avengers", singlePolicy));
+        var request = personalRequest("1990-01-01", "M", null, false);
+        RegistrationCreateRequest packageRequest = new RegistrationCreateRequest(request.eventCategoryId(),
+                request.selectedSouvenirList(), "password", request.name(), request.phNum(), request.birth(),
+                request.gender(), "주소", null, null, null, null, null, true, false, false, null, "group", false,
+                null, List.of(new RegistrationEntryRequest("avengers", "받는사람", PHONE, "1991-02-03", GenderClass.F)));
+
+        var created = personalCreate.validate(EVENT_ID, packageRequest, NOW);
+
+        assertThat(created.entries()).extracting(entry -> entry.eventCategory().getId() + ":" + entry.name())
+                .containsExactly("avengers:받는사람");
+    }
+
+    /**
+     * 단체 신청을 허용해도 참가 항목을 만드는 상품은 단체로 살 수 없다.
+     */
+    @Test
+    void organizationCreationRejectsProductCategories() {
+        when(category.getProductType()).thenReturn(kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType.SINGLE);
+
+        expectError(
+                ErrorCode.ORGANIZATION_PRODUCT_NOT_ALLOWED,
+                () -> groupCreate.validate(EVENT_ID, organizationCreation(), NOW)
+        );
+    }
+
+    /**
+     * 대회 정책이 단체 신청을 막으면 단체 신청을 거절한다.
+     */
+    @Test
+    void organizationCreationRejectedWhenPolicyDisablesIt() {
+        when(eventPolicy.getOrganizationRegistrationEnabled()).thenReturn(false);
+        OrgRegistrationCreateRequest request = organizationCreation();
+
+        expectError(
+                ErrorCode.ORGANIZATION_REGISTRATION_DISABLED,
+                () -> groupCreate.validate(EVENT_ID, request, NOW)
+        );
+    }
+
+    /**
+     * 단체 신청을 막은 대회는 종목·기념품을 읽기 전에 거절한다.
+     */
+    @Test
+    void organizationCreationDisabledBeforeSelectionLookup() {
+        when(eventPolicy.getOrganizationRegistrationEnabled()).thenReturn(false);
+        OrgRegistrationCreateRequest request = organizationCreation();
+
+        expectError(
+                ErrorCode.ORGANIZATION_REGISTRATION_DISABLED,
+                () -> groupCreate.validate(EVENT_ID, request, NOW)
+        );
+        verify(mappings, never()).findAllMappingsByCategoryId(any());
+        verify(loader, never()).load(any(), any(), any());
+    }
+
+    /**
+     * 단체 수정으로도 상품 종목에 구성원을 더하거나 옮길 수 없다.
+     */
+    @Test
+    void organizationModificationRejectsProductCategories() {
+        when(category.getProductType()).thenReturn(kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType.SINGLE);
+
+        expectError(
+                ErrorCode.ORGANIZATION_PRODUCT_NOT_ALLOWED,
+                () -> groupModify.validateOrganizationModificationCandidates(
+                        groupContext(
+                                organization("1990-01-01", true),
+                                List.of(),
+                                List.of(participant(
+                                        null, "신규", "1990-01-01", "M"
+                                ))
+                        )
+                )
+        );
+    }
+
+    private OrgRegistrationCreateRequest organizationCreation() {
+        return
+                new OrgRegistrationCreateRequest(
+                        new OrgAccountRequest("단체", "group-login", "password"),
+                        new OrgProfileRequest(
+                                "주소", "상세", LocalDate.of(1980, 1, 1),
+                                PHONE, "test@example.com", "단체장", true
+                        ),
+                        List.of(
+                                new OrgRegistrationParticipantRequest(
+                                        CATEGORY_ID,
+                                        souvenirs("M"),
+                                        "참가자", PHONE,
+                                        "1990-01-01", GenderClass.M, "group", false)
+                        ),
+                        true, false, false
+                );
     }
 
     /**

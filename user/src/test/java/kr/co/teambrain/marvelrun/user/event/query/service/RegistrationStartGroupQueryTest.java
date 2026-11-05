@@ -14,7 +14,14 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.EventFormat;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventStatus;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType;
+import kr.co.teambrain.marvelrun.user.discount.repository.DiscountLinkRepository;
+import kr.co.teambrain.marvelrun.user.discount.repository.DiscountPolicyRepository;
+import kr.co.teambrain.marvelrun.user.discount.service.DiscountPolicyResolver;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.policy.EventRegistrationPolicy;
+import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategoryCommandRepository;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
@@ -24,6 +31,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCate
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrganizationAccessRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationAccessRequest;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategoryStartGroupRepository;
+import kr.co.teambrain.marvelrun.user.event.command.repository.EventRegistrationPolicyRepository;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyEvaluator;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
@@ -49,6 +57,7 @@ import static org.mockito.Mockito.*;
 class RegistrationStartGroupQueryTest {
     private final LocalDateTime now = LocalDateTime.of(2026, 10, 14, 12, 0);
     private final EventCategoryStartGroupRepository groups = mock(EventCategoryStartGroupRepository.class);
+    private final EventRegistrationPolicyRepository registrationPolicies = mock(EventRegistrationPolicyRepository.class);
     private final RegistrationQueryRepository registrations = mock(RegistrationQueryRepository.class);
     private final RegistrationActionPolicyService policies = mock(RegistrationActionPolicyService.class);
     private final ServerTimeProvider time = mock(ServerTimeProvider.class);
@@ -78,7 +87,7 @@ class RegistrationStartGroupQueryTest {
 
         // 대회 접수 제한과 무관하게 선택지를 반환하며 내부 경계값을 노출하지 않는다.
         RegistrationOptionResponse response = new EventQueryService(pricingQuery(), events, options,
-                new RegistrationOptionResponseAssembler(), policies, time, groups).getRegistrationOptions("event");
+                new RegistrationOptionResponseAssembler(), policies, time, groups, registrationPolicies).getRegistrationOptions("event");
         assertThat(response.registrationAllowed()).isFalse();
         assertThat(response.categories()).extracting(RegistrationOptionResponse.EventCategoryOption::categoryId)
                 .containsExactly("c2", "c1");
@@ -92,6 +101,65 @@ class RegistrationStartGroupQueryTest {
         verifyNoMoreInteractions(groups);
     }
 
+    /** 대회 형식·신청 정책값·상품 종류와 상위 패키지를 내리고 가격 안내를 붙인 뒤에도 유지한다. */
+    @Test
+    void optionsExposeEventSettingsAndProductFieldsThroughPricing() {
+        EventQueryRepository events = mock(EventQueryRepository.class);
+        EventCategorySouvenirQueryRepository options = mock(EventCategorySouvenirQueryRepository.class);
+        Event storedEvent = mock(Event.class);
+        when(storedEvent.getEventFormat()).thenReturn(EventFormat.VIRTUAL);
+        when(events.findById("event")).thenReturn(Optional.of(storedEvent));
+        when(time.currentDateTime()).thenReturn(now);
+        when(policies.evaluateNewRegistrationPolicy(storedEvent, now))
+                .thenReturn(new RegistrationActionPolicyModels.Decision(null));
+        RegistrationOptionProjection single = option("single", "kit");
+        when(single.getEventCategoryProductType()).thenReturn(ProductType.SINGLE);
+        when(single.getEventCategoryParentCategoryId()).thenReturn("package");
+        RegistrationOptionProjection bundle = option("package", "kit");
+        when(bundle.getEventCategoryProductType()).thenReturn(ProductType.PACKAGE);
+        when(options.findRegistrationOptionsProjectionByEventId("event")).thenReturn(List.of(single, bundle));
+        EventRegistrationPolicy policy = mock(EventRegistrationPolicy.class);
+        when(policy.getAddressRequired()).thenReturn(true);
+        when(policy.getOrganizationRegistrationEnabled()).thenReturn(false);
+        when(registrationPolicies.findByEventId("event")).thenReturn(Optional.of(policy));
+        DiscountPolicyResolver resolver = mock(DiscountPolicyResolver.class);
+        when(resolver.resolveEventPolicies("event")).thenReturn(List.of());
+        DiscountQueryService pricing = new DiscountQueryService(resolver, mock(DiscountLinkRepository.class),
+                mock(DiscountPolicyRepository.class), mock(EventCategoryCommandRepository.class), time);
+
+        RegistrationOptionResponse response = new EventQueryService(pricing, events, options,
+                new RegistrationOptionResponseAssembler(), policies, time, groups, registrationPolicies)
+                .getRegistrationOptions("event");
+
+        assertThat(response.eventFormat()).isEqualTo(EventFormat.VIRTUAL);
+        assertThat(response.addressRequired()).isTrue();
+        assertThat(response.organizationRegistrationEnabled()).isFalse();
+        assertThat(response.categories()).extracting(RegistrationOptionResponse.EventCategoryOption::productType,
+                RegistrationOptionResponse.EventCategoryOption::parentCategoryId)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(ProductType.SINGLE, "package"),
+                        org.assertj.core.groups.Tuple.tuple(ProductType.PACKAGE, null));
+        assertThat(response.categories()).allSatisfy(category -> assertThat(category.pricing()).isNotNull());
+    }
+
+    /** 정책 행이 없고 대회 형식이 비어 있으면 기존 대회와 같은 기본값으로 응답한다. */
+    @Test
+    void optionsUseDefaultsWithoutPolicyRow() {
+        EventQueryRepository events = mock(EventQueryRepository.class);
+        EventCategorySouvenirQueryRepository options = mock(EventCategorySouvenirQueryRepository.class);
+        Event storedEvent = mock(Event.class);
+        when(events.findById("event")).thenReturn(Optional.of(storedEvent));
+        when(policies.evaluateNewRegistrationPolicy(eq(storedEvent), any()))
+                .thenReturn(new RegistrationActionPolicyModels.Decision(null));
+
+        RegistrationOptionResponse response = new EventQueryService(pricingQuery(), events, options,
+                new RegistrationOptionResponseAssembler(), policies, time, groups, registrationPolicies)
+                .getRegistrationOptions("event");
+
+        assertThat(response.eventFormat()).isEqualTo(EventFormat.OFFLINE);
+        assertThat(response.addressRequired()).isFalse();
+        assertThat(response.organizationRegistrationEnabled()).isTrue();
+    }
+
     /** 빈 종목 목록에서는 불필요한 IN 조회를 수행하지 않는다. */
     @Test
     void optionsSkipGroupReadWhenCategoriesAreEmpty() {
@@ -102,7 +170,7 @@ class RegistrationStartGroupQueryTest {
         when(policies.evaluateNewRegistrationPolicy(eq(storedEvent), any()))
                 .thenReturn(new RegistrationActionPolicyModels.Decision(null));
 
-        assertThat(new EventQueryService(pricingQuery(), events, options, new RegistrationOptionResponseAssembler(), policies, time, groups)
+        assertThat(new EventQueryService(pricingQuery(), events, options, new RegistrationOptionResponseAssembler(), policies, time, groups, registrationPolicies)
                 .getRegistrationOptions("event").categories()).isEmpty();
         verifyNoInteractions(groups);
     }

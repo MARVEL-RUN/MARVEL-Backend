@@ -63,12 +63,15 @@ class RegistrationPersonalInformationServiceTest {
             INPUTS.getValidator(), new RegistrationInformationPolicyValidator(), new RegistrationUniqueInfoValidator(repository),
             guardianPolicies, new RegistrationPolicyValidator());
     private final RegistrationStartGroupResolver startGroups = mock(RegistrationStartGroupResolver.class);
+    private final RegistrationActionPolicyService actionPolicies = mock(RegistrationActionPolicyService.class);
+    private final RegistrationProductModificationService productModifications = mock(RegistrationProductModificationService.class);
     private final RegistrationModificationTransactionService commands = new RegistrationModificationTransactionService(
             startGroups,
             full, organization, settlement, time, new RegistrationModificationAccessValidator(passwordEncoder, repository), validator,
             new RegistrationModificationClassifier(), new RegistrationPersonalInformationService(validator, repository, entityManager),
             mock(OrgRegistrationModificationAccessValidator.class), mock(OrgRegistrationPersonalInformationValidator.class),
-            mock(OrgRegistrationPersonalInformationService.class), mock(RegistrationActionPolicyService.class));
+            mock(OrgRegistrationPersonalInformationService.class), actionPolicies,
+            productModifications);
 
     /** 기존 분기 검증에는 그룹 확정 결과를 전달한다. */
     @BeforeEach
@@ -100,6 +103,7 @@ class RegistrationPersonalInformationServiceTest {
         assertThat(result.members().getFirst().balance()).isEqualByComparingTo("5000");
         verify(repository).flush();
         verifyNoInteractions(full, organization, settlement, entityManager, guardianPolicies);
+        verify(productModifications).syncApplicantEntry(eq(current), any());
     }
 
     /** 변경 없음은 flush나 정산 없이 낙관적 읽기 보호만 등록한다. */
@@ -111,6 +115,8 @@ class RegistrationPersonalInformationServiceTest {
         verify(repository, never()).flush();
         verify(entityManager).lock(any(Registration.class), eq(LockModeType.OPTIMISTIC));
         verifyNoInteractions(full, organization, settlement);
+        // 변경 없음은 단품 참가 항목을 맞추거나 만들지 않는다(동시 요청의 항목 중복 생성 방지).
+        verify(productModifications, never()).syncApplicantEntry(any(), any());
     }
 
     /** 전체 수정은 최초 비교 version을 전달하고 기존 후속 정산으로 연결한다. */
@@ -146,6 +152,17 @@ class RegistrationPersonalInformationServiceTest {
         expect(ErrorCode.EVENT_REGISTRATION_CLOSED, request("새 이름", "c", "1990-01-01"));
         fixture(RegistrationStatus.CONFIRMED, NOW.minusDays(1), NOW.plusDays(1), EventStatus.CLOSED);
         expect(ErrorCode.EVENT_NOT_OPEN, request("새 이름", "c", "1990-01-01"));
+    }
+
+    /** 차수 마감·외부 결제 같은 수정 정책 오류는 주소 필수·상품 종목 검사보다 먼저 나간다. */
+    @Test
+    void actionPolicyErrorPrecedesProductValidation() {
+        fixture(RegistrationStatus.CONFIRMED, NOW.minusDays(1), NOW.plusDays(1), EventStatus.OPEN);
+        doThrow(new CustomException(ErrorCode.REGISTRATION_MODIFICATION_POLICY_BLOCKED)).when(actionPolicies)
+                .validateRegistrationActionPolicy(any(), any(), any(), any(), anyList());
+
+        expect(ErrorCode.REGISTRATION_MODIFICATION_POLICY_BLOCKED, request("새 이름", "c", "1990-01-01"));
+        verifyNoInteractions(productModifications);
     }
 
     /** 시작 정각은 기존 정책과 동일하게 허용한다. */

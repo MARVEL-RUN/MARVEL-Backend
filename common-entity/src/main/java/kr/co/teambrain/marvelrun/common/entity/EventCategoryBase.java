@@ -1,6 +1,7 @@
 package kr.co.teambrain.marvelrun.common.entity;
 
 import jakarta.persistence.*;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
 
@@ -37,5 +38,14 @@ public abstract class EventCategoryBase<E extends EventBase> {
 
     @Column(name = "is_active", nullable = false)
     protected Boolean isActive;
+
+    /** 참가 항목 구성을 정하는 상품 종류. NULL이면 참가 항목을 만들지 않는다. */
+    @Column(name = "product_type", length = 20)
+    @Enumerated(EnumType.STRING)
+    protected ProductType productType;
+
+    /** 이 종목을 구성 종목으로 포함하는 패키지 종목 ID. 패키지 구성은 이 자기참조로 관리한다. */
+    @Column(name = "parent_category_id", length = 40)
+    protected String parentCategoryId;
 
 }

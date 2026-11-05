@@ -9,4 +9,7 @@ public interface EventCategoryCommandRepository
         extends JpaRepository<EventCategory, String> {
     /** 외적 할인 안내에 필요한 대회의 종목을 일괄 조회한다. */
     List<EventCategory> findByEvent_Id(String eventId);
+
+    /** 패키지 종목을 parent_category_id로 가리키는 하위 종목을 조회한다. */
+    List<EventCategory> findByEvent_IdAndParentCategoryIdOrderByOrderAscIdAsc(String eventId, String parentCategoryId);
 }

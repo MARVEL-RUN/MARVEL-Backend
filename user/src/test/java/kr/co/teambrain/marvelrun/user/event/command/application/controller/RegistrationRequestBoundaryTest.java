@@ -180,6 +180,23 @@ class RegistrationRequestBoundaryTest {
                 "/organizations/o/payments/additional/prepare", "/organizations/o/payments/p/retry");
     }
 
+    /** 패키지 받는 사람 항목의 필수값 누락은 서비스 호출 전에 차단한다. */
+    @Test
+    void rejectsInvalidRegistrationEntries() throws Exception {
+        ObjectNode blankName = json.createObjectNode().put("password", "test");
+        blankName.putArray("entries").addObject().put("eventCategoryId", "avengers").put("name", " ")
+                .put("phNum", "010-0000-0000").put("birth", "1990-01-01").put("gender", "M");
+        reject("/registrations", false, blankName, "entries[0].name");
+        ObjectNode missingCourse = json.createObjectNode().put("password", "test");
+        missingCourse.putArray("entries").addObject().put("name", "받는사람")
+                .put("phNum", "010-0000-0000").put("birth", "1990-01-01").put("gender", "M");
+        reject("/registrations", false, missingCourse, "entries[0].eventCategoryId");
+        ObjectNode nullEntry = json.createObjectNode().put("password", "test");
+        nullEntry.putArray("entries").addNull();
+        reject("/registrations", false, nullEntry, "entries[0]");
+        assertServicesUntouched();
+    }
+
     /** 그룹 전용 요청의 누락·조합 오류는 서비스 호출 전에 차단한다. */
     @Test
     void rejectsInvalidStartGroupSelections() throws Exception {

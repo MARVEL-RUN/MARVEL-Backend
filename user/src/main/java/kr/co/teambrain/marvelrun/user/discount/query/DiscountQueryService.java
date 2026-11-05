@@ -41,17 +41,11 @@ public class DiscountQueryService {
         // 종목·기념품 응답 구조를 유지하고 내부 할인 안내만 덧붙인다.
         List<DiscountModels.Policy> snapshot = resolver.resolveEventPolicies(eventId);
         List<RegistrationOptionResponse.EventCategoryOption> options = original.categories().stream().map(category ->
-            new RegistrationOptionResponse.EventCategoryOption(category.order(), category.categoryId(), category.distance(),
-            category.categoryName(),
-            category.isActive(),
-            category.amount(),
-            category.souvenirs(),
-            category.startGroups(),
-            new RegistrationPricingOptionsResponse(priceOptions(category.categoryId(),
+            category.withPricing(new RegistrationPricingOptionsResponse(priceOptions(category.categoryId(),
             category.amount(),
             snapshot,
             null)))).toList();
-        return new RegistrationOptionResponse(options, original.registrationAllowed(), original.registrationReason());
+        return original.withCategories(options);
     }
 
     /** 정상 링크의 기간 전/후도 안내하되 잘못된 대회·코드는 조회 실패로 처리한다. */

@@ -50,6 +50,7 @@ import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegis
 import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegistrationBatchResponse;
 import kr.co.teambrain.marvelrun.admin.event.command.application.service.AdminUnpaidRegistrationCancellationService;
 import kr.co.teambrain.marvelrun.admin.event.command.application.service.OfflineRegistrationImportService;
+import kr.co.teambrain.marvelrun.admin.event.command.application.service.RegistrationApplicantEntrySyncService;
 import kr.co.teambrain.marvelrun.admin.event.command.application.service.RegistrationCommandService;
 import kr.co.teambrain.marvelrun.admin.event.command.application.service.RegistrationStartGroupResolver;
 import kr.co.teambrain.marvelrun.admin.event.command.application.service.RegistrationPricingService;
@@ -128,7 +129,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         ReferenceFilterQueryService.class,
         OrganizationLifecycleService.class,
         OrganizationDiscountGuard.class,
-        DiscountPolicyResolver.class, RegistrationPriceCalculationRecorder.class,RegistrationStartGroupResolver.class,ReservationHistoryRecorder.class,RegistrationQueryService.class, AdminUnpaidRegistrationCancellationService.class, RegistrationCommandService.class, AdminRefundEvidenceStore.class, AdminRefundEvidenceService.class, AdminRefundEvidenceMatcher.class, AdminPaymentQueryRepository.class, AdminRefundPreparationService.class, AdminRefundPreparationTransactionService.class, AdminRefundPreparationStore.class,
+        DiscountPolicyResolver.class, RegistrationPriceCalculationRecorder.class,RegistrationStartGroupResolver.class,ReservationHistoryRecorder.class,RegistrationQueryService.class, AdminUnpaidRegistrationCancellationService.class, RegistrationCommandService.class, RegistrationApplicantEntrySyncService.class, AdminRefundEvidenceStore.class, AdminRefundEvidenceService.class, AdminRefundEvidenceMatcher.class, AdminPaymentQueryRepository.class, AdminRefundPreparationService.class, AdminRefundPreparationTransactionService.class, AdminRefundPreparationStore.class,
         RegistrationActionPolicyReader.class,
         AdminRefundAccessService.class, AdminRefundLockRepository.class, AdminRefundTime.class,
         RegistrationPolicyCandidateValidator.class, RegistrationPolicyValidator.class, RegistrationPolicyLoader.class,

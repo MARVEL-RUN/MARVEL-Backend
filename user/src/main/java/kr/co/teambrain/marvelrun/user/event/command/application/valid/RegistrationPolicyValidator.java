@@ -116,6 +116,47 @@ public class RegistrationPolicyValidator {
     }
 
     /**
+     * 대회 정책이 주소를 필수로 두면 개인 신청의 주소가 비어 있지 않아야 한다.
+     *
+     * 정책 행의 대회 귀속은 validateParticipant()에서 함께 확인한다.
+     */
+    public void validateAddress(
+            EventRegistrationPolicy policy,
+            String address
+    ) {
+
+        if (policy == null) {
+            throw configurationError();
+        }
+
+        if (Boolean.TRUE.equals(policy.getAddressRequired())
+                && (address == null || address.isBlank())) {
+
+            throw new CustomException(
+                    ErrorCode.REGISTRATION_ADDRESS_REQUIRED
+            );
+        }
+    }
+
+    /**
+     * 대회 정책이 단체 신청을 막으면 단체 신청을 거절한다.
+     */
+    public void validateOrganizationRegistrationEnabled(
+            EventRegistrationPolicy policy
+    ) {
+
+        if (policy == null) {
+            throw configurationError();
+        }
+
+        if (Boolean.FALSE.equals(policy.getOrganizationRegistrationEnabled())) {
+            throw new CustomException(
+                    ErrorCode.ORGANIZATION_REGISTRATION_DISABLED
+            );
+        }
+    }
+
+    /**
      * yyyy-MM-dd 형식의 실제 존재하는 날짜만 허용한다.
      *
      * 오늘 출생자는 허용하고 미래 출생일은 차단한다.

@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.user.event.query.service;
 
+import kr.co.teambrain.marvelrun.common.inheritance_enum.EventFormat;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
@@ -15,11 +16,14 @@ import kr.co.teambrain.marvelrun.user.event.query.repository.projection.Registra
 import lombok.RequiredArgsConstructor;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategoryStartGroup;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategoryStartGroupRepository;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.policy.EventRegistrationPolicy;
+import kr.co.teambrain.marvelrun.user.event.command.repository.EventRegistrationPolicyRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 /** 종목·기념품·그룹 선택지와 현재 요청시각의 신규 접수 정책을 함께 조회한다. */
 @Service
@@ -33,6 +37,7 @@ public class EventQueryService {
     private final RegistrationActionPolicyService actionPolicies;
     private final ServerTimeProvider serverTimeProvider;
     private final EventCategoryStartGroupRepository startGroupRepository;
+    private final EventRegistrationPolicyRepository eventRegistrationPolicyRepository;
 
     /** 정책 차단을 조회 예외로 처리하지 않고 모든 옵션과 allowed-reason을 반환한다. */
     public RegistrationOptionResponse getRegistrationOptions(String eventId) {
@@ -52,7 +57,17 @@ public class EventQueryService {
         List<EventCategoryStartGroup> startGroups = categoryIds.isEmpty() ? List.of()
                 : startGroupRepository.findByEventCategoryIdInAndActiveTrueOrderByEventCategoryIdAscSortOrderAsc(categoryIds);
 
+        // 화면이 입력 칸과 단체 신청 노출을 정하도록 대회 형식과 신청 정책값을 함께 내린다.
+        // 정책 행이 없으면 기존 대회와 같은 기본값(주소 선택, 단체 신청 허용)으로 응답한다.
+        EventFormat eventFormat = event.getEventFormat() == null ? EventFormat.OFFLINE : event.getEventFormat();
+        Optional<EventRegistrationPolicy> policy = eventRegistrationPolicyRepository.findByEventId(eventId);
+        boolean addressRequired = policy.map(EventRegistrationPolicy::getAddressRequired)
+                .map(Boolean.TRUE::equals).orElse(false);
+        boolean organizationRegistrationEnabled = policy.map(EventRegistrationPolicy::getOrganizationRegistrationEnabled)
+                .map(enabled -> !Boolean.FALSE.equals(enabled)).orElse(true);
+
         return discountQueries.appendInternalPricingOptions(eventId,
-                registrationOptionResponseAssembler.assemble(projections, decision, startGroups));
+                registrationOptionResponseAssembler.assemble(projections, decision, startGroups,
+                        eventFormat, addressRequired, organizationRegistrationEnabled));
     }
 }

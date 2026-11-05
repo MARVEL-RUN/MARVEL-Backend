@@ -131,6 +131,11 @@ public class OrgRegistrationModificationCandidateValidator
                         requestedSouvenirIdsByCategory
                 );
 
+        // 종목을 바꾸거나 새로 더하는 구성원도 단체 신청과 같이 상품 종목을 고를 수 없다.
+        validateOrganizationCategories(
+                selections
+        );
+
         RegistrationPolicyContext policies =
                 requestedSouvenirIdsByCategory.isEmpty() ? null : loadPolicies(
                         accessContext.event(),
