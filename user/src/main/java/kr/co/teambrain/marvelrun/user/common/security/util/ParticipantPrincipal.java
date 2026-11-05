@@ -2,7 +2,8 @@ package kr.co.teambrain.marvelrun.user.common.security.util;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.ParticipantTokenRole;
 import kr.co.teambrain.marvelrun.user.common.security.details.CustomAdminDetail;
-import org.springframework.security.access.AccessDeniedException;
+import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
+import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
@@ -22,6 +23,6 @@ public final class ParticipantPrincipal {
                 && ParticipantTokenRole.PARTICIPANT.name().equals(detail.getRoleName())) {
             return detail.getUsername();
         }
-        throw new AccessDeniedException("참가자 토큰이 아닙니다.");
+        throw new CustomException(ErrorCode.ACCESS_DENIED, " 참가자 토큰이 아닙니다.");
     }
 }

@@ -44,6 +44,9 @@ public class SecurityConfig {
     private final JwtAuthenticationEntryPoint
             jwtAuthenticationEntryPoint;
 
+    private final JwtAccessDeniedHandler
+            jwtAccessDeniedHandler;
+
 
     @Bean
     public SecurityFilterChain securityFilterChain(
@@ -104,6 +107,9 @@ public class SecurityConfig {
                                 exception.authenticationEntryPoint(
                                         jwtAuthenticationEntryPoint
                                 )
+                                        .accessDeniedHandler(
+                                                jwtAccessDeniedHandler
+                                        )
                 );
 
 

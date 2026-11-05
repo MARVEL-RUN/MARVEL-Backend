@@ -18,7 +18,6 @@ import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationComma
 import kr.co.teambrain.marvelrun.user.participantauth.command.application.dto.ParticipantLoginResponse;
 import kr.co.teambrain.marvelrun.user.participantauth.command.application.dto.ParticipantTokens;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -116,7 +115,7 @@ public class ParticipantAuthCommandService {
         Claims claims = jwtUtil.validateAccessToken(accessToken);
 
         if (!isParticipant(claims)) {
-            throw new AccessDeniedException("참가자 토큰이 아닙니다.");
+            throw new CustomException(ErrorCode.ACCESS_DENIED, " 참가자 토큰이 아닙니다.");
         }
 
         redisService.deleteParticipantRefreshToken(claims.getSubject());

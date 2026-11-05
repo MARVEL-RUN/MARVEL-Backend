@@ -3,7 +3,7 @@ package kr.co.teambrain.marvelrun.user.common.security.util;
 import kr.co.teambrain.marvelrun.user.common.security.details.CustomAdminDetail;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.security.access.AccessDeniedException;
+import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
@@ -28,12 +28,12 @@ class ParticipantPrincipalTest {
     void 관리자면_거부한다() {
         authenticate("admin-1", "ADMIN");
 
-        assertThatThrownBy(ParticipantPrincipal::registrationId).isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(ParticipantPrincipal::registrationId).isInstanceOf(CustomException.class);
     }
 
     @Test
     void 인증이_없으면_거부한다() {
-        assertThatThrownBy(ParticipantPrincipal::registrationId).isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(ParticipantPrincipal::registrationId).isInstanceOf(CustomException.class);
     }
 
     private static void authenticate(String id, String role) {
