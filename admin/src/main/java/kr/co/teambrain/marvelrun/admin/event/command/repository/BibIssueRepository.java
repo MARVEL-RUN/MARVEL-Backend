@@ -85,11 +85,12 @@ public class BibIssueRepository {
                 """, eventId, deadline);
     }
 
-    /** 상품 종목인데 참가 항목이 하나도 없는 확정 신청 수다(발급하지 않고 건수만 센다). */
+    /** 상품 종목인데 참가 항목이 하나도 없는 일반 결제 확정 신청 수다(발급하지 않고 건수만 센다). 외부 결제는 따로 센다. */
     public int countRegistrationsWithoutEntries(String eventId, LocalDateTime deadline) {
         return count("""
                 SELECT COUNT(*) FROM registration r JOIN event_category c ON c.id = r.event_category_id
-                WHERE r.event_id = :eventId AND r.is_del = 0 AND r.status = 'CONFIRMED' AND r.registration_date < :deadline
+                WHERE r.event_id = :eventId AND r.is_del = 0 AND r.status = 'CONFIRMED' AND r.external_payment = 0
+                  AND r.registration_date < :deadline
                   AND c.product_type IS NOT NULL
                   AND NOT EXISTS (SELECT 1 FROM registration_entry e WHERE e.registration_id = r.id)
                 """, eventId, deadline);

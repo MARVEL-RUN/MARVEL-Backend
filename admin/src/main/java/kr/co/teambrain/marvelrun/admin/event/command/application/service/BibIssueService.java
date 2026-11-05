@@ -1,12 +1,12 @@
 package kr.co.teambrain.marvelrun.admin.event.command.application.service;
 
-import kr.co.teambrain.marvelrun.admin.capacity.command.application.service.RegistrationCapacityService;
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.admin.event.command.application.dto.BibIssueRequest;
 import kr.co.teambrain.marvelrun.admin.event.command.application.dto.BibIssueResponse;
+import kr.co.teambrain.marvelrun.admin.event.command.repository.EventCommandRepository;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.BibIssueRepository;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.BibIssueRepository.Assignment;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.BibIssueRepository.Sequence;
@@ -14,7 +14,6 @@ import kr.co.teambrain.marvelrun.admin.event.command.repository.BibIssueReposito
 import kr.co.teambrain.marvelrun.admin.event.policy.VirtualRounds;
 import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationActionPolicyReader;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventFormat;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,7 +34,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class BibIssueService {
     private final ServerTimeProvider serverTimeProvider;
-    private final RegistrationCapacityService capacityService;
+    private final EventCommandRepository eventRepository;
     private final RegistrationActionPolicyReader policyReader;
     private final BibIssueRepository repository;
 
@@ -43,16 +42,19 @@ public class BibIssueService {
     public BibIssueResponse issue(String eventId, BibIssueRequest request) {
         LocalDateTime now = serverTimeProvider.currentDateTime();
         LocalDateTime deadline = request.deadline();
-        if (now.isBefore(deadline)) {
-            throw new CustomException(ErrorCode.BIB_ISSUE_ROUND_NOT_CLOSED);
-        }
 
-        Event event = capacityService.lockRegistrationEvent(eventId);
+        // 대회 행 잠금이 이 트랜잭션의 첫 조회여야 한다. 잠금 전에 다른 행을 읽으면 그 시점 스냅숏이 고정돼,
+        // 앞 발급이 끝나기를 기다린 요청이 이미 배번을 받은 항목을 미발급으로 읽고 CONCURRENT_MODIFICATION으로 실패한다.
+        Event event = eventRepository.findByIdForUpdate(eventId).orElseThrow(() -> new CustomException(ErrorCode.EVENT_NOT_FOUND));
+        // 대회·차수가 맞는지 먼저 보고 마감 여부는 그 뒤에 본다.
         if (event.getEventFormat() != EventFormat.VIRTUAL) {
             throw new CustomException(ErrorCode.VIRTUAL_EVENT_REQUIRED);
         }
-        VirtualRounds.requireByDeadline(VirtualRounds.fromPolicies(policyReader.loadEnabledRegistrationActionPolicies(eventId,
-                List.of(RegistrationActionType.MODIFY, RegistrationActionType.PAYMENT, RegistrationActionType.REFUND))), deadline);
+        VirtualRounds.requireByDeadline(VirtualRounds.fromPolicies(
+                policyReader.loadEnabledRegistrationActionPolicies(eventId, VirtualRounds.ROUND_ACTION_TYPES)), deadline);
+        if (now.isBefore(deadline)) {
+            throw new CustomException(ErrorCode.BIB_ISSUE_ROUND_NOT_CLOSED);
+        }
 
         if (repository.countPendingUpgrades(eventId, deadline) > 0) {
             throw new CustomException(ErrorCode.BIB_ISSUE_UPGRADE_PENDING);
