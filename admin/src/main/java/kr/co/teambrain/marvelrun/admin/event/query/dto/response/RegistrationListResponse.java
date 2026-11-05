@@ -4,6 +4,7 @@ import kr.co.teambrain.marvelrun.admin.discount.query.ReferenceFilterSummaryResp
 
 import lombok.Builder;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 관리자 서버 신청 목록 조회 응답 DTO
@@ -27,7 +28,8 @@ public record RegistrationListResponse(
         String status,            // 상태: 결제완료, 대기, 환불완료 등의 진행 상태
         LocalDateTime createdAt,  // 신청일시: registrationDate 필드
         String startGroupCode,
-        boolean startGroupUnselected
+        boolean startGroupUnselected,
+        List<String> bibNumbers   // 배번: 참가 항목의 발급 배번(하위 종목 정렬 순). 없으면 빈 목록
 ) {
 
 }

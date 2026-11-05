@@ -4,15 +4,16 @@ import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event;
-import kr.co.teambrain.marvelrun.admin.event.command.application.domain.RegistrationActionPolicy;
 import kr.co.teambrain.marvelrun.admin.event.command.application.dto.PackageUpgradeBatchCancellationRequest;
 import kr.co.teambrain.marvelrun.admin.event.command.application.dto.PackageUpgradeBatchCancellationResponse;
 import kr.co.teambrain.marvelrun.admin.event.command.application.dto.PackageUpgradeCancellationResult;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.EventCommandRepository;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.PackageUpgradeCommandRepository;
-import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationActionPolicyRepository;
+import kr.co.teambrain.marvelrun.admin.event.policy.RegistrationActionPolicyModels.Action;
+import kr.co.teambrain.marvelrun.admin.event.policy.RegistrationActionPolicyModels.RegistrationActionPolicyInput;
+import kr.co.teambrain.marvelrun.admin.event.policy.VirtualRounds;
+import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationActionPolicyReader;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventFormat;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.upgrade.PackageUpgradeStatus;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -35,14 +36,14 @@ class AdminPackageUpgradeBatchServiceTest {
     private static final LocalDateTime DEADLINE = LocalDateTime.of(2026, 11, 20, 17, 0);
 
     @Mock private EventCommandRepository events;
-    @Mock private RegistrationActionPolicyRepository actionPolicies;
+    @Mock private RegistrationActionPolicyReader policyReader;
     @Mock private PackageUpgradeCommandRepository upgrades;
     @Mock private AdminPackageUpgradeCancellationService cancellation;
     @Mock private ServerTimeProvider time;
     @Mock private Event event;
 
     private AdminPackageUpgradeBatchService service() {
-        return new AdminPackageUpgradeBatchService(events, actionPolicies, upgrades, cancellation, time);
+        return new AdminPackageUpgradeBatchService(events, policyReader, upgrades, cancellation, time);
     }
 
     /** 버추얼런이 아닌 대회는 거절한다. */
@@ -55,17 +56,19 @@ class AdminPackageUpgradeBatchServiceTest {
         expectInvalid(() -> service().cancelPendingBeforeDeadline("event", new PackageUpgradeBatchCancellationRequest(DEADLINE, null)));
     }
 
-    /** 켜져 있는 PAYMENT 정책의 마감 시각이 아니거나, 마감 전이면 거절한다. */
+    /** 차수 마감 시각이 아니면 VIRTUAL_ROUND_NOT_FOUND, 마감 전이면 잘못된 요청으로 거절한다. */
     @Test
     void rejectsUnknownDeadlineOrBeforeDeadline() {
         when(events.findById("event")).thenReturn(Optional.of(event));
         when(event.getEventFormat()).thenReturn(EventFormat.VIRTUAL);
-        when(actionPolicies.findAllByEventIdAndActionTypeAndEnabledTrueOrderByRegistrationStartAtAscIdAsc(
-                "event", RegistrationActionType.PAYMENT)).thenReturn(List.of(policy(DEADLINE)));
+        when(policyReader.loadEnabledRegistrationActionPolicies("event", VirtualRounds.ROUND_ACTION_TYPES))
+                .thenReturn(round(DEADLINE));
         when(time.currentDateTime()).thenReturn(DEADLINE.plusHours(1), DEADLINE.minusMinutes(1));
 
-        expectInvalid(() -> service().cancelPendingBeforeDeadline("event",
-                new PackageUpgradeBatchCancellationRequest(DEADLINE.plusDays(1), null)));
+        assertThatThrownBy(() -> service().cancelPendingBeforeDeadline("event",
+                new PackageUpgradeBatchCancellationRequest(DEADLINE.plusDays(1), null)))
+                .isInstanceOfSatisfying(CustomException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.VIRTUAL_ROUND_NOT_FOUND));
         expectInvalid(() -> service().cancelPendingBeforeDeadline("event", new PackageUpgradeBatchCancellationRequest(DEADLINE, null)));
         verifyNoInteractions(cancellation);
     }
@@ -77,8 +80,8 @@ class AdminPackageUpgradeBatchServiceTest {
         when(time.currentDateTime()).thenReturn(now);
         when(events.findById("event")).thenReturn(Optional.of(event));
         when(event.getEventFormat()).thenReturn(EventFormat.VIRTUAL);
-        when(actionPolicies.findAllByEventIdAndActionTypeAndEnabledTrueOrderByRegistrationStartAtAscIdAsc(
-                "event", RegistrationActionType.PAYMENT)).thenReturn(List.of(policy(DEADLINE)));
+        when(policyReader.loadEnabledRegistrationActionPolicies("event", VirtualRounds.ROUND_ACTION_TYPES))
+                .thenReturn(round(DEADLINE));
         when(upgrades.findCancelableIdsBefore(eq("event"), eq(PackageUpgradeStatus.PENDING), eq(DEADLINE),
                 eq(""), eq(AdminPackageUpgradeBatchService.BLOCKED), any()))
                 .thenReturn(List.of("u1", "u2"));
@@ -111,8 +114,8 @@ class AdminPackageUpgradeBatchServiceTest {
         when(time.currentDateTime()).thenReturn(now);
         when(events.findById("event")).thenReturn(Optional.of(event));
         when(event.getEventFormat()).thenReturn(EventFormat.VIRTUAL);
-        when(actionPolicies.findAllByEventIdAndActionTypeAndEnabledTrueOrderByRegistrationStartAtAscIdAsc(
-                "event", RegistrationActionType.PAYMENT)).thenReturn(List.of(policy(DEADLINE)));
+        when(policyReader.loadEnabledRegistrationActionPolicies("event", VirtualRounds.ROUND_ACTION_TYPES))
+                .thenReturn(round(DEADLINE));
         when(upgrades.findCancelableIdsBefore(eq("event"), eq(PackageUpgradeStatus.PENDING), eq(DEADLINE),
                 eq("u2"), eq(AdminPackageUpgradeBatchService.BLOCKED), any()))
                 .thenReturn(List.of("u3"));
@@ -130,10 +133,12 @@ class AdminPackageUpgradeBatchServiceTest {
         verify(cancellation, never()).cancelInNewTransaction("event", "u2", now);
     }
 
-    private static RegistrationActionPolicy policy(LocalDateTime effectiveFrom) {
-        return RegistrationActionPolicy.builder().id("p").eventId("event").actionType(RegistrationActionType.PAYMENT)
-                .registrationStartAt(effectiveFrom.minusDays(20)).registrationEndAt(effectiveFrom)
-                .effectiveFrom(effectiveFrom).enabled(true).build();
+    /** 마감 시각이 deadline인 차수 하나의 MODIFY·PAYMENT·REFUND 정책이다. */
+    private static List<RegistrationActionPolicyInput> round(LocalDateTime deadline) {
+        return List.of(Action.MODIFY, Action.PAYMENT, Action.REFUND).stream()
+                .map(action -> new RegistrationActionPolicyInput("p", "event", action,
+                        deadline.minusDays(20), deadline, deadline, true))
+                .toList();
     }
 
     private static void expectInvalid(Runnable action) {

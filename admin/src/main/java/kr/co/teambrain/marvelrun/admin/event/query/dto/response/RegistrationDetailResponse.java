@@ -55,10 +55,13 @@ public record RegistrationDetailResponse(
         String startGroupCode,
         boolean startGroupUnselected,
 
-        /** 종목별 참가 항목(받는 사람·배번). 상품 종류가 없는 기존 대회는 빈 목록이다. */
+        /** 종목별 참가 항목(받는 사람·배번). 종목 정렬 순서이며 상품 종류가 없는 기존 대회는 빈 목록이다. */
         List<RegistrationEntryResponse> entries,
 
         /** 진행 중인 단품 → 패키지 상향. 없으면 null */
-        PackageUpgradeSummaryResponse packageUpgrade
+        PackageUpgradeSummaryResponse packageUpgrade,
+
+        /** 받는 사람 수정 API(PATCH .../entries)를 쓸 수 있는지. 삭제되지 않은 패키지 신청만 true다. */
+        boolean entriesEditable
 ) {
 }

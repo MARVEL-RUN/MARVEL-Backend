@@ -9,9 +9,10 @@ import kr.co.teambrain.marvelrun.admin.event.command.application.dto.PackageUpgr
 import kr.co.teambrain.marvelrun.admin.event.command.application.dto.PackageUpgradeCancellationResult;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.EventCommandRepository;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.PackageUpgradeCommandRepository;
-import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationActionPolicyRepository;
+import kr.co.teambrain.marvelrun.admin.event.policy.VirtualRounds;
+import kr.co.teambrain.marvelrun.admin.event.policy.VirtualRounds.Round;
+import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationActionPolicyReader;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventFormat;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.upgrade.PackageUpgradeStatus;
 import lombok.RequiredArgsConstructor;
@@ -43,7 +44,7 @@ public class AdminPackageUpgradeBatchService {
             List.of(PaymentProcessStatus.CONFIRMING, PaymentProcessStatus.UNKNOWN);
 
     private final EventCommandRepository events;
-    private final RegistrationActionPolicyRepository actionPolicies;
+    private final RegistrationActionPolicyReader policyReader;
     private final PackageUpgradeCommandRepository upgrades;
     private final AdminPackageUpgradeCancellationService cancellation;
     private final ServerTimeProvider time;
@@ -96,16 +97,10 @@ public class AdminPackageUpgradeBatchService {
         if (event.getEventFormat() != EventFormat.VIRTUAL) {
             throw new CustomException(ErrorCode.INVALID_PACKAGE_UPGRADE_CANCELLATION_REQUEST, " 버추얼런 대회가 아닙니다.");
         }
-        boolean roundDeadline = actionPolicies
-                .findAllByEventIdAndActionTypeAndEnabledTrueOrderByRegistrationStartAtAscIdAsc(
-                        eventId, RegistrationActionType.PAYMENT)
-                .stream()
-                .anyMatch(policy -> deadline.equals(policy.getEffectiveFrom()));
-        if (!roundDeadline) {
-            throw new CustomException(ErrorCode.INVALID_PACKAGE_UPGRADE_CANCELLATION_REQUEST,
-                    " 켜져 있는 PAYMENT 정책의 마감 시각이 아닙니다. deadline=" + deadline);
-        }
-        if (now.isBefore(deadline)) {
+        // 배번 발급·명단과 같은 규칙으로 차수를 찾는다. 차수가 없거나 여럿이면 VIRTUAL_ROUND_NOT_FOUND다.
+        Round round = VirtualRounds.requireByDeadline(VirtualRounds.fromPolicies(
+                policyReader.loadEnabledRegistrationActionPolicies(eventId, VirtualRounds.ROUND_ACTION_TYPES)), deadline);
+        if (!round.closed(now)) {
             throw new CustomException(ErrorCode.INVALID_PACKAGE_UPGRADE_CANCELLATION_REQUEST,
                     " 차수 마감 전에는 일괄 취소하지 않습니다. deadline=" + deadline);
         }

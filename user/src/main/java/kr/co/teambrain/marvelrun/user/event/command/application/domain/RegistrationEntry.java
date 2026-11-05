@@ -12,7 +12,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
 
-/** 신청의 종목별 참가 항목. 받는 사람과 배번을 담는다. */
+/** 신청의 종목별 참가 항목. 받는 사람과 배번을 담는다. 배번은 관리자만 발급하므로 사용자 앱은 쓰지 않는다. */
 @Getter
 @Entity
 @SuperBuilder

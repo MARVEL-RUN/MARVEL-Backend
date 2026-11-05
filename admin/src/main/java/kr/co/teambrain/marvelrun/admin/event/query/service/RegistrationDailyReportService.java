@@ -9,6 +9,7 @@ import kr.co.teambrain.marvelrun.admin.event.query.dto.PaymentDailyGraphResponse
 import kr.co.teambrain.marvelrun.admin.event.query.repository.EventCategoryQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationDailyReportQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.EventFormat;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.ss.usermodel.*;
@@ -344,6 +345,7 @@ public class RegistrationDailyReportService {
 
         LocalDate openedDate = event.getRegistStartDate().toLocalDate();
         LocalDate eventDate = event.getStartDate().toLocalDate();
+        boolean virtual = event.getEventFormat() == EventFormat.VIRTUAL;
 
         long[][] cumulativeCounts =
                 new long[6][courseNames.size()];
@@ -408,20 +410,25 @@ public class RegistrationDailyReportService {
 
             boolean adult;
 
-            try {
-                /**
-                 * 일반·아동 구분은 /statistics와 같은 고정 출생일 기준을 사용한다.
-                 */
-                adult = adultValidator(
-                        row.birth(),
-                        eventDate
-                );
+            if (virtual) {
+                // 버추얼 대회는 아동 구분이 없으므로 생년월일을 검증하지 않고 모두 일반으로 센다.
+                adult = true;
+            } else {
+                try {
+                    /**
+                     * 일반·아동 구분은 /statistics와 같은 고정 출생일 기준을 사용한다.
+                     */
+                    adult = adultValidator(
+                            row.birth(),
+                            eventDate
+                    );
 
-            } catch (IllegalArgumentException exception) {
-                throw new CustomException(
-                        ErrorCode.INVALID_BIRTH_DATA,
-                        "참여자 중 이상 수치 확인"
-                );
+                } catch (IllegalArgumentException exception) {
+                    throw new CustomException(
+                            ErrorCode.INVALID_BIRTH_DATA,
+                            "참여자 중 이상 수치 확인"
+                    );
+                }
             }
 
             int applicantRow = adult ? 0 : 1;
@@ -500,7 +507,8 @@ public class RegistrationDailyReportService {
                 dailyCounts,
                 openedDate,
                 resolvedStartDate,
-                resolvedEndDate
+                resolvedEndDate,
+                virtual
         );
     }
 
@@ -689,7 +697,8 @@ public class RegistrationDailyReportService {
             Map<LocalDate, long[][]> dailyCounts,
             LocalDate eventRegistStartDate,
             LocalDate startDate,
-            LocalDate endDate
+            LocalDate endDate,
+            boolean virtual
     ) throws IOException {
         SXSSFWorkbook workbook = new SXSSFWorkbook(100);
         boolean completed = false;
@@ -797,12 +806,14 @@ public class RegistrationDailyReportService {
 
                     Cell titleCell = titleRow.createCell(0);
                     titleCell.setCellStyle(titleStyle);
+                    // 버추얼 대회는 아동 구분이 없으므로 제목에서 뺀다.
+                    String titlePrefix = virtual ? "" : "아동 유무별 · ";
                     titleCell.setCellValue(
                             cumulative
-                                    ? "아동 유무별 · 누계 · "
+                                    ? titlePrefix + "누계 · "
                                     + eventRegistStartDate
                                     + " ~ " + endDate
-                                    : "아동 유무별 · " + date
+                                    : titlePrefix + date
                     );
 
                     sheet.addMergedRegion(new CellRangeAddress(
@@ -856,10 +867,15 @@ public class RegistrationDailyReportService {
 
                     /** 코스별 인원과 행 합계를 숫자 셀로 작성한다. */
                     for (int line = 0; line < labels.length; line++) {
+                        boolean totalLine = line == 2 || line == 5;
+
+                        // 버추얼 대회는 일반·아동 행 없이 합계 행만 쓴다.
+                        if (virtual && !totalLine) {
+                            continue;
+                        }
+
                         Row row = sheet.createRow(rowIndex++);
                         row.setHeightInPoints(25);
-
-                        boolean totalLine = line == 2 || line == 5;
 
                         Cell labelCell = row.createCell(0);
                         labelCell.setCellValue(labels[line]);

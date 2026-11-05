@@ -15,6 +15,7 @@ import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Payment;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.RegistrationEntry;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationSearchCondition;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationStatDto;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.response.EventStatisticsResponse;
@@ -23,15 +24,17 @@ import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationDeta
 import kr.co.teambrain.marvelrun.admin.event.query.dto.response.PackageUpgradeSummaryResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationEntryResponse;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.PackageUpgradeCommandRepository;
-import kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationEntryCommandRepository;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.upgrade.PackageUpgradeStatus;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationListResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.PaymentQueryRepository;
+import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationEntryQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.SouvenirQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationActionPolicyReader;
 import kr.co.teambrain.marvelrun.admin.event.query.util.RegistrationSpecification;
 import kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.EventFormat;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentMethod;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
@@ -54,6 +57,7 @@ public class RegistrationQueryService {
     private final RegistrationActionPolicyReader actionPolicies;
     private final ServerTimeProvider policyTime;
     private final EventCategoryStartGroupRepository startGroupRepository;
+    private final RegistrationEntryQueryRepository bibEntryRepository;
 
 
 
@@ -61,7 +65,6 @@ public class RegistrationQueryService {
     private final PaymentQueryRepository paymentQueryRepository;
 
     private final SouvenirQueryRepository souvenirQueryRepository;
-    private final RegistrationEntryCommandRepository entryRepository;
     private final PackageUpgradeCommandRepository packageUpgrades;
     private static final LocalDate CHILD_CUTOFF_DATE = LocalDate.of(2013, 11, 1);
 
@@ -94,6 +97,7 @@ public class RegistrationQueryService {
         Map<String, String> groupCodes = findStartGroupCodes(registrations.getContent());
         Map<String, ReferenceFilterSummaryResponse> filterSummaries = referenceFilters.loadReferenceFilterSummaries(
                 registrations.getContent().stream().map(Registration::getReferenceFilterId).toList());
+        Map<String, List<String>> bibNumbers = findBibNumbers(registrations.getContent());
         long totalElements = registrations.getTotalElements();
         int pageNumber = pageable.getPageNumber();
         int pageSize = pageable.getPageSize();
@@ -104,13 +108,14 @@ public class RegistrationQueryService {
                     - ((long) pageNumber * pageSize)
                     - currentIndex;
 
-            return convertToDto(registration, listNumber, souvenirNames, groupCodes, filterSummaries);
+            return convertToDto(registration, listNumber, souvenirNames, groupCodes, filterSummaries, bibNumbers);
         });
     }
 
     /** 일괄 조회한 표시 코드와 기존 목록 정보를 결합한다. */
     private RegistrationListResponse convertToDto(Registration registration, long listNumber,
-                                                  Map<String, String> souvenirNames, Map<String, String> groupCodes, Map<String, ReferenceFilterSummaryResponse> filterSummaries) {
+                                                  Map<String, String> souvenirNames, Map<String, String> groupCodes, Map<String, ReferenceFilterSummaryResponse> filterSummaries,
+                                                  Map<String, List<String>> bibNumbers) {
 
         boolean isOrganization = registration.getOrganization() != null;
         String type = isOrganization ? "단체" : "개인";
@@ -160,7 +165,24 @@ public class RegistrationQueryService {
                 .marketingConsent(marketingConsent)
                 .status(statusStr)
                 .createdAt(registration.getRegistrationDate())
+                .bibNumbers(bibNumbers.getOrDefault(registration.getId(), List.of()))
                 .build();
+    }
+
+    /** 상품(패키지·단품) 종목이 있는 페이지에서만 참가 항목을 한 번에 읽어 신청별 발급 배번을 만든다. */
+    private Map<String, List<String>> findBibNumbers(List<Registration> registrations) {
+        boolean hasProduct = registrations.stream()
+                .anyMatch(registration -> registration.getEventCategory().getProductType() != null);
+        if (!hasProduct) { return Map.of(); }
+        List<String> ids = registrations.stream().map(Registration::getId).toList();
+        Map<String, List<String>> bibNumbers = new HashMap<>();
+        for (RegistrationEntry entry : bibEntryRepository.findByRegistrationIds(ids)) {
+            if (entry.getBibNumber() != null) {
+                bibNumbers.computeIfAbsent(entry.getRegistration().getId(), key -> new ArrayList<>())
+                        .add(entry.getBibNumber());
+            }
+        }
+        return bibNumbers;
     }
 
     /**
@@ -248,8 +270,10 @@ public class RegistrationQueryService {
                 ? payment.getPaymentMethod().name() : "-";
 
         return RegistrationDetailResponse.builder()
-                .entries(entryRepository.findByRegistration_Id(registration.getId()).stream()
+                .entries(bibEntryRepository.findByRegistrationIds(List.of(registration.getId())).stream()
                         .map(RegistrationEntryResponse::from).toList())
+                .entriesEditable(!registration.isSoftDeleted()
+                        && registration.getEventCategory().getProductType() == ProductType.PACKAGE)
                 .packageUpgrade(packageUpgrades.findAllByRegistrations(List.of(registration.getId()), PackageUpgradeStatus.PENDING)
                         .stream().findFirst().map(PackageUpgradeSummaryResponse::from).orElse(null))
                 .referenceFilter(referenceFilters.loadReferenceFilterSummaries(Collections.singletonList(registration.getReferenceFilterId())).get(registration.getReferenceFilterId()))
@@ -361,12 +385,15 @@ public class RegistrationQueryService {
             }
         }
 
+        // 버추얼 대회는 아동 구분을 쓰지 않으므로 빈 목록으로 둔다. 대회가 없으면 기존(오프라인)대로 만든다.
+        boolean virtual = registrationQueryRepository.findEventFormatById(eventId) == EventFormat.VIRTUAL;
+
         // 5. 응답 조립
         return EventStatisticsResponse.builder()
                 .courseHeaders(courseNames)
                 .genderStats(buildRows(genderLabels, genderBuilders))
                 .ageGroupStats(buildRows(ageLabels, ageBuilders))
-                .childStats(buildRows(childLabels, childBuilders))
+                .childStats(virtual ? List.of() : buildRows(childLabels, childBuilders))
                 .build();
     }
 

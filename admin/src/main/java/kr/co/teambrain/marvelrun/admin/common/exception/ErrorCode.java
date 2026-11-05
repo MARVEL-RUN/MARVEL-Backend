@@ -205,6 +205,37 @@ public enum ErrorCode {
     DELIVERY_EXCEL_PERIOD_INVALID(HttpStatus.BAD_REQUEST,
             "조회 시작·종료 시각을 KST yyyy-MM-dd'T'HH:mm:ss 형식으로 입력하고 시작을 종료보다 앞서 지정해 주세요."),
 
+    // 버추얼런 차수·배번·명단·참가 항목
+    /** 버추얼런 대회에서만 쓰는 기능이다. */
+    VIRTUAL_EVENT_REQUIRED(HttpStatus.BAD_REQUEST, "버추얼런 대회에서만 사용할 수 있습니다."),
+    /** 차수 구간이 겹치거나 접수 기간을 벗어난 경우이다. */
+    VIRTUAL_ROUND_INVALID(HttpStatus.BAD_REQUEST, "차수 구간을 확인해 주세요. 시작은 마감보다 앞서야 하고 차수끼리 겹칠 수 없으며 접수 기간 안이어야 합니다."),
+    /** 마감된 차수를 바꾸거나 이미 지난 마감 시각으로 차수를 만드는 경우이다. */
+    VIRTUAL_ROUND_CLOSED_IMMUTABLE(HttpStatus.CONFLICT, "이미 마감된 차수는 바꾸거나 새로 만들 수 없습니다."),
+    /** 신청이 들어오기 시작한 차수를 빼거나 시작 시각을 옮기는 경우이다. */
+    VIRTUAL_ROUND_STARTED_IMMUTABLE(HttpStatus.CONFLICT, "이미 시작한 차수는 지우거나 시작 시각을 바꿀 수 없습니다."),
+    /** 켜진 MODIFY·PAYMENT·REFUND 행 가운데 차수로 묶이지 않는 행이 있는 경우이다. */
+    VIRTUAL_ROUND_POLICY_INCONSISTENT(HttpStatus.CONFLICT,
+            "차수 정책 행이 MODIFY·PAYMENT·REFUND 세 개씩 맞지 않습니다. 정책 행을 먼저 확인해 주세요."),
+    /** 마감 시각에 해당하는 차수가 없는 경우이다. */
+    VIRTUAL_ROUND_NOT_FOUND(HttpStatus.BAD_REQUEST, "마감 시각에 해당하는 차수를 찾을 수 없습니다."),
+    /** 명단 다운로드의 차수 마감 시각이 없거나 형식이 틀린 경우이다. */
+    VIRTUAL_ROSTER_DEADLINE_INVALID(HttpStatus.BAD_REQUEST,
+            "차수 마감 시각을 KST yyyy-MM-dd'T'HH:mm:ss 형식으로 입력해 주세요."),
+    /** 아직 마감되지 않은 차수의 배번을 발급하려는 경우이다. */
+    BIB_ISSUE_ROUND_NOT_CLOSED(HttpStatus.BAD_REQUEST, "차수가 마감된 뒤에 배번을 발급할 수 있습니다."),
+    /** 마감 전 신청 중 패키지 상향 대기가 남아 있는 경우이다. */
+    BIB_ISSUE_UPGRADE_PENDING(HttpStatus.CONFLICT, "패키지 상향 대기 신청이 남아 있어 배번을 발급할 수 없습니다."),
+    /** 발급 대상 종목에 배번 시작 번호가 없는 경우이다. */
+    BIB_SEQUENCE_NOT_CONFIGURED(HttpStatus.CONFLICT, "배번 시작 번호가 설정되지 않은 종목이 있습니다."),
+    /** 참가 항목 입력이 신청 구성과 맞지 않는 경우이다. */
+    INVALID_REGISTRATION_ENTRIES(HttpStatus.BAD_REQUEST, "참가 항목이 신청 구성과 맞지 않습니다."),
+    /** 단품 신청의 받는 사람을 고치려는 경우이다. 단품은 신청자 값을 따른다. */
+    REGISTRATION_ENTRY_PACKAGE_ONLY(HttpStatus.BAD_REQUEST,
+            "패키지 신청만 받는 사람을 수정할 수 있습니다. 단품은 기본정보를 수정해 주세요."),
+    /** 요청에 같은 참가 항목이 두 번 들어간 경우이다. */
+    REGISTRATION_ENTRY_DUPLICATED(HttpStatus.BAD_REQUEST, "같은 참가 항목이 중복되어 있습니다."),
+
     // 통계관련
     /** 통계 조회 범위는 접수 시작 이후부터 오늘까지 최대 366일이다. */
     REPORT_DATE_RANGE_INVALID(HttpStatus.BAD_REQUEST, "조회 기간은 접수 시작일부터 오늘 사이의 최대 366일이어야 합니다."),

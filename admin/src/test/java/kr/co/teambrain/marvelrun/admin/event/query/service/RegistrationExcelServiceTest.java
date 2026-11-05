@@ -6,10 +6,14 @@ import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Root;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.RegistrationEntry;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationSearchCondition;
+import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationEntryQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.SouvenirQueryRepository;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.EventFormat;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -31,14 +35,16 @@ import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /** DB 접속 없이 다운로드 조회 조건과 실제 XLSX 셀 및 상태 직렬화 계약을 검증한다. */
 class RegistrationExcelServiceTest {
 
     private final RegistrationQueryRepository repository = mock(RegistrationQueryRepository.class);
+    private final RegistrationEntryQueryRepository entryRepository = mock(RegistrationEntryQueryRepository.class);
     private final RegistrationExcelService service = new RegistrationExcelService(
-            repository, mock(SouvenirQueryRepository.class));
+            repository, mock(SouvenirQueryRepository.class), entryRepository);
 
     /** 선택 ID 유무에 따른 삭제 필터와 대회·검색·단체 조건 및 정렬 계약을 검증한다. */
     @ParameterizedTest
@@ -135,6 +141,69 @@ class RegistrationExcelServiceTest {
             assertThat(sheet.getRow(1).getCell(27).getStringCellValue()).isEqualTo(deleted ? "Y" : "N");
             assertThat(sheet.getRow(2).getCell(27).getStringCellValue()).isEqualTo("N");
         }
+    }
+
+    /** 오프라인 대회는 기존 28개 열을 유지하고 참가 항목을 읽지 않는다. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void offlineKeepsTwentyEightColumnsWithoutEntryQuery() throws Exception {
+        when(repository.findEventFormatById("event-1")).thenReturn(EventFormat.OFFLINE);
+        Registration registration = Registration.builder().id("r1").name("참가자").build();
+        when(repository.findAll(any(Specification.class), any(Sort.class))).thenReturn(List.of(registration));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        service.download(new RegistrationSearchCondition("event-1", null, null, null, null),
+                null, null, response);
+
+        try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(response.getContentAsByteArray()))) {
+            assertThat(workbook.getSheet("신청목록").getRow(0).getLastCellNum()).isEqualTo((short) 28);
+        }
+        verifyNoInteractions(entryRepository);
+    }
+
+    /** 버추얼 대회는 끝에 배번·참가 항목 열을 덧붙이고 종목명의 거리 접두어를 뺀다. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void virtualAppendsBibAndEntryColumns() throws Exception {
+        when(repository.findEventFormatById("event-1")).thenReturn(EventFormat.VIRTUAL);
+        Registration registration = Registration.builder().id("r1").name("참가자").build();
+        Registration single = Registration.builder().id("r2").name("단품").build();
+        Registration empty = Registration.builder().id("r3").name("항목없음").build();
+        when(repository.findAll(any(Specification.class), any(Sort.class)))
+                .thenReturn(List.of(registration, single, empty));
+        List<RegistrationEntry> entries = List.of(
+                entry(registration, "5km | 어벤저스", "받는1", "10001"),
+                entry(registration, "10km | 엑스맨", "받는2", "20001"),
+                entry(registration, "3km | 가디언즈", "받는3", "30001"),
+                entry(single, "어벤저스", "단품", null));
+        when(entryRepository.findByRegistrationIds(any())).thenReturn(entries);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        service.download(new RegistrationSearchCondition("event-1", null, null, null, null),
+                null, null, response);
+
+        try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(response.getContentAsByteArray()))) {
+            Sheet sheet = workbook.getSheet("신청목록");
+            assertThat(sheet.getRow(0).getLastCellNum()).isEqualTo((short) 30);
+            assertThat(sheet.getRow(0).getCell(27).getStringCellValue()).isEqualTo("현재 명단 제외 여부");
+            assertThat(sheet.getRow(0).getCell(28).getStringCellValue()).isEqualTo("배번");
+            assertThat(sheet.getRow(0).getCell(29).getStringCellValue()).isEqualTo("참가 항목");
+            assertThat(sheet.getRow(1).getCell(28).getStringCellValue()).isEqualTo("10001 | 20001 | 30001");
+            assertThat(sheet.getRow(1).getCell(29).getStringCellValue())
+                    .isEqualTo("어벤저스 받는1 | 엑스맨 받는2 | 가디언즈 받는3");
+            assertThat(sheet.getRow(2).getCell(28).getStringCellValue()).isEmpty();
+            assertThat(sheet.getRow(2).getCell(29).getStringCellValue()).isEqualTo("어벤저스 단품");
+            assertThat(sheet.getRow(3).getCell(28).getStringCellValue()).isEmpty();
+            assertThat(sheet.getRow(3).getCell(29).getStringCellValue()).isEmpty();
+        }
+    }
+
+    private RegistrationEntry entry(Registration registration, String categoryName, String name, String bib) {
+        EventCategory category = mock(EventCategory.class);
+        when(category.getName()).thenReturn(categoryName);
+        return RegistrationEntry.builder().registration(registration)
+                .eventCategory(category)
+                .name(name).bibNumber(bib).build();
     }
 
     /** 한글 표시명 추가 후에도 API 직렬화와 영문 상태 식별자의 왕복 변환을 유지한다. */

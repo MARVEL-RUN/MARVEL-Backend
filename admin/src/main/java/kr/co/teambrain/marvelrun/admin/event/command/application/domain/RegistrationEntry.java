@@ -5,6 +5,7 @@ import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import kr.co.teambrain.marvelrun.common.entity.RegistrationEntryBase;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -13,6 +14,7 @@ import lombok.experimental.SuperBuilder;
 /*
  * 사용자 서버 참조 파일: user/.../event/command/application/domain/RegistrationEntry.java
  * 신청의 종목별 참가 항목. 관리자 배번 발급·명단에서 쓴다.
+ * 배번은 JDBC로 발급하며, 배번 컬럼은 RegistrationEntryBase에서 UPDATE 대상이 아니다.
  */
 @Getter
 @Entity
@@ -49,5 +51,13 @@ public class RegistrationEntry extends RegistrationEntryBase<Event, Registration
         this.phNum = registration.getPhNum();
         this.birth = registration.getBirth();
         this.gender = registration.getGender();
+    }
+
+    /** 관리자가 패키지 받는 사람 정보를 고친다. 배번은 그대로 둔다. */
+    public void modifyRecipientByAdmin(String name, String phNum, String birth, GenderClass gender) {
+        this.name = name;
+        this.phNum = phNum;
+        this.birth = birth;
+        this.gender = gender;
     }
 }
