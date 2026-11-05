@@ -43,6 +43,27 @@ public interface RegistrationCommandRepository extends JpaRepository<Registratio
     List<Object[]> lockActiveOrganizationVersions(@Param("eventId") String eventId,
                                                  @Param("organizationId") String organizationId);
 
+    /**
+     * 참가자 로그인 후보. 같은 사람의 살아 있는 개인 신청은 중복 인덱스가 하나로 묶는다.
+     * 비밀번호는 호출부가 해시로 대조한다.
+     */
+    @Query("""
+        select r from Registration r
+        where r.event.id = :eventId
+          and r.organization is null
+          and r.name = :name
+          and r.phNum = :phNum
+          and r.birth = :birth
+          and r.softDeleted = false
+        order by r.id
+        """)
+    List<Registration> findActivePersonalByIdentity(
+            @Param("eventId") String eventId,
+            @Param("name") String name,
+            @Param("phNum") String phNum,
+            @Param("birth") String birth
+    );
+
     @Query("""
         select case
                    when count(r) > 0 then true

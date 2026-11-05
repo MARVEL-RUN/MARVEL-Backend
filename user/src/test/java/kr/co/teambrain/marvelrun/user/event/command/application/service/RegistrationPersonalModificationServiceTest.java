@@ -1,4 +1,5 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
+
 import kr.co.teambrain.marvelrun.user.discount.service.RegistrationPriceCalculationRecorder;
 
 import jakarta.persistence.EntityManager;

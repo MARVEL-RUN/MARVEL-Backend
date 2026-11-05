@@ -1,5 +1,9 @@
 package kr.co.teambrain.marvelrun.user.event.query.service;
 
+import kr.co.teambrain.marvelrun.common.inheritance_enum.upgrade.PackageUpgradeStatus;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.PackageUpgrade;
+import kr.co.teambrain.marvelrun.user.event.command.repository.PackageUpgradeCommandRepository;
+import java.util.stream.Collectors;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
@@ -42,6 +46,7 @@ public class RegistrationReceiptQueryService {
     private final RegistrationReceiptQueryRepository repository;
     private final RegistrationReceiptPaymentResolver paymentResolver;
     private final ServerTimeProvider time;
+    private final PackageUpgradeCommandRepository packageUpgrades;
 
     /** 개인 신청 ID 없이 현재 본인정보로 조회하며 취소·재신청 이력은 별도 카드로 반환한다. */
     public List<RegistrationReceiptResponse> personal(String eventId, RegistrationAccessRequest access) {
@@ -99,9 +104,13 @@ public class RegistrationReceiptQueryService {
         List<PaymentAllocation> allocations = repository.findAllocations(paymentIds);
         List<PaymentCancel> refunds = repository.findRefunds(paymentIds);
         List<PaymentCancelAllocation> refundAllocations = repository.findRefundAllocations(paymentIds);
+        // 상향을 기다리는 개인 신청은 차액을 뺀 단품 금액으로 보여 준다. 단품 결제는 이미 끝났다.
+        Map<String, BigDecimal> pendingUpgradeAmounts = organization != null ? Map.of()
+                : packageUpgrades.findAllByRegistrations(registrationIds, PackageUpgradeStatus.PENDING).stream()
+                        .collect(Collectors.toMap(u -> u.getRegistration().getId(), PackageUpgrade::getAmount));
         RegistrationReceiptPaymentResolver.View view = paymentResolver.resolve(
                 event, registrations, payments, allocations, refunds, refundAllocations,
-                reservations, time.currentDateTime());
+                reservations, pendingUpgradeAmounts, time.currentDateTime());
         List<String> souvenirIds = registrations.stream()
                 .flatMap(r -> selections(r).stream()).map(SouvenirJson::souvenirId).distinct().toList();
         Map<String, String> names = new HashMap<>();
@@ -125,7 +134,8 @@ public class RegistrationReceiptQueryService {
                     registration.getEventCategory().getName(), items(individual, names),
                     registration.isSoftDeleted(), registration.getStatus().name()));
             if (registration.getContractAmount() != null) {
-                totalAmount = totalAmount.add(registration.getContractAmount());
+                totalAmount = totalAmount.add(registration.getContractAmount()
+                        .subtract(pendingUpgradeAmounts.getOrDefault(registration.getId(), BigDecimal.ZERO)));
             }
             if (registration.getPaidAmount() != null) {
                 paidAmount = paidAmount.add(registration.getPaidAmount());

@@ -239,6 +239,18 @@ public class Registration extends RegistrationBase<User, Event, EventCategory, O
         }
     }
 
+    /** 관리자가 결제하지 않은 상향을 취소한다. 요청 때 더한 차액을 빼고 확정 상태로 돌린다. */
+    public void cancelPackageUpgradeByAdmin(BigDecimal amount) {
+        if (softDeleted || status != RegistrationStatus.ADDITIONAL_PAYMENT_REQUIRED
+                || contractAmount == null || paidAmount == null || amount == null
+                || contractAmount.subtract(amount).compareTo(paidAmount) != 0) {
+            throw new CustomException(ErrorCode.PACKAGE_UPGRADE_STATE_CONFLICT,
+                    " 상향 취소 전 계약금액·납부액이 맞지 않습니다. registrationId=" + getId());
+        }
+        this.contractAmount = contractAmount.subtract(amount);
+        this.status = RegistrationStatus.CONFIRMED;
+    }
+
     /** 잠금 상태에서 최초 미결제와 예약 반환을 검증한 호출자만 신청을 만료시킨다. */
     public void expireByAdmin(LocalDateTime now) {
         if (softDeleted || status != RegistrationStatus.PAYMENT_PENDING) {

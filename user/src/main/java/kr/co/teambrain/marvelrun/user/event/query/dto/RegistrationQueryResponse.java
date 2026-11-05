@@ -34,5 +34,7 @@ public record RegistrationQueryResponse(
         @Schema(description = "계산 기록 존재 여부. false는 할인 미적용을 의미하지 않습니다.")
         boolean hasPriceCalculation,
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        RegistrationPriceCalculationResponse priceCalculation
+        RegistrationPriceCalculationResponse priceCalculation,
+        @Schema(description = "진행 중인 단품 → 패키지 상향. 없으면 null")
+        PendingPackageUpgradeResponse pendingUpgrade
 ) { }

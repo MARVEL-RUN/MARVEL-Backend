@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.query.support;
 
+import kr.co.teambrain.marvelrun.user.event.command.repository.PackageUpgradeCommandRepository;
+
 import kr.co.teambrain.marvelrun.user.discount.repository.RegistrationPriceCalculationRepository;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
@@ -94,7 +96,8 @@ class RegistrationAdjustmentPaymentQueryTest {
         when(policies.loadEnabledRegistrationActionPolicies("e", List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT, RegistrationActionType.REGIST))).thenReturn(List.of(new RegistrationActionPolicyInput(
                 "p", "e", Action.PAYMENT, now.minusDays(4), now.minusDays(1), now, true)));
         RegistrationQueryService service = new RegistrationQueryService(encoder, repository, resolver, time, policies,
-                mock(EventCategoryStartGroupRepository.class), mock(RegistrationPriceCalculationRepository.class));
+                mock(EventCategoryStartGroupRepository.class), mock(RegistrationPriceCalculationRepository.class),
+                mock(PackageUpgradeCommandRepository.class));
         OrgRegistrationQueryResponse response = service.findOrganizationRegistrationDetails(
                 "e", new OrganizationAccessRequest("login", "test")).getFirst();
 

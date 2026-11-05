@@ -1,6 +1,9 @@
 package kr.co.teambrain.marvelrun.user.event.query.service;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.upgrade.PackageUpgradeStatus;
+import kr.co.teambrain.marvelrun.user.event.command.repository.PackageUpgradeCommandRepository;
+import kr.co.teambrain.marvelrun.user.event.query.dto.PendingPackageUpgradeResponse;
 import kr.co.teambrain.marvelrun.user.discount.domain.RegistrationPriceCalculation;
 import kr.co.teambrain.marvelrun.user.discount.repository.RegistrationPriceCalculationRepository;
 
@@ -47,6 +50,7 @@ public class RegistrationQueryService {
     private final RegistrationActionPolicyService actionPolicies;
     private final EventCategoryStartGroupRepository startGroupRepository;
     private final RegistrationPriceCalculationRepository priceCalculations;
+    private final PackageUpgradeCommandRepository packageUpgrades;
     private final RegistrationActionPolicyEvaluator policyEvaluator = new RegistrationActionPolicyEvaluator();
 
     /** 개인 취소·재신청 이력도 일괄 조회하고 현재 본인확인을 통과한 행만 반환한다. */
@@ -97,6 +101,7 @@ public class RegistrationQueryService {
         Map<String, String> names = souvenirNames(eventId, members);
         Map<String, String> groupCodes = findStartGroupCodes(members);
         Map<String, RegistrationPriceCalculationResponse> calculations = findCurrentPriceCalculations(members);
+        Map<String, PendingPackageUpgradeResponse> pendingUpgrades = findPendingUpgrades(members);
         List<RegistrationQueryData.Payment> payments = repository.personalPayments(eventId,
                 members.stream().map(RegistrationQueryData.Member::id).toList());
         List<String> ids = payments.stream().map(RegistrationQueryData.Payment::id).toList();
@@ -114,14 +119,27 @@ public class RegistrationQueryService {
                     .flatMap(p -> byPayment.getOrDefault(p.id(), List.of()).stream()).toList();
             RegistrationPaymentQueryResolver.Result payment = paymentResolver.resolveRegistrationPaymentGuidance(List.of(row), own, shares,
                     refunds.stream().filter(r -> ownIds.contains(r.paymentId())).toList(), row.paymentDeadline(), now, policies);
+            if (pendingUpgrades.containsKey(row.id())) {
+                payment = paymentResolver.resolvePendingPackageUpgradeGuidance(payment);
+            }
             result.add(new RegistrationQueryResponse(row.id(), row.name(), row.email(), row.birth(), row.phNum(), row.gender(),
                     row.categoryId(), row.categoryName(), selections(row, names), row.address(), row.addressDetail(),
                     row.guardianConsent(), row.guardianName(), row.guardianPhNum(), row.guardianRelationShip(), row.status(), row.contractAmount(), row.paidAmount(),
                     payment.status(), payment.refundStatus(), payment.action(), payment.warning(), payment.paymentId(), payment.orderId(), row.externalPayment(), policyEvaluator.evaluateRegistrationUserPolicy(row.policyEvent(), toParticipantActionPolicyInput(row), now, policies),
                     row.startGroupId(), row.startGroupId() == null ? null : groupCodes.get(row.startGroupId()), row.startGroupUnselected(),
-                    calculations.containsKey(row.id()), calculations.get(row.id())));
+                    calculations.containsKey(row.id()), calculations.get(row.id()), pendingUpgrades.get(row.id())));
         }
         return List.copyOf(result);
+    }
+
+    /** 신청별 진행 중인 상향. 잠그지 않고 읽는다. */
+    private Map<String, PendingPackageUpgradeResponse> findPendingUpgrades(List<RegistrationQueryData.Member> members) {
+        List<String> ids = members.stream().map(RegistrationQueryData.Member::id).toList();
+        if (ids.isEmpty()) { return Map.of(); }
+        return packageUpgrades.findAllByRegistrations(ids, PackageUpgradeStatus.PENDING).stream()
+                .collect(Collectors.toMap(u -> u.getRegistration().getId(), u -> new PendingPackageUpgradeResponse(
+                        u.getId(), u.getTargetCategory().getId(), u.getTargetCategory().getName(), u.getAmount(),
+                        u.getAddedEntries(), u.getCreatedAt())));
     }
 
     /** 활성 단체원만 반환하며 금액도 조회 당시 활성 명단 기준으로 합산한다. */

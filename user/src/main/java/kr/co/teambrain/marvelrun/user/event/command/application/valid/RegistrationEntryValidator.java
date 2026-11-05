@@ -40,6 +40,9 @@ public class RegistrationEntryValidator {
     private static final String PACKAGE_ENTRIES_REQUIRED =
             "패키지는 종목마다 받는 사람을 한 명씩 입력해주세요.";
 
+    private static final String UPGRADE_ENTRIES_REQUIRED =
+            "더할 종목마다 받는 사람을 한 명씩 입력해주세요.";
+
     private final RegistrationPolicyValidator registrationPolicyValidator;
 
     /**
@@ -135,32 +138,94 @@ public class RegistrationEntryValidator {
         }
 
         return entries.stream()
-                .map(entry -> {
-                    LocalDate birth = registrationPolicyValidator.validateParticipant(
-                            event,
-                            eventPolicy,
-                            new RegistrationPolicyInput(
-                                    entry.birth(),
-                                    request.guardianName(),
-                                    request.guardianConsent()
-                            ),
-                            applicationDate
-                    );
-                    EventCategory component = components.get(entry.eventCategoryId());
-                    registrationPolicyValidator.validateCategoryBirth(
-                            component,
-                            componentPolicies.get(component.getId()),
-                            birth
-                    );
-                    return new RegistrationEntryDraft(
-                            component,
-                            entry.name(),
-                            entry.phNum(),
-                            entry.birth(),
-                            entry.gender()
-                    );
-                })
+                .map(entry -> recipientDraft(
+                        event, eventPolicy, componentPolicies, components.get(entry.eventCategoryId()), entry,
+                        request.guardianName(), request.guardianConsent(), applicationDate))
                 .toList();
+    }
+
+    /**
+     * 단품 → 패키지 상향 때 더할 참가 항목을 판정한다.
+     * 대상은 패키지 하위 종목 가운데 지금 단품을 뺀 나머지이고, 종목마다 받는 사람이 한 명씩 있어야 한다.
+     * 받는 사람이 14세 미만이면 신청 행에 저장된 보호자 값으로 판정한다.
+     */
+    public List<RegistrationEntryDraft> validateUpgrade(
+            Event event,
+            EventCategory packageCategory,
+            EventCategory currentSingle,
+            List<EventCategory> packageComponents,
+            List<RegistrationEntryRequest> entries,
+            String guardianName,
+            boolean guardianConsent,
+            EventRegistrationPolicy eventPolicy,
+            Map<String, EventCategoryRegistrationPolicy> componentPolicies,
+            LocalDate applicationDate
+    ) {
+        Map<String, EventCategory> components = new LinkedHashMap<>();
+        for (EventCategory component : packageComponents) {
+            if (component.getProductType() != ProductType.SINGLE
+                    || !packageCategory.getId().equals(component.getParentCategoryId())) {
+                throw configurationError(" 패키지 하위 종목은 그 패키지를 가리키는 단품이어야 합니다."
+                        + " eventCategoryId=" + packageCategory.getId() + " componentId=" + component.getId());
+            }
+            if (!component.getId().equals(currentSingle.getId())) {
+                components.put(component.getId(), component);
+            }
+        }
+        if (components.isEmpty() || components.size() + 1 != packageComponents.size()) {
+            throw configurationError(" 상향할 패키지 구성에 지금 단품이 없거나 더할 종목이 없습니다."
+                    + " eventCategoryId=" + packageCategory.getId() + " currentId=" + currentSingle.getId());
+        }
+        if (entries == null || entries.size() != components.size()) {
+            throw invalidEntries(UPGRADE_ENTRIES_REQUIRED);
+        }
+        Set<String> requestedCategoryIds = entries.stream()
+                .map(RegistrationEntryRequest::eventCategoryId)
+                .collect(Collectors.toSet());
+        if (!requestedCategoryIds.equals(components.keySet())) {
+            throw invalidEntries(UPGRADE_ENTRIES_REQUIRED);
+        }
+
+        return entries.stream()
+                .map(entry -> recipientDraft(
+                        event, eventPolicy, componentPolicies, components.get(entry.eventCategoryId()), entry,
+                        guardianName, guardianConsent, applicationDate))
+                .toList();
+    }
+
+    /** 받는 사람 한 명을 대회 보호자 정책과 자기 하위 종목의 출생일 정책으로 판정한다. */
+    private RegistrationEntryDraft recipientDraft(
+            Event event,
+            EventRegistrationPolicy eventPolicy,
+            Map<String, EventCategoryRegistrationPolicy> componentPolicies,
+            EventCategory component,
+            RegistrationEntryRequest entry,
+            String guardianName,
+            Boolean guardianConsent,
+            LocalDate applicationDate
+    ) {
+        LocalDate birth = registrationPolicyValidator.validateParticipant(
+                event,
+                eventPolicy,
+                new RegistrationPolicyInput(
+                        entry.birth(),
+                        guardianName,
+                        guardianConsent
+                ),
+                applicationDate
+        );
+        registrationPolicyValidator.validateCategoryBirth(
+                component,
+                componentPolicies.get(component.getId()),
+                birth
+        );
+        return new RegistrationEntryDraft(
+                component,
+                entry.name(),
+                entry.phNum(),
+                entry.birth(),
+                entry.gender()
+        );
     }
 
     private static CustomException invalidEntries(String responseMessage) {

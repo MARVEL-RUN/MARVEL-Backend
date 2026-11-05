@@ -108,6 +108,9 @@ public class RegistrationPersonalModificationService {
                         registrationId
                 );
 
+        // 전체 수정은 계약금액을 가격으로 다시 계산해 상향의 차액을 지운다. 상향을 먼저 끝내거나 취소해야 한다.
+        paymentGuard.rejectPendingPackageUpgrade(registrationId, ErrorCode.PACKAGE_UPGRADE_IN_PROGRESS);
+
         if (comparedVersion != null) {
             Registration current = registrationRepository.findById(registrationId)
                     .orElseThrow(() -> new CustomException(ErrorCode.REGISTRATION_NOT_FOUND));

@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Collections;
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
+import kr.co.teambrain.marvelrun.admin.event.command.repository.PackageUpgradeCommandRepository;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_cancel.PaymentCancelStatus;
@@ -21,7 +22,8 @@ import static org.mockito.Mockito.*;
 /** 관리자 진입 순서·대상 귀속·미확정 차단을 검증한다. 실제 DB 잠금 검증을 대신하지 않는다. */
 class AdminRefundAccessServiceTest {
     private final AdminRefundLockRepository repository = mock(AdminRefundLockRepository.class);
-    private final AdminRefundAccessService service = new AdminRefundAccessService(repository);
+    private final PackageUpgradeCommandRepository packageUpgrades = mock(PackageUpgradeCommandRepository.class);
+    private final AdminRefundAccessService service = new AdminRefundAccessService(repository, packageUpgrades);
 
     /** 프록시 없는 단위 테스트에서 기존 쓰기 트랜잭션 문맥만 표시한다. */
     @BeforeEach

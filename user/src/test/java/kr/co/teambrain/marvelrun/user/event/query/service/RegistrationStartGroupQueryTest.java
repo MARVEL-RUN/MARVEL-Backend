@@ -1,4 +1,6 @@
 package kr.co.teambrain.marvelrun.user.event.query.service;
+
+import kr.co.teambrain.marvelrun.user.event.command.repository.PackageUpgradeCommandRepository;
 import kr.co.teambrain.marvelrun.user.discount.query.DiscountQueryService;
 import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
 import kr.co.teambrain.marvelrun.common.discount.model.RegistrationPriceCalculationSnapshot;
@@ -340,7 +342,8 @@ class RegistrationStartGroupQueryTest {
 
     /** 실제 응답 조립 및 기존 결제 안내 계산을 사용하는 조회 서비스를 구성한다. */
     private RegistrationQueryService service() {
-        return new RegistrationQueryService(encoder, registrations, new RegistrationPaymentQueryResolver(), time, policies, groups, calculations);
+        return new RegistrationQueryService(encoder, registrations, new RegistrationPaymentQueryResolver(), time, policies, groups, calculations,
+                mock(PackageUpgradeCommandRepository.class));
     }
 
     /** 종목별 기념품 projection의 필수 표시값을 제공한다. */

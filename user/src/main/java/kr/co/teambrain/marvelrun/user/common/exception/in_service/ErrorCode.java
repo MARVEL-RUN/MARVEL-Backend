@@ -24,6 +24,14 @@ public enum ErrorCode {
     ORGANIZATION_PRODUCT_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "이 상품은 단체 신청으로 구매할 수 없습니다."),
     REGISTRATION_PRODUCT_CHANGE_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "이 상품은 종목을 바꿀 수 없습니다. 취소한 뒤 다시 신청해주세요."),
 
+    // 참가자 로그인·단품 → 패키지 상향
+    ACCESS_DENIED(HttpStatus.FORBIDDEN, "이 요청을 할 권한이 없습니다."),
+    PACKAGE_UPGRADE_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "패키지로 상향할 수 없는 신청입니다."),
+    PACKAGE_UPGRADE_IN_PROGRESS(HttpStatus.CONFLICT, "진행 중인 패키지 상향이 있습니다. 상향 결제를 마치거나 상향을 취소한 뒤 다시 시도해주세요."),
+    PACKAGE_UPGRADE_NOT_FOUND(HttpStatus.NOT_FOUND, "진행 중인 패키지 상향이 없습니다."),
+    PACKAGE_UPGRADE_LOGIN_REQUIRED(HttpStatus.CONFLICT, "패키지 상향 결제는 로그인한 뒤 상향 화면에서 진행해주세요."),
+    PACKAGE_UPGRADE_STATE_CONFLICT(HttpStatus.CONFLICT, "패키지 상향 상태가 맞지 않습니다. 관리자에게 문의해주세요."),
+
     EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED(
             HttpStatus.CONFLICT,
             "외부 결제로 등록된 신청은 온라인에서 변경·취소·결제할 수 없습니다."

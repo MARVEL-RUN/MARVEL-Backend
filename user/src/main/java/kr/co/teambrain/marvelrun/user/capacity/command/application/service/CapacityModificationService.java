@@ -213,6 +213,73 @@ public class CapacityModificationService {
     }
 
     /**
+     * 미리 held로 잡아 둔 증가분을 확정으로 옮기며 확정 예약 하나의 구성을 바꾼다(단품 → 패키지 상향 승인).
+     *
+     * 증가분을 새로 확보하지 않으므로 그사이 정원이 비활성화되거나 한도가 줄어도 실패하지 않는다.
+     * Diff의 증가분이 미리 잡아 둔 held와 정확히 같아야 하고, 감소분은 확정 수량에서 돌려준다.
+     */
+    public void confirmPreheldReservationMove(
+            String eventId,
+            CapacityRequirementDiff diff,
+            Map<String, Integer> preheld,
+            LocalDateTime now
+    ) {
+        if (eventId == null || eventId.isBlank() || diff == null || preheld == null || now == null
+                || diff.reservationId() == null || diff.reservationVersion() == null) {
+            throw invalidArgument(" 자원 이동 요청의 필수 값이 없습니다.");
+        }
+        Map<String, Integer> newRequirements = extractNewRequirements(diff);
+        Reservation reservation = reservationRepository.findById(diff.reservationId())
+                .orElseThrow(() -> new CustomException(ErrorCode.RESERVATION_NOT_FOUND));
+        validateReservation(eventId, reservation, diff);
+        if (reservation.getStatus() != ReservationStatus.CONSUMED) {
+            throw stateConflict(" 미리 잡아 둔 held는 확정 예약에만 옮길 수 있습니다.");
+        }
+
+        historyRecorder.appendReservationHistorySnapshot(reservation,
+                ReservationHistoryEntry.Action.MODIFY,
+                now,
+                null,
+                "패키지 상향에 따른 자원 구성 변경",
+                newRequirements.entrySet().stream()
+                        .map(entry -> new ReservationHistoryEntry.Item(entry.getKey(), entry.getValue()))
+                        .toList()
+        );
+        reservationRepository.flush();
+
+        CapacityRequirementDiff verified = reservationCapacityDiffService.compareAll(
+                List.of(reservation), Map.of(reservation.getId(), newRequirements)).get(0);
+        if (!verified.items().equals(diff.items())) {
+            throw stateConflict(" 현재 예약 상세와 자원 변경 계산이 일치하지 않습니다. reservationId=" + reservation.getId());
+        }
+
+        Map<String, Integer> increases = new TreeMap<>();
+        for (CapacityRequirementDiff.Item item : verified.items()) {
+            if (item.increase() > 0) {
+                increases.put(item.capacityId(), item.increase());
+            }
+        }
+        if (!increases.equals(new TreeMap<>(preheld))) {
+            throw stateConflict(" 미리 잡아 둔 held와 필요한 증가분이 다릅니다. reservationId=" + reservation.getId());
+        }
+
+        for (Map.Entry<String, Integer> entry : increases.entrySet()) {
+            if (capacityRepository.confirmHeld(eventId, entry.getKey(), entry.getValue(), now) != 1) {
+                throw new CustomException(ErrorCode.CAPACITY_COUNTER_MISMATCH);
+            }
+        }
+        for (CapacityRequirementDiff.Item item : verified.items()) {
+            if (item.decrease() > 0
+                    && capacityRepository.releaseConfirmed(eventId, item.capacityId(), item.decrease(), now) != 1) {
+                throw new CustomException(ErrorCode.CAPACITY_COUNTER_MISMATCH);
+            }
+        }
+
+        replaceItems(List.of(reservation), Map.of(reservation.getId(), newRequirements));
+        reservationItemRepository.flush();
+    }
+
+    /**
      * 전달된 Diff의 기본 형식을 검증하고 수정 후 전체 필요량을 추출한다.
      *
      * old/new와 증가·감소·공통 수량의 일치는 실제 상세 재대조에서 확인한다.

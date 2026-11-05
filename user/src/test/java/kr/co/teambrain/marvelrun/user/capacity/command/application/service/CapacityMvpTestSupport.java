@@ -128,7 +128,11 @@ import static org.mockito.Mockito.*;
         PaymentCancelAllocationCreator.class,
         TossConfirmFailureClassifier.class,
         PaymentConfirmationAllocationSupport.class,
-        AdditionalPaymentTargetResolver.class
+        AdditionalPaymentTargetResolver.class,
+        kr.co.teambrain.marvelrun.user.event.command.application.service.PackageUpgradeApplier.class,
+        kr.co.teambrain.marvelrun.user.event.command.application.service.PackageUpgradeCapacitySupport.class,
+        CapacityModificationService.class,
+        ReservationCapacityDiffService.class
 })
 abstract class CapacityMvpTestSupport {
 

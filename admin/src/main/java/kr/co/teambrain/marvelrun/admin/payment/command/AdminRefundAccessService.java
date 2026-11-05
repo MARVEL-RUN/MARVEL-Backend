@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.admin.payment.command;
 
+import kr.co.teambrain.marvelrun.admin.event.command.repository.PackageUpgradeCommandRepository;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.upgrade.PackageUpgradeStatus;
 import java.util.List;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +22,7 @@ import kr.co.teambrain.marvelrun.admin.payment.command.AdminRefundLockedScope.*;
 @Transactional(propagation = Propagation.MANDATORY)
 public class AdminRefundAccessService {
     private final AdminRefundLockRepository repository;
+    private final PackageUpgradeCommandRepository packageUpgrades;
     public static final int MAX_TARGETS = 100;
 
     /**
@@ -77,6 +80,10 @@ public class AdminRefundAccessService {
         List<RegistrationRow> registrations = repository.lockRegistrations(eventId, ids);
         if (!registrations.stream().map(RegistrationRow::id).sorted().toList().equals(ids)) {
             throw new CustomException(ErrorCode.REGISTRATION_NOT_FOUND);
+        }
+        // 상향 대기 중인 신청은 환불·정보 변경이 잡아 둔 held를 모르므로 먼저 상향을 취소해야 한다.
+        if (!packageUpgrades.findAllByRegistrations(ids, PackageUpgradeStatus.PENDING).isEmpty()) {
+            throw new CustomException(ErrorCode.ADMIN_PACKAGE_UPGRADE_PENDING);
         }
         for (RegistrationRow registration : registrations) {
             boolean moneyValid = registration.contractAmount() != null && registration.paidAmount() != null

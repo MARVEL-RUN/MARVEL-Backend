@@ -156,6 +156,60 @@ class RegistrationEntryValidatorTest {
                 List.of(), request(null, null), null, Map.of()));
     }
 
+    /** 상향은 지금 단품을 뺀 하위 종목마다 받는 사람 한 명으로 항목을 만든다. */
+    @Test
+    void upgradeCreatesEntriesForOtherChildren() {
+        List<RegistrationEntryDraft> entries = validateUpgrade(List.of(
+                entry("fantastic4", "1993-01-01"), entry("xmen", "1991-01-01")), null, false,
+                eventPolicy(), unrestrictedPolicies("avengers"));
+
+        assertThat(entries).extracting(entry -> entry.eventCategory().getId())
+                .containsExactly("fantastic4", "xmen");
+    }
+
+    /** 상향 입력에 지금 단품이 있거나, 종목이 빠지거나 겹치면 거절한다. */
+    @Test
+    void upgradeRejectsCurrentMissingOrDuplicatedChildren() {
+        expectEntriesError(() -> validateUpgrade(List.of(
+                entry("avengers", "1991-01-01"), entry("xmen", "1992-01-01")), null, false, null, Map.of()));
+        expectEntriesError(() -> validateUpgrade(List.of(entry("xmen", "1992-01-01")), null, false, null, Map.of()));
+        expectEntriesError(() -> validateUpgrade(List.of(
+                entry("xmen", "1991-01-01"), entry("xmen", "1992-01-01")), null, false, null, Map.of()));
+        expectEntriesError(() -> validateUpgrade(null, null, false, null, Map.of()));
+    }
+
+    /** 지금 단품이 패키지 구성에 없으면 설정 오류다. */
+    @Test
+    void upgradeRequiresCurrentSingleInPackage() {
+        EventCategory other = EventCategory.builder().id("other").productType(ProductType.SINGLE)
+                .parentCategoryId("another-package").build();
+
+        expectError(ErrorCode.REGISTRATION_POLICY_CONFIGURATION_ERROR, () -> validator.validateUpgrade(
+                event, category(ProductType.PACKAGE), other, components,
+                List.of(entry("xmen", "1991-01-01"), entry("fantastic4", "1992-01-01")),
+                null, false, null, Map.of(), TODAY));
+    }
+
+    /** 14세 미만 받는 사람은 신청 행에 저장된 보호자 값으로 판정한다. */
+    @Test
+    void upgradeRecipientUnderGuardianAgeUsesStoredGuardian() {
+        List<RegistrationEntryRequest> entries = List.of(entry("xmen", "2015-01-01"), entry("fantastic4", "1993-01-01"));
+
+        expectError(ErrorCode.GUARDIAN_NAME_REQUIRED,
+                () -> validateUpgrade(entries, null, false, eventPolicy(), Map.of()));
+        assertThat(validateUpgrade(entries, "보호자", true, eventPolicy(), unrestrictedPolicies("avengers"))).hasSize(2);
+    }
+
+    private List<RegistrationEntryDraft> validateUpgrade(
+            List<RegistrationEntryRequest> entries,
+            String guardianName,
+            boolean guardianConsent,
+            EventRegistrationPolicy eventPolicy,
+            Map<String, EventCategoryRegistrationPolicy> componentPolicies) {
+        return validator.validateUpgrade(event, category(ProductType.PACKAGE), components.get(0), components,
+                entries, guardianName, guardianConsent, eventPolicy, componentPolicies, TODAY);
+    }
+
     private List<RegistrationEntryDraft> validate(
             EventCategory category,
             List<EventCategory> children,

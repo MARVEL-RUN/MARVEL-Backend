@@ -8,6 +8,7 @@ import kr.co.teambrain.marvelrun.admin.auth.command.application.exception.JwtAut
 import kr.co.teambrain.marvelrun.admin.common.redis.RedisService;
 import kr.co.teambrain.marvelrun.admin.security.config.TokenProperties;
 import kr.co.teambrain.marvelrun.admin.security.details.CustomAdminDetail;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.ParticipantTokenRole;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
@@ -105,6 +106,29 @@ public class JwtUtil {
     }
 
 
+    /**
+     * 두 앱이 서명 키를 같이 쓰므로 사용자 앱이 발급한 참가자 토큰도 서명 검증을 통과한다.
+     * role이 참가자 역할이면 거부한다.
+     * 관리자 앱에서 토큰으로 인증하는 경로를 새로 만들면 반드시 이 메서드를 거친다.
+     */
+    public void requireAdminRole(
+            Claims claims
+    ) {
+
+        if (ParticipantTokenRole.includes(
+                claims.get(
+                        "role",
+                        String.class
+                )
+        )) {
+
+            throw new JwtAuthenticationException(
+                    AuthErrorCode.NOT_ADMIN_TOKEN
+            );
+        }
+    }
+
+
     public Authentication getAuthentication(
             Claims claims
     ) {
@@ -134,6 +158,11 @@ public class JwtUtil {
                     AuthErrorCode.TOKEN_CLAIMS_EMPTY
             );
         }
+
+
+        requireAdminRole(
+                claims
+        );
 
 
         CustomAdminDetail adminDetail =

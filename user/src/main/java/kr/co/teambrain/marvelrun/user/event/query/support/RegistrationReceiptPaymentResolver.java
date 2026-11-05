@@ -31,11 +31,14 @@ import java.util.Set;
 public class RegistrationReceiptPaymentResolver {
     private final EventPaymentPolicyValidator policyValidator;
 
-    /** 금융 원장과 현재 금액, 진행 중 요청, 유효 주문 후보를 순서대로 확인한다. */
+    /**
+     * 금융 원장과 현재 금액, 진행 중 요청, 유효 주문 후보를 순서대로 확인한다.
+     * pendingUpgradeAmounts는 단품 → 패키지 상향을 기다리는 신청의 차액이다. 그 신청은 차액을 뺀 단품 금액으로 판정한다.
+     */
     public View resolve(Event event, List<Registration> members, List<Payment> payments,
             List<PaymentAllocation> allocations, List<PaymentCancel> refunds,
             List<PaymentCancelAllocation> refundAllocations,
-            Map<String, Reservation> reservations, LocalDateTime now) {
+            Map<String, Reservation> reservations, Map<String, BigDecimal> pendingUpgradeAmounts, LocalDateTime now) {
         String inquiryOrderId = payments.isEmpty() ? null : payments.get(0).getOrderId();
         if (!consistent(members, payments, allocations, refunds, refundAllocations)) {
             return view(DisplayStatus.DATA_CHECK_REQUIRED, PaymentAction.CONTACT_SUPPORT, null,
@@ -62,10 +65,12 @@ public class RegistrationReceiptPaymentResolver {
         boolean additional = false;
         boolean allCanceled = true;
         for (Registration member : members) {
-            refundNeeded |= member.getPaidAmount().compareTo(member.getContractAmount()) > 0;
+            BigDecimal contract = member.getContractAmount()
+                    .subtract(pendingUpgradeAmounts.getOrDefault(member.getId(), BigDecimal.ZERO));
+            refundNeeded |= member.getPaidAmount().compareTo(contract) > 0;
             if (!member.isSoftDeleted()) {
                 allCanceled = false;
-                if (member.getContractAmount().compareTo(member.getPaidAmount()) > 0) {
+                if (contract.compareTo(member.getPaidAmount()) > 0) {
                     unpaidIds.add(member.getId());
                     additional |= is(member.getStatus(), "ADDITIONAL_PAYMENT_REQUIRED");
                 }

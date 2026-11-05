@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import kr.co.teambrain.marvelrun.user.event.command.repository.PackageUpgradeCommandRepository;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
@@ -28,7 +29,8 @@ class RegistrationModificationPaymentGuardTest {
             mock(PaymentRefundConflictGuard.class);
 
     private final RegistrationModificationPaymentGuard guard =
-            new RegistrationModificationPaymentGuard(repository, refundGuard);
+            new RegistrationModificationPaymentGuard(repository, refundGuard,
+                    mock(PackageUpgradeCommandRepository.class));
 
     /** 분리된 충돌 검증만 호출하면 READY 상태 변경이나 flush가 없어야 한다. */
     @Test

@@ -13,6 +13,7 @@ import java.security.Key;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 @Component
 public class JwtTokenProvider {
 
@@ -110,6 +111,11 @@ public class JwtTokenProvider {
                         tokenProperties.issuer()
                 )
                 .setIssuedAt(now)
+                // 발급 시각은 초 단위라 같은 초에 다시 발급하면 같은 토큰이 나온다. 발급마다 고유 id를 넣는다.
+                .setId(
+                        UUID.randomUUID()
+                                .toString()
+                )
                 .setExpiration(
                         new Date(
                                 now.getTime()

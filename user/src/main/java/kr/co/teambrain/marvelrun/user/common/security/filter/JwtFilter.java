@@ -37,8 +37,10 @@ public class JwtFilter
             FilterChain filterChain
     ) throws ServletException, IOException {
 
+        // getRequestURI()에는 context-path(/api)가 붙으므로 떼고 비교한다.
         String path =
-                request.getRequestURI();
+                request.getRequestURI()
+                        .substring(request.getContextPath().length());
 
 
         /*

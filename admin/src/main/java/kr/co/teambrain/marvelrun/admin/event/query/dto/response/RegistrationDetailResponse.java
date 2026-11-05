@@ -53,6 +53,12 @@ public record RegistrationDetailResponse(
         RegistrationActionPolicyModels.UserPolicy userPolicy,
         String startGroupId,
         String startGroupCode,
-        boolean startGroupUnselected
+        boolean startGroupUnselected,
+
+        /** 종목별 참가 항목(받는 사람·배번). 상품 종류가 없는 기존 대회는 빈 목록이다. */
+        List<RegistrationEntryResponse> entries,
+
+        /** 진행 중인 단품 → 패키지 상향. 없으면 null */
+        PackageUpgradeSummaryResponse packageUpgrade
 ) {
 }

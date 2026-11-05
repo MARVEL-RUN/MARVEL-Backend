@@ -458,6 +458,42 @@ public class Registration extends RegistrationBase<
     }
 
     /**
+     * 단품 → 패키지 상향을 요청한다. 계약금액에 차액을 더해 기존 추가 결제 흐름으로 결제받는다.
+     * 종목은 결제 승인 때 바꾼다. 결제를 마친 확정 개인 신청만 상향할 수 있다.
+     */
+    public void startPackageUpgrade(BigDecimal amount) {
+        if (organization != null || softDeleted || status != RegistrationStatus.CONFIRMED
+                || contractAmount == null || paidAmount == null
+                || contractAmount.compareTo(paidAmount) != 0
+                || amount == null || amount.signum() <= 0) {
+            throw new CustomException(ErrorCode.PACKAGE_UPGRADE_NOT_ALLOWED);
+        }
+        this.contractAmount = contractAmount.add(amount);
+        this.status = RegistrationStatus.ADDITIONAL_PAYMENT_REQUIRED;
+    }
+
+    /** 결제하지 않은 상향을 취소한다. 요청 때 더한 차액을 빼고 확정 상태로 돌린다. */
+    public void cancelPackageUpgrade(BigDecimal amount) {
+        if (softDeleted || status != RegistrationStatus.ADDITIONAL_PAYMENT_REQUIRED
+                || contractAmount == null || paidAmount == null || amount == null
+                || contractAmount.subtract(amount).compareTo(paidAmount) != 0) {
+            throw new CustomException(ErrorCode.PACKAGE_UPGRADE_STATE_CONFLICT,
+                    " 상향 취소 전 계약금액·납부액이 맞지 않습니다. registrationId=" + getId());
+        }
+        this.contractAmount = contractAmount.subtract(amount);
+        this.status = RegistrationStatus.CONFIRMED;
+    }
+
+    /** 상향 결제 승인 때 종목만 패키지로 바꾼다. 계약금액은 요청 때 이미 올렸다. */
+    public void applyPackageUpgrade(EventCategory packageCategory) {
+        if (softDeleted || packageCategory == null) {
+            throw new CustomException(ErrorCode.PACKAGE_UPGRADE_STATE_CONFLICT,
+                    " 상향을 적용할 수 없는 신청입니다. registrationId=" + getId());
+        }
+        this.eventCategory = packageCategory;
+    }
+
+    /**
      * 신청 수정 후 계약금액과 실제 순결제금액으로 금융 상태를 결정한다.
      *
      * 최초 미결제 여부는 paidAmount == 0만으로 판단하지 않는다.

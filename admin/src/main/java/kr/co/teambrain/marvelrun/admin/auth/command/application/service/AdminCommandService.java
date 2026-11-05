@@ -133,6 +133,12 @@ public class AdminCommandService {
                 );
 
 
+        // 참가자 refresh 토큰은 Redis를 보기 전에 거부한다.
+        jwtUtil.requireAdminRole(
+                claims
+        );
+
+
         String adminId =
                 claims.getSubject();
 

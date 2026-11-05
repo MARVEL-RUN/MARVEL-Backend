@@ -185,6 +185,16 @@ public enum ErrorCode {
     ADMIN_ADJUSTMENT_PRODUCT_CATEGORY_TEMPORARILY_BLOCKED(HttpStatus.CONFLICT,
             "상품(단품·패키지·옵션) 종목으로, 또는 상품 종목에서 바꾸는 관리자 수정은 현재 임시 중단되었습니다."),
 
+    // 단품 → 패키지 상향
+    ADMIN_PACKAGE_UPGRADE_PENDING(HttpStatus.CONFLICT,
+            "패키지 상향 결제를 기다리는 신청입니다. 상향을 먼저 취소한 뒤 다시 시도해주세요."),
+    PACKAGE_UPGRADE_NOT_FOUND(HttpStatus.NOT_FOUND, "진행 중인 패키지 상향이 없습니다."),
+    PACKAGE_UPGRADE_STATE_CONFLICT(HttpStatus.CONFLICT, "패키지 상향 상태가 맞지 않습니다."),
+    PACKAGE_UPGRADE_PAYMENT_IN_PROGRESS(HttpStatus.CONFLICT,
+            "상향 결제가 승인 중이거나 결과를 확인하지 못했습니다. 결제 결과를 먼저 확인해주세요."),
+    INVALID_PACKAGE_UPGRADE_CANCELLATION_REQUEST(HttpStatus.BAD_REQUEST,
+            "버추얼런 대회와 차수 마감 시각을 확인해주세요."),
+
     AGE_RESTRICTION_VIOLATION(HttpStatus.BAD_REQUEST, "만 12세 이하(2013년 11월 1일 이후 출생자)는 10Km 코스에 참가할 수 없습니다."),
     GUARDIAN_INFO_REQUIRED(HttpStatus.BAD_REQUEST, "만 12세 이하 참가자로 변경 시 보호자 정보 입력이 필수입니다."),
     PRICE_TIER_CHANGE_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "생년월일 변경으로 참가비가 달라집니다. 신청 정보·금액 조정 기능으로 변경해 주세요. 차액은 환불 또는 추가 납부로 처리됩니다."),
