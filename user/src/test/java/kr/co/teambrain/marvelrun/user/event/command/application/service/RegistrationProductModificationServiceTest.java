@@ -2,6 +2,7 @@ package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType;
+import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
@@ -18,24 +19,30 @@ import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationEntry
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-/** 개인 수정의 주소 필수·상품 종목 변경 제한과 단품 참가 항목 동기화를 확인한다. */
+/** 개인 수정의 주소 필수·상품 변경 제한과, 신청자 정보를 바꿔도 참가 항목은 그대로 두는지 확인한다. */
 @ExtendWith(MockitoExtension.class)
 class RegistrationProductModificationServiceTest {
+
+    private static final LocalDate TODAY = LocalDate.of(2026, 11, 5);
+    private static final List<SouvenirJson> KIT = List.of(new SouvenirJson("kit", "FREE"));
 
     @Mock
     private EventRegistrationPolicyRepository policies;
@@ -46,13 +53,14 @@ class RegistrationProductModificationServiceTest {
 
     private RegistrationProductModificationService service;
 
-    private final Event event = Event.builder().id("event").build();
+    private final Event event = Event.builder().id("event").startDate(LocalDateTime.of(2026, 12, 1, 9, 0)).build();
     private final EventCategory single = EventCategory.builder()
             .id("avengers").event(event).productType(ProductType.SINGLE).parentCategoryId("package").build();
 
     @BeforeEach
     void setUp() {
-        service = new RegistrationProductModificationService(policies, categories, entries, new RegistrationPolicyValidator());
+        service = new RegistrationProductModificationService(policies, categories, entries, new RegistrationPolicyValidator(),
+                new RegistrationModificationClassifier());
     }
 
     /** 주소 필수 대회에서는 수정으로 주소를 지울 수 없다. 주소가 있으면 정책을 읽지 않는다. */
@@ -68,11 +76,16 @@ class RegistrationProductModificationServiceTest {
     /** 참가 항목이 있는 상품은 개인 수정으로 종목을 바꾸지 않는다(상향은 전용 흐름). */
     @Test
     void rejectsCategoryChangeOfProduct() {
-        when(categories.findById("package")).thenReturn(Optional.of(
-                EventCategory.builder().id("package").event(event).productType(ProductType.PACKAGE).build()));
-
         expectError(ErrorCode.REGISTRATION_PRODUCT_CHANGE_NOT_ALLOWED,
                 () -> service.validate(registration(single), request("package", "주소")));
+    }
+
+    /** 상품 신청은 같은 종목이어도 기념품을 바꾸지 않는다. 대표 줄 하나로 정원을 다시 계산하면 틀린다. */
+    @Test
+    void rejectsSouvenirChangeOfProduct() {
+        RegistrationModificationRequest changed = request("avengers", "주소", List.of(new SouvenirJson("kit", "L")));
+
+        expectError(ErrorCode.REGISTRATION_PRODUCT_CHANGE_NOT_ALLOWED, () -> service.validate(registration(single), changed));
     }
 
     /** 기존 종목에서 상품 종목으로 옮기는 것도 막는다. 기존 종목끼리는 그대로 바꿀 수 있다. */
@@ -99,47 +112,50 @@ class RegistrationProductModificationServiceTest {
         assertThatCode(() -> service.validate(registration, request("other-package", "주소"))).doesNotThrowAnyException();
     }
 
-    /** 단품의 참가 항목은 바뀐 신청자 값을 따르고 배번은 그대로 둔다. */
+    /** 신청자 생년월일 변경을 검사해도 참가 항목(받는 사람)은 그대로다. 신청 행 반영은 개인정보 수정이 한다. */
     @Test
-    void syncsSingleEntryWithApplicant() {
+    void applicantBirthChangeDoesNotTouchEntries() {
+        guardianPolicy();
         RegistrationEntry entry = RegistrationEntry.builder().event(event).eventCategory(single)
-                .name("기존").phNum("010-0000-0000").birth("1990-01-01").gender(GenderClass.M).bibNumber("10001").build();
+                .name("아이").phNum("010-0000-0000").birth("2001-01-01").gender(GenderClass.M).bibNumber("10001").build();
         when(entries.findByRegistration_Id("r1")).thenReturn(List.of(entry));
-
-        service.syncApplicantEntry(registration(single), request("avengers", "주소"));
-
-        assertThat(entry.getName()).isEqualTo("변경이름");
-        assertThat(entry.getPhNum()).isEqualTo("010-9999-9999");
-        assertThat(entry.getBirth()).isEqualTo("1991-02-03");
-        assertThat(entry.getGender()).isEqualTo(GenderClass.F);
-        assertThat(entry.getBibNumber()).isEqualTo("10001");
-    }
-
-    /** 단품인데 참가 항목이 없으면 바뀐 신청자 값으로 항목을 만든다. */
-    @Test
-    void createsMissingSingleEntry() {
         Registration registration = registration(single);
-        when(entries.findByRegistration_Id("r1")).thenReturn(List.of());
 
-        service.syncApplicantEntry(registration, request("avengers", "주소"));
+        service.validateApplicantChange(registration, request("avengers", "주소"), TODAY);
 
-        ArgumentCaptor<RegistrationEntry> saved = ArgumentCaptor.forClass(RegistrationEntry.class);
-        verify(entries).save(saved.capture());
-        assertThat(saved.getValue().getRegistration()).isSameAs(registration);
-        assertThat(saved.getValue().getEventCategory()).isSameAs(single);
-        assertThat(saved.getValue().getName()).isEqualTo("변경이름");
-        assertThat(saved.getValue().getBirth()).isEqualTo("1991-02-03");
+        assertThat(registration.getBirth()).isEqualTo("1990-01-01");
+        assertThat(entry.getName()).isEqualTo("아이");
+        assertThat(entry.getPhNum()).isEqualTo("010-0000-0000");
+        assertThat(entry.getBirth()).isEqualTo("2001-01-01");
+        assertThat(entry.getGender()).isEqualTo(GenderClass.M);
+        assertThat(entry.getBibNumber()).isEqualTo("10001");
+        verify(entries, never()).save(any());
     }
 
-    /** 패키지·기존 종목은 신청자 수정으로 항목을 바꾸지 않는다. */
+    /** 보호자는 신청에 하나이므로 14세 미만 받는 사람이 있으면 신청자가 성인이어도 보호자를 지울 수 없다. */
     @Test
-    void doesNotSyncNonSingleEntries() {
-        Registration registration = registration(
-                EventCategory.builder().id("package").event(event).productType(ProductType.PACKAGE).build());
+    void guardianRecheckCoversEntries() {
+        guardianPolicy();
+        RegistrationEntry child = RegistrationEntry.builder().event(event).eventCategory(single)
+                .name("아이").phNum("010-0000-0000").birth("2016-01-01").gender(GenderClass.M).build();
+        when(entries.findByRegistration_Id("r1")).thenReturn(List.of(child));
+        Registration registration = Registration.builder().id("r1").event(event).eventCategory(single)
+                .souvenirJson(KIT).birth("1990-01-01").guardianName("보호자").guardianConsent(true).build();
 
-        service.syncApplicantEntry(registration, request("package", "주소"));
+        expectError(ErrorCode.GUARDIAN_NAME_REQUIRED,
+                () -> service.validateApplicantChange(registration, request("avengers", "주소"), TODAY));
+        assertThat(registration.getBirth()).isEqualTo("1990-01-01");
+    }
 
-        verifyNoInteractions(entries);
+    /** 생년월일·보호자가 그대로면 정책도 항목도 읽지 않는다. */
+    @Test
+    void unchangedApplicantSkipsGuardianRecheck() {
+        Registration registration = Registration.builder().id("r1").event(event).eventCategory(single)
+                .souvenirJson(KIT).birth("1991-02-03").build();
+
+        service.validateApplicantChange(registration, request("avengers", "주소"), TODAY);
+
+        verifyNoInteractions(policies, entries);
     }
 
     private void addressRequired(boolean required) {
@@ -148,14 +164,26 @@ class RegistrationProductModificationServiceTest {
         when(policies.findByEventId("event")).thenReturn(Optional.of(policy));
     }
 
+    private void guardianPolicy() {
+        EventRegistrationPolicy policy = mock(EventRegistrationPolicy.class);
+        when(policy.getEvent()).thenReturn(event);
+        when(policy.getGuardianRequiredBirthFrom()).thenReturn(LocalDate.of(2012, 11, 6));
+        when(policies.findByEventId("event")).thenReturn(Optional.of(policy));
+    }
+
     private Registration registration(EventCategory category) {
-        return Registration.builder().id("r1").event(event).eventCategory(category).build();
+        return Registration.builder().id("r1").event(event).eventCategory(category).souvenirJson(KIT)
+                .birth("1990-01-01").build();
     }
 
     private static RegistrationModificationRequest request(String categoryId, String address) {
+        return request(categoryId, address, KIT);
+    }
+
+    private static RegistrationModificationRequest request(String categoryId, String address, List<SouvenirJson> souvenirs) {
         return new RegistrationModificationRequest(
                 new RegistrationAccessRequest("기존", "1990-01-01", "010-0000-0000", "password"),
-                categoryId, List.of(), "변경이름", "010-9999-9999", "1991-02-03", GenderClass.F,
+                categoryId, souvenirs, "변경이름", "010-9999-9999", "1991-02-03", GenderClass.F,
                 address, null, false, null, null, null, null, "group", true);
     }
 

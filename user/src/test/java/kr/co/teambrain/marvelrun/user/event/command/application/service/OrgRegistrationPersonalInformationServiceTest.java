@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Optional;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
+import kr.co.teambrain.marvelrun.user.event.command.repository.EventCommandRepository;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
@@ -53,7 +54,7 @@ class OrgRegistrationPersonalInformationServiceTest {
     private final OrgRegistrationModificationAccessValidator access = new OrgRegistrationModificationAccessValidator(passwordEncoder, organizations, repository);
     private final OrgRegistrationPersonalInformationValidator validator = new OrgRegistrationPersonalInformationValidator(
             INPUTS.getValidator(), new RegistrationInformationPolicyValidator(),
-            new RegistrationUniqueInfoValidator(repository));
+            new RegistrationUniqueInfoValidator(repository, mock(EventCommandRepository.class)));
     private final RegistrationStartGroupResolver startGroups = mock(RegistrationStartGroupResolver.class);
     private final RegistrationModificationTransactionService commands = new RegistrationModificationTransactionService(
             startGroups,

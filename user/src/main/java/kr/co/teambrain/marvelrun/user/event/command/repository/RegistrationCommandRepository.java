@@ -155,4 +155,30 @@ public interface RegistrationCommandRepository extends JpaRepository<Registratio
             @Param("phNum") String phNum,
             @Param("birth") String birth
     );
+
+    /**
+     * 본인을 뺀 같은 신원의 살아 있는 신청 수를 잠금 읽기(FOR SHARE)로 센다.
+     *
+     * 같은 신청자 주문 여러 건을 허용한 대회의 신청은 DB 유니크 인덱스가 보지 않으므로,
+     * 대회 행 잠금 뒤 이 쿼리로 다른 트랜잭션이 이미 커밋한 최신 행까지 본다.
+     * REPEATABLE READ에서 일반 조회는 트랜잭션 첫 읽기 때의 스냅숏을 보기 때문이다.
+     */
+    @Query(value = """
+        select count(*)
+        from registration r
+        where r.event_id = :eventId
+          and r.id <> :registrationId
+          and r.name = :name
+          and r.ph_num = :phNum
+          and r.birth = :birth
+          and r.is_del = 0
+        for share
+        """, nativeQuery = true)
+    long countOtherActiveByEventIdAndUniqueInfoForShare(
+            @Param("eventId") String eventId,
+            @Param("registrationId") String registrationId,
+            @Param("name") String name,
+            @Param("phNum") String phNum,
+            @Param("birth") String birth
+    );
 }

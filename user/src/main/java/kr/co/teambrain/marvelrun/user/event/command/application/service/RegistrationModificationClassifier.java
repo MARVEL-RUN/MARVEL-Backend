@@ -103,6 +103,22 @@ public class RegistrationModificationClassifier {
     }
 
     /**
+     * 종목·기념품 선택이 바뀌었는지만 본다. 생년월일은 비교하지 않는다.
+     * 상품 신청은 이 값을 바꾸지 못하므로 수정 거절 판정에 쓴다.
+     */
+    public boolean selectionChanged(Registration current, RegistrationModificationRequest request) {
+        if (current == null || request == null) {
+            throw invalidArgument();
+        }
+        if (current.getEventCategory() == null
+                || !Objects.equals(current.getEventCategory().getId(), request.eventCategoryId())) {
+            return true;
+        }
+        return !souvenirSelections(current.getSouvenirJson())
+                .equals(souvenirSelections(request.selectedSouvenirList()));
+    }
+
+    /**
      * 접근 검증된 활성 구성원 전체와 요청을 비교한다. 순서는 무시하되 중복 ID는 거부한다.
      * 추가·삭제 또는 한 명의 정책 영향 변경만 있어도 요청 전체를 FULL로 분류한다.
      * 단체장·연락처·주소·이메일·보호자 동의 변경은 개인정보 수정으로 분류한다.

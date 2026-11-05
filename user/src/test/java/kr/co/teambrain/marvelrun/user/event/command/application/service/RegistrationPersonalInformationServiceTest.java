@@ -5,12 +5,14 @@ import jakarta.persistence.LockModeType;
 import jakarta.validation.Validation;
 import jakarta.validation.ValidatorFactory;
 import java.math.BigDecimal;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
+import kr.co.teambrain.marvelrun.user.event.command.repository.EventCommandRepository;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
@@ -60,7 +62,7 @@ class RegistrationPersonalInformationServiceTest {
     private final RegistrationModificationSettlementService settlement = mock(RegistrationModificationSettlementService.class);
     private final ServerTimeProvider time = mock(ServerTimeProvider.class);
     private final RegistrationPersonalInformationValidator validator = new RegistrationPersonalInformationValidator(
-            INPUTS.getValidator(), new RegistrationInformationPolicyValidator(), new RegistrationUniqueInfoValidator(repository),
+            INPUTS.getValidator(), new RegistrationInformationPolicyValidator(), new RegistrationUniqueInfoValidator(repository, mock(EventCommandRepository.class)),
             guardianPolicies, new RegistrationPolicyValidator());
     private final RegistrationStartGroupResolver startGroups = mock(RegistrationStartGroupResolver.class);
     private final RegistrationActionPolicyService actionPolicies = mock(RegistrationActionPolicyService.class);
@@ -103,7 +105,32 @@ class RegistrationPersonalInformationServiceTest {
         assertThat(result.members().getFirst().balance()).isEqualByComparingTo("5000");
         verify(repository).flush();
         verifyNoInteractions(full, organization, settlement, entityManager, guardianPolicies);
-        verify(productModifications).syncApplicantEntry(eq(current), any());
+        // 일반 종목 신청은 상품 신청자 변경 준비를 거치지 않는다.
+        verify(productModifications, never()).validateApplicantChange(any(), any(), any());
+    }
+
+    /** 상품 신청은 생년월일이 바뀌어도 전체 수정(가격·정원 재계산)으로 가지 않고 개인정보 수정으로 처리한다. */
+    @Test
+    void productBirthChangeUsesPersonalInformationPath() {
+        Registration current = fixture(RegistrationStatus.CONFIRMED, NOW.minusDays(1), NOW.plusDays(1), EventStatus.OPEN);
+        Registration product = Registration.builder().startGroupId("group").startGroupUnselected(false).id("r")
+                .event(current.getEvent())
+                .eventCategory(EventCategory.builder().id("c").productType(ProductType.SINGLE).build())
+                .souvenirJson(current.getSouvenirJson()).name(current.getName()).phNum(current.getPhNum())
+                .password(current.getPassword()).birth("1990-01-01").gender(GenderClass.M).address("정정 주소").addressDetail("상세")
+                .guardianConsent(false).status(RegistrationStatus.CONFIRMED).contractAmount(new BigDecimal("10000"))
+                .paidAmount(new BigDecimal("10000")).version(7L).build();
+        when(repository.findActivePersonalModificationTarget("e", "r")).thenReturn(Optional.of(product));
+        RegistrationModificationRequest request = request("기존 이름", "c", "1990-01-02");
+
+        commands.modifyPersonalRegistration("e", "r", request);
+
+        verify(productModifications).validate(product, request);
+        verify(productModifications).validateApplicantChange(product, request, NOW.toLocalDate());
+        // 보호자 재검사를 마친 생년월일은 개인정보 수정이 신청 행에 반영한다.
+        assertThat(product.getBirth()).isEqualTo("1990-01-02");
+        verify(repository).flush();
+        verifyNoInteractions(full, settlement);
     }
 
     /** 변경 없음은 flush나 정산 없이 낙관적 읽기 보호만 등록한다. */
@@ -115,8 +142,7 @@ class RegistrationPersonalInformationServiceTest {
         verify(repository, never()).flush();
         verify(entityManager).lock(any(Registration.class), eq(LockModeType.OPTIMISTIC));
         verifyNoInteractions(full, organization, settlement);
-        // 변경 없음은 단품 참가 항목을 맞추거나 만들지 않는다(동시 요청의 항목 중복 생성 방지).
-        verify(productModifications, never()).syncApplicantEntry(any(), any());
+        verify(productModifications, never()).validateApplicantChange(any(), any(), any());
     }
 
     /** 전체 수정은 최초 비교 version을 전달하고 기존 후속 정산으로 연결한다. */
