@@ -1,5 +1,8 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.domain;
 
+import jakarta.persistence.AttributeOverride;
+import jakarta.persistence.AttributeOverrides;
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
@@ -12,10 +15,14 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
 
-/** 신청의 종목별 참가 항목. 받는 사람과 배번을 담는다. */
+/** 신청의 종목별 참가 항목. 받는 사람과 배번을 담는다. 배번은 관리자만 발급하므로 사용자 앱은 쓰지 않는다. */
 @Getter
 @Entity
 @SuperBuilder
+@AttributeOverrides({
+        @AttributeOverride(name = "bibNumber", column = @Column(name = "bib_number", length = 20, updatable = false)),
+        @AttributeOverride(name = "bibIssuedAt", column = @Column(name = "bib_issued_at", updatable = false))
+})
 @Table(
         name = "registration_entry",
         uniqueConstraints = {

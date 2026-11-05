@@ -9,13 +9,16 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
+import org.hibernate.annotations.DynamicUpdate;
 
 /*
  * 사용자 서버 참조 파일: user/.../event/command/application/domain/RegistrationEntry.java
  * 신청의 종목별 참가 항목. 관리자 배번 발급·명단에서 쓴다.
+ * 배번은 JDBC로 발급하므로, 바뀐 컬럼만 갱신해 오래된 NULL 배번을 되쓰지 않게 한다.
  */
 @Getter
 @Entity
+@DynamicUpdate
 @SuperBuilder
 @Table(
         name = "registration_entry",
