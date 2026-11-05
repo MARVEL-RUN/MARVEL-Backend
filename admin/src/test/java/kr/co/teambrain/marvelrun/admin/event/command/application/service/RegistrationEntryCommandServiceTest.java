@@ -72,6 +72,7 @@ class RegistrationEntryCommandServiceTest {
         catB = category("b", "B", ProductType.SINGLE);
         eventPolicy = mock(EventRegistrationPolicy.class);
         lenient().when(eventPolicy.getEvent()).thenReturn(event);
+        lenient().when(eventPolicy.isGuardianConsentRequired()).thenReturn(true);
         lenient().when(eventPolicy.getGuardianRequiredBirthFrom()).thenReturn(LocalDate.of(2013, 11, 1));
         policyA = categoryPolicy(catA, null, null);
         EventCategoryRegistrationPolicy policyB = categoryPolicy(catB, null, null);
@@ -149,7 +150,7 @@ class RegistrationEntryCommandServiceTest {
     /** 없는 신청은 거절한다. */
     @Test
     void rejectsMissingRegistration() {
-        when(registrations.findById("r")).thenReturn(Optional.empty());
+        when(registrations.findByIdForUpdate("r")).thenReturn(Optional.empty());
 
         assertError(ErrorCode.REGISTRATION_NOT_FOUND, request(valid("ea")));
     }
@@ -195,7 +196,7 @@ class RegistrationEntryCommandServiceTest {
     }
 
     private void stubEntries(Registration registration) {
-        lenient().when(registrations.findById("r")).thenReturn(Optional.of(registration));
+        lenient().when(registrations.findByIdForUpdate("r")).thenReturn(Optional.of(registration));
         entryA = entry("ea", registration, catA, "원래A", "10001");
         entryB = entry("eb", registration, catB, "원래B", "20001");
         lenient().when(entryRepository.findByRegistration_Id("r")).thenReturn(List.of(entryA, entryB));

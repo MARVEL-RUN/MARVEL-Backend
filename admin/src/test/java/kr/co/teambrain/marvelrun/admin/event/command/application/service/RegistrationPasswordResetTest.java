@@ -21,8 +21,19 @@ import kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCat
 import kr.co.teambrain.marvelrun.admin.event.command.application.dto.AdminRegistrationModifyRequest;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.EventCategoryStartGroupRepository;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
+import kr.co.teambrain.marvelrun.admin.event.command.application.context.RegistrationPolicyContext;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.RegistrationEntry;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.policy.EventRegistrationPolicy;
+import kr.co.teambrain.marvelrun.admin.event.command.application.valid.RegistrationPolicyValidator;
+import kr.co.teambrain.marvelrun.admin.event.command.application.valid.loader.RegistrationPolicyLoader;
+import kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationEntryCommandRepository;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType;
 
 import java.util.Optional;
 
@@ -66,10 +77,55 @@ class RegistrationPasswordResetTest {
     private final EventCommandRepository events = mock(EventCommandRepository.class);
     private final OrganizationCommandRepository organizations = mock(OrganizationCommandRepository.class);
     private final EventCategoryStartGroupRepository groupRepository = mock(EventCategoryStartGroupRepository.class);
+    private final RegistrationPolicyLoader policyLoader = mock(RegistrationPolicyLoader.class);
+    private final RegistrationEntryCommandRepository entries = mock(RegistrationEntryCommandRepository.class);
+    private final ServerTimeProvider time = mock(ServerTimeProvider.class);
     private final RegistrationCommandService personalService = new RegistrationCommandService(
-            encoder, registrations, mock(AdminUnpaidRegistrationCancellationService.class), new RegistrationStartGroupResolver(groupRepository), events);
+            encoder, registrations, mock(AdminUnpaidRegistrationCancellationService.class), new RegistrationStartGroupResolver(groupRepository), events,
+            policyLoader, new RegistrationPolicyValidator(), entries, time);
     private final OrganizationCommandService organizationService = new OrganizationCommandService(
             encoder, organizations, registrations);
+
+    /**
+     * 상품 신청은 오프라인 대회의 연령 규칙(요금 구분 변경 차단)을 보지 않는다.
+     * 보호자는 대회 정책으로 신청자와 받는 사람 모두에 대해 본다.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void productRegistrationUsesEventGuardianPolicyInsteadOfOfflineAgeRules(boolean guardianConsentRequired) {
+        Event event = mock(Event.class);
+        EventCategory category = mock(EventCategory.class);
+        when(event.getId()).thenReturn("event");
+        when(category.getId()).thenReturn("category");
+        when(category.getProductType()).thenReturn(ProductType.SINGLE);
+        when(groupRepository.findByEventCategoryIdInAndActiveTrueOrderByEventCategoryIdAscSortOrderAsc(List.of("category")))
+                .thenReturn(List.of(EventCategoryStartGroup.builder().id("rear").eventCategoryId("category").active(true).sortOrder(20).build()));
+        Registration registration = Registration.builder().id("r").event(event).eventCategory(category)
+                .birth("1990-01-01").build();
+        when(registrations.findById("r")).thenReturn(Optional.of(registration));
+        EventRegistrationPolicy policy = mock(EventRegistrationPolicy.class);
+        when(policy.getEvent()).thenReturn(event);
+        when(policy.getGuardianRequiredBirthFrom()).thenReturn(LocalDate.of(2012, 11, 6));
+        when(policy.isGuardianConsentRequired()).thenReturn(guardianConsentRequired);
+        when(policyLoader.load("event", Set.of(), Set.of())).thenReturn(new RegistrationPolicyContext(policy, Map.of(), Map.of()));
+        RegistrationEntry child = mock(RegistrationEntry.class);
+        when(child.getBirth()).thenReturn("2015-01-01");
+        when(entries.findByRegistration_Id("r")).thenReturn(List.of(child));
+        when(time.currentDateTime()).thenReturn(LocalDateTime.of(2026, 11, 6, 10, 0));
+        // 오프라인 규칙이면 요금 구분이 바뀌어 PRICE_TIER_CHANGE_NOT_ALLOWED가 나는 생년월일 변경
+        AdminRegistrationModifyRequest request = new AdminRegistrationModifyRequest(
+                "테스트", "01012345678", "2014-01-01", GenderClass.M,
+                "", "주소", "없음", "", "", "", "rear", false);
+
+        if (guardianConsentRequired) {
+            assertThatThrownBy(() -> personalService.modifyRegistrationBasicInfo("r", request))
+                    .isInstanceOfSatisfying(CustomException.class,
+                            exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.GUARDIAN_NAME_REQUIRED));
+        } else {
+            personalService.modifyRegistrationBasicInfo("r", request);
+            assertThat(registration.getBirth()).isEqualTo("2014-01-01");
+        }
+    }
 
     /** 관리자 기본정보 수정은 직접 후미 선택과 미선택을 구별하며 외부결제 신청에도 반영된다. */
     @ParameterizedTest

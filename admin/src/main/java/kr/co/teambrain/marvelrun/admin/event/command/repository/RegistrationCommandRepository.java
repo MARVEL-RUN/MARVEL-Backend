@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 public interface RegistrationCommandRepository extends JpaRepository<Registration, String> {
 
@@ -16,6 +17,11 @@ public interface RegistrationCommandRepository extends JpaRepository<Registratio
                                                 @Param("names") List<String> names);
 
     List<Registration> findAllByOrganization_Id(String organizationId);
+
+    /** 받는 사람 수정처럼 참가 항목을 바꿀 때 사용자 서버(참가자 받는 사람 수정)와 같은 신청 행을 잠근다. */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from Registration r where r.id = :registrationId")
+    Optional<Registration> findByIdForUpdate(@Param("registrationId") String registrationId);
 
     /**
      * 관리자 수정 시, 본인을 제외한 다른 활성(softDeleted = false) 참가자 중

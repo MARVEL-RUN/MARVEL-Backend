@@ -18,8 +18,15 @@ import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegis
 import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegistrationBatchResponse;
 import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegistrationBatchResponse.Failure;
 import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegistrationBatchResponse.Success;
+import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.RegistrationEntry;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.policy.EventRegistrationPolicy;
+import kr.co.teambrain.marvelrun.admin.event.command.application.valid.RegistrationPolicyValidator;
+import kr.co.teambrain.marvelrun.admin.event.command.application.valid.dto.RegistrationPolicyInput;
+import kr.co.teambrain.marvelrun.admin.event.command.application.valid.loader.RegistrationPolicyLoader;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.EventCommandRepository;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationCommandRepository;
+import kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationEntryCommandRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -44,6 +51,10 @@ public class RegistrationCommandService {
     private final AdminUnpaidRegistrationCancellationService unpaidCancellation;
     private final RegistrationStartGroupResolver startGroups;
     private final EventCommandRepository eventCommandRepository;
+    private final RegistrationPolicyLoader policyLoader;
+    private final RegistrationPolicyValidator policyValidator;
+    private final RegistrationEntryCommandRepository entryRepository;
+    private final ServerTimeProvider serverTimeProvider;
 
     /**
      * 개인 신청 비밀번호를 해시로 변환하여 초기화한다.
@@ -72,6 +83,60 @@ public class RegistrationCommandService {
                 .orElseThrow(() -> new CustomException(ErrorCode.REGISTRATION_NOT_FOUND));
 
         LocalDate modifiedBirth = LocalDate.parse(request.birth(), DateTimeFormatter.ISO_DATE);
+
+        // 1~3은 오프라인 대회의 연령 규칙이다. 상품 신청은 가격·정원이 생년월일을 보지 않으므로 적용하지 않고,
+        // 보호자만 대회 정책(guardian_consent_required)으로 신청자와 모든 받는 사람에 대해 다시 본다.
+        if (registration.isProductPurchase()) {
+            validateProductGuardian(registration, request);
+        } else {
+            validateOfflineAgeRules(registration, request, modifiedBirth);
+        }
+
+        // 4. 복합 유니크(이름+연락처+생년월일) 중복 방어
+        validateIdentity(registration, request);
+
+        // 기존 기본정보 검증을 유지하고 현재 종목의 그룹만 변경한다.
+        RegistrationStartGroupResolver.Selection selection = startGroups.resolveRegistrationStartGroups(List.of(
+                new RegistrationStartGroupResolver.Input(registration.getEventCategory().getId(),
+                        request.startGroupId(), request.startGroupUnselected()))).getFirst();
+        registration.applyStartGroupSelection(selection.startGroupId(), selection.unselected());
+        registration.modifyBasicInfoByAdmin(
+                request.name(),
+                request.phNum(),
+                request.email(),
+                request.birth(),
+                request.gender(),
+                request.address(),
+                request.addressDetail(),
+                request.guardianName(),
+                request.guardianPhNum(),
+                request.guardianRelationship(),
+                LocalDateTime.now()
+        );
+    }
+
+    /**
+     * 상품 신청의 보호자를 대회 정책으로 검사한다. 사용자 서버 신청·수정과 같은 규칙이다.
+     * 보호자는 신청에 하나이고 받는 사람 모두가 같이 쓰므로 받는 사람 생년월일도 같은 보호자로 본다.
+     * 보호자 동의를 받지 않는 대회(버추얼런)는 생년월일 형식만 본다.
+     */
+    private void validateProductGuardian(Registration registration, AdminRegistrationModifyRequest request) {
+        EventRegistrationPolicy policy = policyLoader.load(registration.getEvent().getId(), Set.of(), Set.of())
+                .eventPolicy();
+        String guardianName = request.guardianName() == null || request.guardianName().isBlank()
+                ? null : request.guardianName().strip();
+        LocalDate today = serverTimeProvider.currentDateTime().toLocalDate();
+        policyValidator.validateParticipant(registration.getEvent(), policy,
+                new RegistrationPolicyInput(request.birth(), guardianName, registration.isGuardianConsent()), today);
+        for (RegistrationEntry entry : entryRepository.findByRegistration_Id(registration.getId())) {
+            policyValidator.validateParticipant(registration.getEvent(), policy,
+                    new RegistrationPolicyInput(entry.getBirth(), guardianName, registration.isGuardianConsent()), today);
+        }
+    }
+
+    /** 오프라인 대회의 기본정보 수정 연령 규칙(연령 제한 코스, 보호자 정보, 요금 구분 변경)을 검사한다. */
+    private void validateOfflineAgeRules(Registration registration, AdminRegistrationModifyRequest request,
+            LocalDate modifiedBirth) {
         LocalDate eventDate = registration.getEvent().getStartDate().toLocalDate();
 
         // 1. 10Km 코스 연령 제한 방어 (만 12세 이하 - 2013년 11월 1일 이후 출생자)
@@ -102,27 +167,6 @@ public class RegistrationCommandService {
             throw new CustomException(ErrorCode.PRICE_TIER_CHANGE_NOT_ALLOWED);
         }
 
-        // 4. 복합 유니크(이름+연락처+생년월일) 중복 방어
-        validateIdentity(registration, request);
-
-        // 기존 기본정보 검증을 유지하고 현재 종목의 그룹만 변경한다.
-        RegistrationStartGroupResolver.Selection selection = startGroups.resolveRegistrationStartGroups(List.of(
-                new RegistrationStartGroupResolver.Input(registration.getEventCategory().getId(),
-                        request.startGroupId(), request.startGroupUnselected()))).getFirst();
-        registration.applyStartGroupSelection(selection.startGroupId(), selection.unselected());
-        registration.modifyBasicInfoByAdmin(
-                request.name(),
-                request.phNum(),
-                request.email(),
-                request.birth(),
-                request.gender(),
-                request.address(),
-                request.addressDetail(),
-                request.guardianName(),
-                request.guardianPhNum(),
-                request.guardianRelationship(),
-                LocalDateTime.now()
-        );
     }
 
     /**

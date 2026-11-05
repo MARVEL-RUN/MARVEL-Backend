@@ -46,12 +46,13 @@ public class RegistrationEntryCommandService {
     /** 요청에 담긴 받는 사람만 정책 검증을 거쳐 고친다. 한 명이라도 거절되면 전체를 취소한다. */
     public RegistrationEntryModifyResponse modifyEntries(String registrationId, RegistrationEntryModifyRequest request) {
         LocalDateTime now = serverTimeProvider.currentDateTime();
-        Registration registration = registrationCommandRepository.findById(registrationId)
+        // 참가자 받는 사람 수정·신청자 정보 수정과 겹치지 않도록 신청 행을 잠근 뒤 항목을 읽는다.
+        Registration registration = registrationCommandRepository.findByIdForUpdate(registrationId)
                 .orElseThrow(() -> new CustomException(ErrorCode.REGISTRATION_NOT_FOUND));
         if (registration.isSoftDeleted()) {
             throw new CustomException(ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET);
         }
-        if (registration.getEventCategory().getProductType() == null) {
+        if (!registration.isProductPurchase()) {
             throw new CustomException(ErrorCode.REGISTRATION_ENTRY_PACKAGE_ONLY);
         }
 
