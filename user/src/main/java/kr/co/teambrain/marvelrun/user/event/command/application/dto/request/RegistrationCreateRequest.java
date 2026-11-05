@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
+import kr.co.teambrain.marvelrun.user.event.command.application.valid.CategorySelectionRequired;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.PersonalRegistrationPassword;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
@@ -14,8 +15,9 @@ import java.util.List;
  * 개인 신청의 그룹 선택·미선택 입력을 포함하며 비밀번호 정책은 변경 요청과 공유한다.
  *
  * 상품(단품·패키지) 구매는 items에 줄마다 상품·기념품·받는 사람을 담고 최상위 종목·기념품·entries는 비운다.
- * 일반 종목 신청은 items 없이 최상위 종목·기념품을 보낸다.
+ * 일반 종목 신청은 items 없이 최상위 종목·기념품을 보낸다. 이때 누락 오류는 @CategorySelectionRequired가 필드별로 낸다.
  */
+@CategorySelectionRequired
 public record RegistrationCreateRequest(
 
         /** 일반 종목 신청의 종목. items를 보내면 비운다. */
@@ -98,15 +100,14 @@ public record RegistrationCreateRequest(
     }
 
     /**
-     * 일반 종목 신청은 최상위 종목·기념품이 있어야 하고,
      * 상품 구매(items)는 최상위 종목·기념품·entries를 비워야 한다.
+     * items가 없을 때의 종목·기념품 누락은 @CategorySelectionRequired가 필드 오류로 낸다.
      */
     @JsonIgnore
-    @AssertTrue(message = "종목과 기념품을 선택하거나, 상품은 items로 보내주세요.")
+    @AssertTrue(message = "상품은 items로만 보내고 최상위 종목·기념품·entries는 비워주세요.")
     public boolean isCategorySelectionValid() {
         if (!hasItems()) {
-            return eventCategoryId != null && !eventCategoryId.isBlank()
-                    && selectedSouvenirList != null && !selectedSouvenirList.isEmpty();
+            return true;
         }
         return (eventCategoryId == null || eventCategoryId.isBlank())
                 && (selectedSouvenirList == null || selectedSouvenirList.isEmpty())

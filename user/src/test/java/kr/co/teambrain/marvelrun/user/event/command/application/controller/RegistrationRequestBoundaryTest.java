@@ -26,6 +26,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** 실제 MVC 검증이 인증·생성 요청의 필수값 오류를 서비스 호출 전에 차단하는지 확인한다. */
@@ -219,11 +220,27 @@ class RegistrationRequestBoundaryTest {
     /** 최상위 종목·기념품은 items가 없을 때 필수이고, items를 보내면 비워야 한다. */
     @Test
     void rejectsMixedOrMissingCategorySelection() throws Exception {
-        reject("/registrations", false, json.createObjectNode().put("password", "test"), "categorySelectionValid");
+        reject("/registrations", false, json.createObjectNode().put("password", "test"), "eventCategoryId");
+        reject("/registrations", false, json.createObjectNode().put("password", "test"), "selectedSouvenirList");
         ObjectNode mixed = json.createObjectNode().put("password", "test").put("eventCategoryId", "avengers");
         ObjectNode item = mixed.putArray("items").addObject().put("eventCategoryId", "avengers");
         item.putArray("selectedSouvenirList").addObject().put("souvenirId", "kit");
         reject("/registrations", false, mixed, "categorySelectionValid");
+        assertServicesUntouched();
+    }
+
+    /** items 없는 일반 신청의 종목·기념품 누락은 items 도입 전과 같은 필드·코드(REQUIRED)로 응답한다. */
+    @Test
+    void keepsLegacyRequiredErrorsForCategoryAndSouvenirs() throws Exception {
+        ObjectNode body = json.createObjectNode().put("password", "test").put("eventCategoryId", " ");
+        body.putArray("selectedSouvenirList");
+        mvc.perform(post(ROOT + "/registrations").contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(body)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[?(@.target == 'eventCategoryId')].code").value("REQUIRED"))
+                .andExpect(jsonPath("$.errors[?(@.target == 'eventCategoryId')].rejectedValue").value(" "))
+                .andExpect(jsonPath("$.errors[?(@.target == 'selectedSouvenirList')].code").value("REQUIRED"))
+                .andExpect(jsonPath("$.errors[?(@.target == 'categorySelectionValid')]").isEmpty());
         assertServicesUntouched();
     }
 
