@@ -272,4 +272,15 @@ public class Registration extends RegistrationBase<User, Event, EventCategory, O
             this.detailMemo = this.detailMemo + "\n" + logMessage;
         }
     }
+
+    /** 관리자가 패키지 받는 사람 정보를 고친 사실을 메모에 남긴다. */
+    public void recordRecipientModifiedByAdmin(LocalDateTime now, int count) {
+        String timestamp = now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        String logMessage = String.format("[%s] 관리자에 의한 패키지 받는 사람 정보 수정 (%d명)", timestamp, count);
+        if (this.detailMemo == null || this.detailMemo.isBlank()) {
+            this.detailMemo = logMessage;
+        } else {
+            this.detailMemo = this.detailMemo + "\n" + logMessage;
+        }
+    }
 }

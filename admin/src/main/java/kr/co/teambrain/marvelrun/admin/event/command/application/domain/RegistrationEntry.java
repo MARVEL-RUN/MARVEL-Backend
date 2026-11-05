@@ -5,6 +5,7 @@ import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import kr.co.teambrain.marvelrun.common.entity.RegistrationEntryBase;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -52,5 +53,13 @@ public class RegistrationEntry extends RegistrationEntryBase<Event, Registration
         this.phNum = registration.getPhNum();
         this.birth = registration.getBirth();
         this.gender = registration.getGender();
+    }
+
+    /** 관리자가 패키지 받는 사람 정보를 고친다. 배번은 그대로 둔다. */
+    public void modifyRecipientByAdmin(String name, String phNum, String birth, GenderClass gender) {
+        this.name = name;
+        this.phNum = phNum;
+        this.birth = birth;
+        this.gender = gender;
     }
 }
