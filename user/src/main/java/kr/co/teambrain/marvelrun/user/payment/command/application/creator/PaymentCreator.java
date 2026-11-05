@@ -5,6 +5,8 @@ import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_log.Payme
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_log.PaymentProcessType;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.RegistrationItem;
+import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationItemCommandRepository;
 import kr.co.teambrain.marvelrun.user.payment.command.application.generator.PaymentOrderIdGenerator;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.PaymentProcessLog;
@@ -19,6 +21,7 @@ import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomExceptio
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -42,6 +45,9 @@ public class PaymentCreator {
 
     private final PaymentOrderIdGenerator
             paymentOrderIdGenerator;
+
+    private final RegistrationItemCommandRepository
+            registrationItemCommandRepository;
 
 
     /**
@@ -223,13 +229,29 @@ public class PaymentCreator {
 
     /**
      * 개인 Toss 결제창 주문명.
+     *
+     * 상품 신청은 "대회명 - 첫 상품명 외 N건"이다. 구매 줄이 하나이거나 없으면 "대회명 - 종목명"이다.
      */
     private String createOrderName(
             Registration registration
     ) {
+        String eventName =
+                registration.getEvent().getNameKr();
 
-        return registration.getEvent()
-                .getNameKr()
+        if (registration.getEventCategory().getProductType() != null) {
+            List<RegistrationItem> items =
+                    registrationItemCommandRepository
+                            .findByRegistration_IdOrderBySortOrderAsc(registration.getId());
+
+            if (!items.isEmpty()) {
+                String first = eventName + " - " + items.getFirst().getEventCategory().getName();
+                return items.size() == 1
+                        ? first
+                        : first + " 외 " + (items.size() - 1) + "건";
+            }
+        }
+
+        return eventName
                 + " - "
                 + registration.getEventCategory()
                 .getName();

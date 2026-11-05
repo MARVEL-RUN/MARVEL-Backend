@@ -8,7 +8,6 @@ import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.policy.EventCategoryRegistrationPolicy;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.policy.EventRegistrationPolicy;
-import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationCreateRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationEntryRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.dto.RegistrationPolicyInput;
 import lombok.RequiredArgsConstructor;
@@ -24,9 +23,10 @@ import java.util.stream.Collectors;
 /**
  * 상품 종류에 맞는 참가 항목을 판정한다.
  *
- * 상품 종류가 없는 종목(기존 대회)은 참가 항목을 만들지 않는다.
- * 단품은 그 종목과 신청자 값으로 항목 하나를, 패키지는 하위 종목마다 받는 사람 값으로 항목을 만든다.
- * 받는 사람의 생년월일·보호자 조건은 대회 정책으로, 출생일 범위는 자기 하위 종목의 정책으로 본다.
+ * 상품 종류가 없는 종목(기존 대회)은 참가 항목을 만들지 않는다. 상품은 구매 줄(items)로만 산다.
+ * 단품 줄은 그 종목의 받는 사람 한 명으로, 패키지 줄은 하위 종목마다 받는 사람 한 명으로 항목을 만든다.
+ * 받는 사람의 생년월일·보호자 조건은 대회 정책으로, 출생일 범위는 자기 종목의 정책으로 본다.
+ * 보호자 입력은 신청에 하나이고 모든 받는 사람이 같이 쓴다.
  *
  * 조회는 호출부가 한다. 패키지 하위 종목은 parent_category_id로 패키지를 가리키는 종목 목록으로 넘겨받는다.
  */
@@ -34,8 +34,17 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class RegistrationEntryValidator {
 
-    private static final String SINGLE_ENTRIES_NOT_ALLOWED =
-            "이 상품은 받는 사람을 따로 입력하지 않습니다.";
+    private static final String ENTRIES_NOT_ALLOWED =
+            "이 종목은 받는 사람을 따로 입력하지 않습니다.";
+
+    private static final String PRODUCT_ITEMS_REQUIRED =
+            "단품·패키지 상품은 상품 목록(items)으로 신청해주세요.";
+
+    private static final String ITEM_PRODUCT_REQUIRED =
+            "상품 목록에는 단품·패키지 상품만 담을 수 있습니다.";
+
+    private static final String SINGLE_ENTRY_REQUIRED =
+            "단품은 그 종목의 받는 사람을 한 명 입력해주세요.";
 
     private static final String PACKAGE_ENTRIES_REQUIRED =
             "패키지는 종목마다 받는 사람을 한 명씩 입력해주세요.";
@@ -46,73 +55,89 @@ public class RegistrationEntryValidator {
     private final RegistrationPolicyValidator registrationPolicyValidator;
 
     /**
-     * 저장할 참가 항목을 돌려준다. 참가 항목이 없는 상품이면 빈 목록이다.
-     *
-     * 단품은 신청자 값을, 패키지는 요청의 받는 사람 값과 신청의 보호자 입력을 쓴다.
-     *
-     * @param packageComponents  패키지 하위 종목. 패키지가 아니면 빈 목록
+     * 구매 줄 없이 최상위 종목으로 신청할 때 본다. 일반 종목만 받고 받는 사람 입력은 받지 않는다.
      */
-    public List<RegistrationEntryDraft> validate(
-            Event event,
+    public void validateWithoutItems(
             EventCategory category,
+            List<RegistrationEntryRequest> entries
+    ) {
+        if (category.getProductType() != null) {
+            throw invalidEntries(PRODUCT_ITEMS_REQUIRED);
+        }
+        if (entries != null && !entries.isEmpty()) {
+            throw invalidEntries(ENTRIES_NOT_ALLOWED);
+        }
+    }
+
+    /**
+     * 구매 줄 하나의 참가 항목을 돌려준다.
+     *
+     * @param packageComponents 패키지 하위 종목. 패키지가 아니면 빈 목록
+     * @param entryPolicies     받는 사람 종목(단품 줄의 상품, 패키지 하위 종목)의 출생일 정책
+     */
+    public List<RegistrationEntryDraft> validateItem(
+            Event event,
+            EventCategory product,
             List<EventCategory> packageComponents,
-            RegistrationCreateRequest request,
+            List<RegistrationEntryRequest> entries,
+            String guardianName,
+            Boolean guardianConsent,
             EventRegistrationPolicy eventPolicy,
-            Map<String, EventCategoryRegistrationPolicy> componentPolicies,
+            Map<String, EventCategoryRegistrationPolicy> entryPolicies,
             LocalDate applicationDate
     ) {
-        List<RegistrationEntryRequest> entries = request.entries();
-        boolean hasEntries = entries != null && !entries.isEmpty();
-        ProductType productType = category.getProductType();
-
+        ProductType productType = product.getProductType();
         if (productType == null) {
-            if (hasEntries) {
-                throw invalidEntries(SINGLE_ENTRIES_NOT_ALLOWED);
-            }
-            return List.of();
+            throw invalidEntries(ITEM_PRODUCT_REQUIRED);
         }
 
         return switch (productType) {
             case OPTION -> throw new CustomException(
                     ErrorCode.PRODUCT_NOT_PURCHASABLE_ALONE,
-                    " eventCategoryId=" + category.getId()
+                    " eventCategoryId=" + product.getId()
             );
-            case SINGLE -> single(category, request, hasEntries);
+            case SINGLE -> single(
+                    event, product, entries, guardianName, guardianConsent,
+                    eventPolicy, entryPolicies, applicationDate
+            );
             case PACKAGE -> packageEntries(
-                    event, category, packageComponents, request, hasEntries,
-                    eventPolicy, componentPolicies, applicationDate
+                    event, product, packageComponents, entries, guardianName, guardianConsent,
+                    eventPolicy, entryPolicies, applicationDate
             );
         };
     }
 
     private List<RegistrationEntryDraft> single(
-            EventCategory category,
-            RegistrationCreateRequest request,
-            boolean hasEntries
+            Event event,
+            EventCategory product,
+            List<RegistrationEntryRequest> entries,
+            String guardianName,
+            Boolean guardianConsent,
+            EventRegistrationPolicy eventPolicy,
+            Map<String, EventCategoryRegistrationPolicy> entryPolicies,
+            LocalDate applicationDate
     ) {
-        if (hasEntries) {
-            throw invalidEntries(SINGLE_ENTRIES_NOT_ALLOWED);
+        if (entries == null || entries.size() != 1
+                || !product.getId().equals(entries.get(0).eventCategoryId())) {
+            throw invalidEntries(SINGLE_ENTRY_REQUIRED);
         }
-        return List.of(new RegistrationEntryDraft(
-                category,
-                request.name(),
-                request.phNum(),
-                request.birth(),
-                request.gender()
-        ));
+        return List.of(recipientDraft(
+                event, eventPolicy, entryPolicies, product, entries.get(0),
+                guardianName, guardianConsent, applicationDate));
     }
 
     private List<RegistrationEntryDraft> packageEntries(
             Event event,
             EventCategory category,
             List<EventCategory> packageComponents,
-            RegistrationCreateRequest request,
-            boolean hasEntries,
+            List<RegistrationEntryRequest> entries,
+            String guardianName,
+            Boolean guardianConsent,
             EventRegistrationPolicy eventPolicy,
             Map<String, EventCategoryRegistrationPolicy> componentPolicies,
             LocalDate applicationDate
     ) {
-        List<RegistrationEntryRequest> entries = request.entries();
+        boolean hasEntries = entries != null && !entries.isEmpty();
         Map<String, EventCategory> components = new LinkedHashMap<>();
         for (EventCategory component : packageComponents) {
             if (component.getProductType() != ProductType.SINGLE
@@ -140,7 +165,7 @@ public class RegistrationEntryValidator {
         return entries.stream()
                 .map(entry -> recipientDraft(
                         event, eventPolicy, componentPolicies, components.get(entry.eventCategoryId()), entry,
-                        request.guardianName(), request.guardianConsent(), applicationDate))
+                        guardianName, guardianConsent, applicationDate))
                 .toList();
     }
 

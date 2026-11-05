@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 
 /** DB 할인 정책을 공통 계산기에 전달하며 모듈의 업무 오류로 변환한다. */
@@ -57,5 +58,29 @@ public class RegistrationPricingService {
             throw new CustomException(ErrorCode.DISCOUNT_CONFIGURATION_ERROR);
         }
         return result;
+    }
+
+    /**
+     * 구매 줄 가격의 단순 합. 묶음 할인은 없다.
+     * 기준·최종·반올림 금액은 더하고 할인 내역은 줄 순서대로 잇는다. 줄 가격은 모두 계산에 성공한 값이어야 한다.
+     */
+    public static DiscountModels.PriceResult sum(List<DiscountModels.PriceResult> prices) {
+        if (prices.isEmpty()) {
+            throw new CustomException(ErrorCode.DISCOUNT_CONFIGURATION_ERROR);
+        }
+        BigDecimal base = BigDecimal.ZERO;
+        BigDecimal total = BigDecimal.ZERO;
+        BigDecimal rounding = BigDecimal.ZERO;
+        List<DiscountModels.AppliedDiscount> discounts = new ArrayList<>();
+        for (DiscountModels.PriceResult price : prices) {
+            if (price.failure() != DiscountModels.Failure.NONE) {
+                throw new CustomException(ErrorCode.DISCOUNT_CONFIGURATION_ERROR);
+            }
+            base = base.add(price.baseAmount());
+            total = total.add(price.finalAmount());
+            rounding = rounding.add(price.roundingAdjustmentAmount());
+            discounts.addAll(price.appliedDiscounts());
+        }
+        return new DiscountModels.PriceResult(DiscountModels.Failure.NONE, base, total, rounding, List.copyOf(discounts));
     }
 }

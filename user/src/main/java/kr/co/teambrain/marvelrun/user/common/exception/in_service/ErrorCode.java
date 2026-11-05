@@ -23,6 +23,8 @@ public enum ErrorCode {
     ORGANIZATION_REGISTRATION_DISABLED(HttpStatus.BAD_REQUEST, "이 대회는 단체 신청을 받지 않습니다."),
     ORGANIZATION_PRODUCT_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "이 상품은 단체 신청으로 구매할 수 없습니다."),
     REGISTRATION_PRODUCT_CHANGE_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "이 상품은 종목을 바꿀 수 없습니다. 취소한 뒤 다시 신청해주세요."),
+    REGISTRATION_ITEM_LIMIT_EXCEEDED(HttpStatus.BAD_REQUEST, "한 번에 상품은 10개까지 신청할 수 있습니다."),
+    REGISTRATION_ADDITIONAL_ORDER_LOGIN_REQUIRED(HttpStatus.CONFLICT, "이미 신청한 정보입니다. 로그인한 뒤 마이페이지에서 추가 주문해주세요."),
 
     // 참가자 로그인·단품 → 패키지 상향
     ACCESS_DENIED(HttpStatus.FORBIDDEN, "이 요청을 할 권한이 없습니다."),
@@ -31,6 +33,7 @@ public enum ErrorCode {
     PACKAGE_UPGRADE_NOT_FOUND(HttpStatus.NOT_FOUND, "진행 중인 패키지 상향이 없습니다."),
     PACKAGE_UPGRADE_LOGIN_REQUIRED(HttpStatus.CONFLICT, "패키지 상향 결제는 로그인한 뒤 상향 화면에서 진행해주세요."),
     PACKAGE_UPGRADE_STATE_CONFLICT(HttpStatus.CONFLICT, "패키지 상향 상태가 맞지 않습니다. 관리자에게 문의해주세요."),
+    PACKAGE_UPGRADE_MULTI_ITEM_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "상품을 여러 개 담은 신청은 아직 패키지로 상향할 수 없습니다."),
 
     EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED(
             HttpStatus.CONFLICT,

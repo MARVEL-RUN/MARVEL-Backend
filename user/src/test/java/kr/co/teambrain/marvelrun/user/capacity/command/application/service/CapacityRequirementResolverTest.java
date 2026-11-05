@@ -134,6 +134,67 @@ class CapacityRequirementResolverTest {
     }
 
     /**
+     * 구매 줄 하나는 전체 정원을 사람 수(참가 항목 수)만큼, 종목·묶음·기념품 정원은 1개씩 쓴다.
+     * 패키지 줄(하위 종목 3개)은 전체 정원 3, 단품 줄은 1이다.
+     */
+    @Test
+    void eventTotalUsesParticipantCountPerItem() {
+        CapacityCommandRepository repository =
+                mock(CapacityCommandRepository.class);
+
+        when(repository.findRegistrationTargets(
+                "event", "package", CapacityType.EVENT_TOTAL
+        )).thenReturn(List.of(
+                target("total", CapacityType.EVENT_TOTAL, null, ""),
+                target("package-cap", CapacityType.CATEGORY, null, ""),
+                target("group-cap", CapacityType.CATEGORY_GROUP, null, "")
+        ));
+        when(repository.findRegistrationTargets(
+                "event", "avengers", CapacityType.EVENT_TOTAL
+        )).thenReturn(List.of(
+                target("total", CapacityType.EVENT_TOTAL, null, ""),
+                target("avengers-cap", CapacityType.CATEGORY, null, ""),
+                target("group-cap", CapacityType.CATEGORY_GROUP, null, "")
+        ));
+        when(repository.findSouvenirTargets(
+                "event", Set.of("kit")
+        )).thenReturn(List.of(
+                target("kit-total", CapacityType.SOUVENIR, "kit", "")
+        ));
+
+        var results = new CapacityRequirementResolver(repository).resolveAll(
+                "event",
+                List.of(
+                        new CapacityRequirementInput("package", false,
+                                List.of(new SouvenirJson("kit", "FREE")), 3),
+                        new CapacityRequirementInput("avengers", false,
+                                List.of(new SouvenirJson("kit", "FREE")))
+                )
+        );
+
+        assertThat(results.get(0))
+                .containsEntry("total", 3)
+                .containsEntry("package-cap", 1)
+                .containsEntry("group-cap", 1)
+                .containsEntry("kit-total", 1);
+        assertThat(results.get(1))
+                .containsEntry("total", 1)
+                .containsEntry("avengers-cap", 1)
+                .containsEntry("group-cap", 1)
+                .containsEntry("kit-total", 1);
+    }
+
+    /**
+     * 전체 정원 차감 인원은 1 이상이어야 한다.
+     */
+    @Test
+    void rejectsNonPositiveParticipants() {
+        assertThatThrownBy(() -> new CapacityRequirementInput("package", false, List.of(), 0))
+                .isInstanceOfSatisfying(CustomException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.INVALID_RESERVATION_ARGUMENT));
+    }
+
+    /**
      * 수정된 생년월일의 13번째 생일 경계로 어린이 정원을 판정한다.
      */
     @Test

@@ -37,7 +37,10 @@ public class RegistrationCommandController {
 
 
     /** 개인 신청 정보와 선택한 그룹을 검증하여 접수한다. */
-    @Operation(summary = "개인 신청", description = "참가자의 인적사항, 종목·기념품·그룹 선택 및 약관 동의 정보를 받아 개인 참가신청을 생성합니다. 신청 결과와 결제 진행에 필요한 정보를 반환합니다.")
+    @Operation(summary = "개인 신청", description = "참가자의 인적사항, 종목·기념품·그룹 선택 및 약관 동의 정보를 받아 개인 참가신청을 생성합니다. 신청 결과와 결제 진행에 필요한 정보를 반환합니다. "
+            + "단품·패키지 상품은 items에 상품마다 한 줄씩(최대 10줄) 상품·기념품·받는 사람(entries)을 담고 최상위 eventCategoryId·selectedSouvenirList·entries는 비웁니다. "
+            + "단품 줄은 그 종목의 받는 사람 1명, 패키지 줄은 하위 종목마다 1명입니다. 같은 상품을 여러 번 담을 수 있습니다. "
+            + "같은 신청자 주문 여러 건을 허용한 대회에서 이미 신청한 사람이면 409 REGISTRATION_ADDITIONAL_ORDER_LOGIN_REQUIRED를 돌려줍니다.")
     @PostMapping("/{eventId}/registrations")
     public ResponseEntity<RegistrationCreateResponse> register(
             @PathVariable String eventId,

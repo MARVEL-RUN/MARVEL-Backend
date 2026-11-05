@@ -197,6 +197,36 @@ class RegistrationRequestBoundaryTest {
         assertServicesUntouched();
     }
 
+    /** 구매 줄의 받는 사람·상품·기념품 누락은 서비스 호출 전에 items[n] 경로로 차단한다. */
+    @Test
+    void rejectsInvalidRegistrationItems() throws Exception {
+        ObjectNode blankEntry = json.createObjectNode().put("password", "test");
+        ObjectNode item = blankEntry.putArray("items").addObject().put("eventCategoryId", "avengers");
+        item.putArray("selectedSouvenirList").addObject().put("souvenirId", "kit").put("selectedSize", "FREE");
+        item.putArray("entries").addObject().put("eventCategoryId", "avengers").put("name", " ")
+                .put("phNum", "010-0000-0000").put("birth", "1990-01-01").put("gender", "M");
+        reject("/registrations", false, blankEntry, "items[0].entries[0].name");
+        ObjectNode missingProduct = json.createObjectNode().put("password", "test");
+        missingProduct.putArray("items").addObject().putArray("selectedSouvenirList").addObject()
+                .put("souvenirId", "kit");
+        reject("/registrations", false, missingProduct, "items[0].eventCategoryId");
+        ObjectNode missingSouvenir = json.createObjectNode().put("password", "test");
+        missingSouvenir.putArray("items").addObject().put("eventCategoryId", "avengers");
+        reject("/registrations", false, missingSouvenir, "items[0].selectedSouvenirList");
+        assertServicesUntouched();
+    }
+
+    /** 최상위 종목·기념품은 items가 없을 때 필수이고, items를 보내면 비워야 한다. */
+    @Test
+    void rejectsMixedOrMissingCategorySelection() throws Exception {
+        reject("/registrations", false, json.createObjectNode().put("password", "test"), "categorySelectionValid");
+        ObjectNode mixed = json.createObjectNode().put("password", "test").put("eventCategoryId", "avengers");
+        ObjectNode item = mixed.putArray("items").addObject().put("eventCategoryId", "avengers");
+        item.putArray("selectedSouvenirList").addObject().put("souvenirId", "kit");
+        reject("/registrations", false, mixed, "categorySelectionValid");
+        assertServicesUntouched();
+    }
+
     /** 그룹 전용 요청의 누락·조합 오류는 서비스 호출 전에 차단한다. */
     @Test
     void rejectsInvalidStartGroupSelections() throws Exception {

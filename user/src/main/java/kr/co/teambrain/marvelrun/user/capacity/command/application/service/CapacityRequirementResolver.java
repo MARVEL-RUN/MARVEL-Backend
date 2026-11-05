@@ -133,8 +133,9 @@ public class CapacityRequirementResolver {
     }
 
     /**
-     * 참가자 한 명이 사용할 정원과 기념품 수량을 계산한다.
+     * 참가자 한 명(또는 구매 줄 하나)이 사용할 정원과 기념품 수량을 계산한다.
      *
+     * 전체 정원은 사람 수(participants)만큼, 나머지는 입력 하나당 1개를 쓴다.
      * 전체 정원과 종목 정원은 각각 한 개의 설정을 요구한다.
      * 어린이 정원은 설정된 경우 어린이에게만 적용한다.
      * 합산 정원은 연결된 모든 설정을 적용한다.
@@ -155,7 +156,7 @@ public class CapacityRequirementResolver {
             switch (target.type()) {
                 case EVENT_TOTAL -> {
                     totalCount++;
-                    quantities.put(target.capacityId(), 1);
+                    quantities.put(target.capacityId(), input.participants());
                 }
                 case CATEGORY -> {
                     categoryCount++;
