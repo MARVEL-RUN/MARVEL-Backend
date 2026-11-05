@@ -74,8 +74,9 @@ public class RegistrationModificationTransactionService {
                 verified.event(), verified.registration(), request, now);
         RegistrationModificationClassifier.Change change = classifier.classifyPersonal(access.registration(), request);
         // 상품 신청의 신청 행 종목은 대표 상품일 뿐이라 가격·정원을 다시 계산하는 전체 수정으로 보내지 않는다.
-        // 생년월일 변경은 보호자 재검사를 거친 개인정보 수정으로 처리하고, 상품·기념품 변경은 아래에서 거절한다.
-        boolean product = access.registration().getEventCategory().getProductType() != null;
+        // 상품 가격·정원·기념품은 생년월일을 보지 않으므로 생년월일 변경은 보호자 재검사를 거친 개인정보 수정으로 처리하고,
+        // 상품·기념품 변경은 아래에서 거절한다.
+        boolean product = access.registration().isProductPurchase();
         if (product && change == RegistrationModificationClassifier.Change.FULL) {
             change = RegistrationModificationClassifier.Change.PERSONAL_INFORMATION;
         }

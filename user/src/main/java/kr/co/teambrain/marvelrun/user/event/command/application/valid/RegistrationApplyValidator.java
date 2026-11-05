@@ -230,7 +230,7 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
      * 상품 구매 줄을 검증한다.
      *
      * 신청자는 대회 정책(생년월일 형식·보호자)만 보고, 종목 출생일 범위는 받는 사람마다 자기 종목으로 본다.
-     * 기념품은 줄마다 신청자 생년월일로 검증한다. 같은 상품을 여러 번 사도 종목·정책은 한 번만 읽는다.
+     * 상품은 연령 구분이 없어 기념품 연령별 사이즈 제한은 보지 않는다. 같은 상품을 여러 번 사도 종목·정책은 한 번만 읽는다.
      * 첫 줄의 상품·기념품이 신청 행의 대표값이 된다.
      */
     private RegistrationCreateContext validateItems(
@@ -277,8 +277,7 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
         LocalDate applicationDate =
                 now.toLocalDate();
 
-        LocalDate applicantBirth =
-                registrationPolicyValidator.validateParticipant(
+        registrationPolicyValidator.validateParticipant(
                         event,
                         policies.eventPolicy(),
                         new RegistrationPolicyInput(
@@ -331,13 +330,14 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
                             applicationDate
                     );
 
+            // 상품은 연령 구분이 없어 기념품 연령별 사이즈 제한을 보지 않는다.
             List<SouvenirJson> souvenirs =
                     validateSouvenirs(
                             item.selectedSouvenirList(),
                             selections.mappingsByCategory().get(
                                     product.getId()
                             ),
-                            applicantBirth,
+                            null,
                             policies
                     );
 
@@ -470,7 +470,7 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
                 );
             }
 
-            if (registration.getEventCategory().getProductType() != null) {
+            if (registration.isProductPurchase()) {
                 productRegistrationIds.add(registration.getId());
             }
         }
@@ -577,7 +577,6 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
                         registration,
                         items,
                         entriesByItem,
-                        birth,
                         selections,
                         policies,
                         entryPolicies,
@@ -615,13 +614,13 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
     /**
      * 상품 신청의 저장된 구매 줄을 다시 검증한다.
      * 줄마다 기념품을, 참가 항목마다 보호자·자기 종목 출생일 범위를 본다.
+     * 상품은 연령 구분이 없어 기념품 연령별 사이즈 제한은 보지 않는다(신청 때와 같은 규칙).
      */
     private void validateStoredItems(
             Event event,
             Registration registration,
             List<RegistrationItem> items,
             Map<String, List<RegistrationEntry>> entriesByItem,
-            LocalDate applicantBirth,
             SelectionData selections,
             RegistrationPolicyContext policies,
             Map<String, EventCategoryRegistrationPolicy> entryPolicies,
@@ -635,9 +634,9 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
 
             validateStoredSouvenirs(
                     registration,
-                    item.getSouvenirJson(),
+                    item.getSouvenirJson() == null ? List.of() : item.getSouvenirJson(),
                     product,
-                    applicantBirth,
+                    null,
                     selections,
                     policies
             );

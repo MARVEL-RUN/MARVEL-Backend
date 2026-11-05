@@ -156,11 +156,12 @@ public class RegistrationCommandService {
         DiscountLink discountLink = discountEligibility.acquireRegistrationLink(
                 request.discountLinkCode(), eventId, false, now, discountSnapshot);
 
-        // 상품 구매는 줄마다 신청자 생년월일로 가격을 계산해 더한다. 할인 링크는 신청에 한 번만 획득한다.
+        // 상품 구매는 줄마다 가격을 계산해 더한다. 상품은 연령 할인이 없어 생년월일을 보지 않는다.
+        // 할인 링크는 신청에 한 번만 획득한다.
         List<DiscountModels.PriceResult> itemPrices = new ArrayList<>();
         for (RegistrationItemDraft item : context.items()) {
-            itemPrices.add(registrationPricingService.calculateRegistrationPrice(
-                    event, item.product(), request.birth(), false, discountLink, discountSnapshot));
+            itemPrices.add(registrationPricingService.calculateProductPrice(
+                    event, item.product(), discountLink, discountSnapshot));
         }
         DiscountModels.PriceResult discountPrice = itemPrices.isEmpty()
                 ? registrationPricingService.calculateRegistrationPrice(

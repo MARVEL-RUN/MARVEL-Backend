@@ -134,7 +134,8 @@ class RegistrationEntryCreateTest {
         verify(registrationEntries).saveAll(entries.capture());
         assertThat(entries.getValue()).extracting(RegistrationEntry::getRegistrationItem)
                 .doesNotHaveDuplicates().containsExactlyElementsOf(items.getValue());
-        verify(pricing, times(2)).calculateRegistrationPrice(eq(event), eq(avengers), eq("1990-01-01"), eq(false), isNull(), anyList());
+        // 상품 줄 가격은 생년월일 없이(연령 할인 없이) 계산한다.
+        verify(pricing, times(2)).calculateProductPrice(eq(event), eq(avengers), isNull(), anyList());
     }
 
     /** 기록하는 가격은 줄 가격의 합이고 계약금액과 같다. 할인 내역은 줄 순서대로 잇는다. */
@@ -144,7 +145,7 @@ class RegistrationEntryCreateTest {
         prepare(request, List.of(single(avengers, "아이"),
                 new RegistrationItemDraft(pack, KIT, List.of(entry(avengers, "엄마"), entry(xmen, "아빠")))));
         DiscountModels.AppliedDiscount discount = mock(DiscountModels.AppliedDiscount.class);
-        when(pricing.calculateRegistrationPrice(eq(event), eq(avengers), anyString(), eq(false), isNull(), anyList()))
+        when(pricing.calculateProductPrice(eq(event), eq(avengers), isNull(), anyList()))
                 .thenReturn(new DiscountModels.PriceResult(DiscountModels.Failure.NONE, new BigDecimal("40000"),
                         new BigDecimal("36000"), BigDecimal.ZERO, List.of(discount)));
         price(pack, "75000");
@@ -173,7 +174,10 @@ class RegistrationEntryCreateTest {
         when(time.currentDateTime()).thenReturn(NOW);
         when(personalValidator.validate("event", request, NOW, false))
                 .thenReturn(new RegistrationCreateContext(event, category, List.of(), List.of(), false));
-        price(category, "10");
+        // 일반 종목은 지금처럼 생년월일로 연령 할인을 보는 가격 계산을 쓴다.
+        when(pricing.calculateRegistrationPrice(eq(event), eq(category), eq("1990-01-01"), eq(false), isNull(), anyList()))
+                .thenReturn(new DiscountModels.PriceResult(DiscountModels.Failure.NONE, BigDecimal.TEN,
+                        BigDecimal.TEN, BigDecimal.ZERO, List.of()));
         when(registrations.save(any(Registration.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(payments.createInitialPayment(any(Registration.class), anyString())).thenReturn(mock(Payment.class));
 
@@ -216,7 +220,7 @@ class RegistrationEntryCreateTest {
     }
 
     private void price(EventCategory product, String amount) {
-        lenient().when(pricing.calculateRegistrationPrice(eq(event), eq(product), anyString(), eq(false), isNull(), anyList()))
+        lenient().when(pricing.calculateProductPrice(eq(event), eq(product), isNull(), anyList()))
                 .thenReturn(new DiscountModels.PriceResult(DiscountModels.Failure.NONE, new BigDecimal(amount),
                         new BigDecimal(amount), BigDecimal.ZERO, List.of()));
     }

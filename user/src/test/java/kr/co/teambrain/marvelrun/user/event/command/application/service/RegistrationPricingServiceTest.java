@@ -199,6 +199,37 @@ class RegistrationPricingServiceTest {
     /**
      * Pricing 테스트에 필요한 최소 Event Mock을 생성한다.
      */
+    /**
+     * 상품 가격은 연령 할인을 하지 않는다. 어린이 할인 정책이 있는 대회여도 정가를 쓴다.
+     * 생년월일을 받지 않으므로 신청자·받는 사람 생년월일이 바뀌어도 가격이 같다.
+     */
+    @Test
+    void productPriceIgnoresAgeDiscount() {
+
+        Event event =
+                createEvent(
+                        "test-marvelrun",
+                        EVENT_START_DATE
+                );
+
+        EventCategory product =
+                createCategory(
+                        new BigDecimal("70000")
+                );
+
+        BigDecimal result =
+                registrationPricingService.calculateProductPrice(
+                        event,
+                        product,
+                        null,
+                        PricingPolicyFixtures.resolver().resolveEventPolicies("test-marvelrun")
+                ).finalAmount();
+
+        assertThat(result)
+                .isEqualByComparingTo("70000");
+    }
+
+
     private Event createEvent(
             String eventId,
             LocalDateTime startDate

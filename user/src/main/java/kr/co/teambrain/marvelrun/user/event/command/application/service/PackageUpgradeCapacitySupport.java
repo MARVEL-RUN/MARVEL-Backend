@@ -81,10 +81,10 @@ public class PackageUpgradeCapacitySupport {
     ) {
         Registration registration = item.getRegistration();
         String eventId = registration.getEvent().getId();
-        CapacityRequirementInput input = CapacityRequirementInput.fromCandidate(
+        // 상품은 어린이 정원을 쓰지 않는다(신청 때 상품 줄 확보와 같은 규칙).
+        CapacityRequirementInput input = new CapacityRequirementInput(
                 packageCategory.getId(),
-                registration.getBirth(),
-                registration.getEvent().getStartDate().toLocalDate(),
+                false,
                 item.getSouvenirJson() == null ? List.of() : item.getSouvenirJson(),
                 participants
         );

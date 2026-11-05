@@ -326,7 +326,7 @@ public class RegistrationCapacityService {
      *
      * 상품 신청은 신청 행의 대표 상품이 아니라 저장된 구매 줄마다 입력을 만든다.
      * 전체 정원은 줄의 참가 항목 수(사람 수)만큼, 그 밖의 정원·기념품은 줄마다 1개를 쓴다.
-     * 어린이 정원 판정은 신청자 생년월일로 한다.
+     * 상품은 연령 구분이 없어 어린이 정원을 쓰지 않는다(생년월일을 바꿔도 정원이 그대로다).
      * 구매 줄이 없는 신청(일반 종목·단체)은 지금처럼 신청 행 하나로 계산한다.
      */
     private List<CapacityHoldRequest> holdRequests(
@@ -335,7 +335,7 @@ public class RegistrationCapacityService {
     ) {
         List<String> productRegistrationIds =
                 registrations.stream()
-                        .filter(registration -> registration.getEventCategory().getProductType() != null)
+                        .filter(registration -> registration.isProductPurchase())
                         .map(Registration::getId)
                         .toList();
 
@@ -362,14 +362,11 @@ public class RegistrationCapacityService {
                 new ArrayList<>(registrations.size());
 
         for (Registration registration : registrations) {
-            boolean child =
-                    isChild(registration.getBirth(), eventDate);
-
-            if (registration.getEventCategory().getProductType() == null) {
+            if (!registration.isProductPurchase()) {
                 holdRequests.add(
                         new CapacityHoldRequest(
                                 registration,
-                                child
+                                isChild(registration.getBirth(), eventDate)
                         )
                 );
                 continue;
@@ -402,8 +399,8 @@ public class RegistrationCapacityService {
                 requirements.add(
                         new CapacityRequirementInput(
                                 item.getEventCategory().getId(),
-                                child,
-                                item.getSouvenirJson(),
+                                false,
+                                item.getSouvenirJson() == null ? List.of() : item.getSouvenirJson(),
                                 participants.intValue()
                         )
                 );
