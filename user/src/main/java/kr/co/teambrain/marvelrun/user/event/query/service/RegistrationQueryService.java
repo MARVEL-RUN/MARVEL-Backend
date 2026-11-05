@@ -119,6 +119,9 @@ public class RegistrationQueryService {
                     .flatMap(p -> byPayment.getOrDefault(p.id(), List.of()).stream()).toList();
             RegistrationPaymentQueryResolver.Result payment = paymentResolver.resolveRegistrationPaymentGuidance(List.of(row), own, shares,
                     refunds.stream().filter(r -> ownIds.contains(r.paymentId())).toList(), row.paymentDeadline(), now, policies);
+            if (pendingUpgrades.containsKey(row.id())) {
+                payment = paymentResolver.resolvePendingPackageUpgradeGuidance(payment);
+            }
             result.add(new RegistrationQueryResponse(row.id(), row.name(), row.email(), row.birth(), row.phNum(), row.gender(),
                     row.categoryId(), row.categoryName(), selections(row, names), row.address(), row.addressDetail(),
                     row.guardianConsent(), row.guardianName(), row.guardianPhNum(), row.guardianRelationShip(), row.status(), row.contractAmount(), row.paidAmount(),

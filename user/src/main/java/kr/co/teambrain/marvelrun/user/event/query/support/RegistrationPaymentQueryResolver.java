@@ -179,6 +179,18 @@ public class RegistrationPaymentQueryResolver {
     }
 
     /** 사용자 응답에 필요한 결제·환불 enum과 후속 동작만 담는다. */
+    /**
+     * 단품 → 패키지 상향을 기다리는 신청의 안내. 신청은 「추가 결제 필요」지만 단품 결제는 끝났으므로
+     * 일반 추가 결제·재결제 버튼을 내지 않는다. 상향 결제는 로그인한 뒤 상향 화면에서 한다.
+     * 결제·환불 결과를 확인 중이면 그 안내(WAIT)를 먼저 낸다.
+     */
+    public Result resolvePendingPackageUpgradeGuidance(Result result) {
+        if (result.action() == RegistrationPaymentAction.WAIT) { return result; }
+        return new Result(result.status(), result.refundStatus(), RegistrationPaymentAction.NONE,
+                "패키지 상향 결제를 기다리고 있습니다. 로그인한 뒤 상향 화면에서 결제하거나 취소해주세요.",
+                null, result.orderId());
+    }
+
     public record Result(PaymentProcessStatus status, PaymentCancelStatus refundStatus,
             RegistrationPaymentAction action, String warning, String paymentId, String orderId) { }
 }
