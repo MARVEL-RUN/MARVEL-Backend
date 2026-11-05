@@ -37,6 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -84,7 +85,7 @@ class VirtualRosterExcelServiceTest {
     void printListFileNameAndRows() throws Exception {
         when(repository.findEvent("e")).thenReturn(Optional.of(new EventInfo("마블/런", "VIRTUAL")));
         when(policyReader.loadEnabledRegistrationActionPolicies(any(String.class), anyCollection())).thenReturn(round());
-        when(repository.findPrintEntries("e", START, DEADLINE)).thenReturn(List.of(
+        when(repository.findPrintEntries("e", null, null)).thenReturn(List.of(
                 new PrintEntry("10001", "가", "5km | 어벤저스"), new PrintEntry(null, "나", "엑스맨")));
 
         try (TemporaryExcelResource file = service.createPrintList("e", DEADLINE)) {
@@ -103,7 +104,7 @@ class VirtualRosterExcelServiceTest {
         when(repository.findEvent("e")).thenReturn(Optional.of(new EventInfo("대회", "VIRTUAL")));
         when(policyReader.loadEnabledRegistrationActionPolicies(any(String.class), anyCollection())).thenReturn(round());
         when(repository.findChildCourses("e")).thenReturn(List.of(new Course("a", "5km | 어벤저스"), new Course("b", "엑스맨")));
-        when(repository.findPackingRegistrations("e", START, DEADLINE)).thenReturn(List.of(new PackingRegistration("r1", "패키지",
+        when(repository.findPackingRegistrations("e", null, null)).thenReturn(List.of(new PackingRegistration("r1", "패키지",
                 "PACKAGE", "신청자", "010-0000-0000", "서울시_01234", "101호",
                 "[{\"souvenirId\":\"s1\",\"selectedSize\":\"L\"},{\"souvenirId\":\"s2\",\"selectedSize\":\"FREE\"}]")));
         when(repository.findPackingEntries(anyCollection())).thenReturn(List.of(
@@ -121,6 +122,29 @@ class VirtualRosterExcelServiceTest {
         }
     }
 
+    /** 차수가 여럿이면 앞 차수 끝부터 이 차수 끝까지를 넘기고, 1차는 처음부터, 마지막 차수는 끝까지 넘긴다. */
+    @Test
+    void passesChainedRangePerRound() throws Exception {
+        LocalDateTime start2 = DEADLINE.plusDays(3);
+        LocalDateTime deadline2 = DEADLINE.plusDays(7);
+        LocalDateTime start3 = DEADLINE.plusDays(10);
+        LocalDateTime deadline3 = DEADLINE.plusDays(14);
+        when(repository.findEvent("e")).thenReturn(Optional.of(new EventInfo("대회", "VIRTUAL")));
+        List<RegistrationActionPolicyInput> rows = new java.util.ArrayList<>(round());
+        rows.addAll(round(start2, deadline2));
+        rows.addAll(round(start3, deadline3));
+        when(policyReader.loadEnabledRegistrationActionPolicies(any(String.class), anyCollection())).thenReturn(rows);
+
+        try (TemporaryExcelResource first = service.createPrintList("e", DEADLINE);
+             TemporaryExcelResource middle = service.createPrintList("e", deadline2);
+             TemporaryExcelResource last = service.createPackingList("e", deadline3)) {
+            verify(repository).findPrintEntries("e", null, DEADLINE);
+            verify(repository).findPrintEntries("e", DEADLINE, deadline2);
+            verify(repository).findPackingRegistrations("e", deadline2, null);
+            assertThat(last.getFilename()).startsWith("대회_패킹명단_3차_");
+        }
+    }
+
     private Sheet open(TemporaryExcelResource file) throws Exception {
         try (InputStream in = file.getInputStream(); XSSFWorkbook workbook = new XSSFWorkbook(in)) {
             return workbook.getSheetAt(0);
@@ -128,8 +152,12 @@ class VirtualRosterExcelServiceTest {
     }
 
     private List<RegistrationActionPolicyInput> round() {
+        return round(START, DEADLINE);
+    }
+
+    private List<RegistrationActionPolicyInput> round(LocalDateTime start, LocalDateTime deadline) {
         return List.of(Action.MODIFY, Action.PAYMENT, Action.REFUND).stream()
-                .map(action -> new RegistrationActionPolicyInput(action.name(), "e", action, START, DEADLINE, DEADLINE, true))
+                .map(action -> new RegistrationActionPolicyInput(action.name(), "e", action, start, deadline, deadline, true))
                 .toList();
     }
 

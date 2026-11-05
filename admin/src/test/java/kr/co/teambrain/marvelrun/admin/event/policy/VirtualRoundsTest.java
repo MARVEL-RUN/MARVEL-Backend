@@ -130,4 +130,26 @@ class VirtualRoundsTest {
         assertThat(VirtualRounds.hasRowOutsideRounds(rows)).isTrue();
     }
 
+    /** 명단 범위는 앞 차수 끝부터 이 차수 끝까지이며 1차는 처음부터, 마지막 차수는 끝까지다. */
+    @Test
+    void rosterRangeChainsRounds() {
+        LocalDateTime t5 = LocalDateTime.of(2026, 12, 1, 0, 0);
+        LocalDateTime t6 = LocalDateTime.of(2026, 12, 10, 17, 0);
+        List<RegistrationActionPolicyInput> rows = new ArrayList<>(round(T1, T2));
+        rows.addAll(round(T3, T4));
+        rows.addAll(round(t5, t6));
+        List<Round> rounds = VirtualRounds.fromPolicies(rows);
+
+        assertThat(VirtualRounds.rosterRange(rounds, rounds.get(0))).isEqualTo(new VirtualRounds.RosterRange(null, T2));
+        assertThat(VirtualRounds.rosterRange(rounds, rounds.get(1))).isEqualTo(new VirtualRounds.RosterRange(T2, T4));
+        assertThat(VirtualRounds.rosterRange(rounds, rounds.get(2))).isEqualTo(new VirtualRounds.RosterRange(T4, null));
+    }
+
+    /** 차수가 하나면 명단 범위에 끝이 없다. */
+    @Test
+    void rosterRangeOfSingleRoundIsUnbounded() {
+        List<Round> rounds = VirtualRounds.fromPolicies(round(T1, T2));
+
+        assertThat(VirtualRounds.rosterRange(rounds, rounds.getFirst())).isEqualTo(new VirtualRounds.RosterRange(null, null));
+    }
 }

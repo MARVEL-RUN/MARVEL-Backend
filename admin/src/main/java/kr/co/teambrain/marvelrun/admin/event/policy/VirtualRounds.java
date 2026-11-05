@@ -43,6 +43,9 @@ public final class VirtualRounds {
     /** 차수 변경 요청의 한 차수이거나 계산된 구간이다. */
     public record Range(LocalDateTime startAt, LocalDateTime deadline) { }
 
+    /** 명단에 담을 신청 시각 범위 [from, to)다. null이면 그쪽 끝을 제한하지 않는다. */
+    public record RosterRange(LocalDateTime from, LocalDateTime to) { }
+
     /** 활성 MODIFY·PAYMENT·REFUND 행을 구간별로 묶어 세 작업이 모두 있는 묶음만 차수로 만든다. */
     public static List<Round> fromPolicies(List<RegistrationActionPolicyInput> policies) {
         Map<List<LocalDateTime>, Set<Action>> groups = new LinkedHashMap<>();
@@ -73,6 +76,20 @@ public final class VirtualRounds {
                 .anyMatch(policy -> rounds.stream().noneMatch(round -> round.startAt().equals(policy.registrationStart())
                         && round.endAt().equals(policy.registrationEnd())
                         && round.deadline().equals(policy.effectiveFrom())));
+    }
+
+    /**
+     * 차수 명단의 신청 시각 범위다. 앞 차수의 끝부터 이 차수의 끝까지이며 1차는 처음부터, 마지막 차수는 끝까지다.
+     * 그래서 차수 사이 빈 기간이나 마지막 마감 뒤에 찍힌 신청(외부 결제 등)도 어느 한 차수 명단에 들어간다.
+     */
+    public static RosterRange rosterRange(List<Round> rounds, Round round) {
+        int index = rounds.indexOf(round);
+        if (index < 0) {
+            throw new CustomException(ErrorCode.VIRTUAL_ROUND_NOT_FOUND);
+        }
+        LocalDateTime from = index == 0 ? null : rounds.get(index - 1).endAt();
+        LocalDateTime to = index == rounds.size() - 1 ? null : round.endAt();
+        return new RosterRange(from, to);
     }
 
     /** 마감 시각이 같은 차수가 정확히 하나일 때만 돌려주고 아니면 VIRTUAL_ROUND_NOT_FOUND다. */

@@ -6,6 +6,7 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import java.sql.Types;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -14,14 +15,15 @@ import java.util.Optional;
 
 /**
  * 버추얼런 인쇄·패킹 명단의 원본 행을 JDBC로 읽는다(읽기 전용).
- * 대상은 차수 구간 [startAt, endAt)에 신청한 미삭제 확정 신청이며 외부 결제 신청도 포함한다.
+ * 대상은 신청 시각이 [from, to)에 드는 미삭제 확정 신청이며 외부 결제 신청도 포함한다. from·to가 null이면 그쪽 끝을 두지 않는다.
+ * 상향 결제를 기다리는 신청(ADDITIONAL_PAYMENT_REQUIRED)은 확정 상태가 아니므로 넣지 않는다.
  */
 @Repository
 @RequiredArgsConstructor
 public class VirtualRosterQueryRepository {
     private static final String ROUND_FILTER = """
             WHERE r.event_id = :eventId AND r.is_del = 0 AND r.status = 'CONFIRMED'
-              AND r.registration_date >= :startAt AND r.registration_date < :endAt
+              AND (:from IS NULL OR r.registration_date >= :from) AND (:to IS NULL OR r.registration_date < :to)
             """;
 
     private final NamedParameterJdbcTemplate jdbc;
@@ -56,7 +58,7 @@ public class VirtualRosterQueryRepository {
     }
 
     /** 참가 항목 하나가 한 행이다. 배번 길이, 배번 순이고 배번이 없는 항목은 끝에 둔다. */
-    public List<PrintEntry> findPrintEntries(String eventId, LocalDateTime startAt, LocalDateTime endAt) {
+    public List<PrintEntry> findPrintEntries(String eventId, LocalDateTime from, LocalDateTime to) {
         return jdbc.query("""
                 SELECT e.bib_number, e.name, c.name AS category_name
                 FROM registration_entry e
@@ -64,19 +66,19 @@ public class VirtualRosterQueryRepository {
                 JOIN event_category c ON c.id = e.event_category_id
                 """ + ROUND_FILTER + """
                 ORDER BY (e.bib_number IS NULL), CHAR_LENGTH(e.bib_number), e.bib_number, r.registration_date, r.id, c.sort_order, e.id
-                """, range(eventId, startAt, endAt),
+                """, range(eventId, from, to),
                 (rs, rowNum) -> new PrintEntry(rs.getString("bib_number"), rs.getString("name"), rs.getString("category_name")));
     }
 
     /** 신청 하나가 한 행이다. 신청일시, 신청 ID 순이다. */
-    public List<PackingRegistration> findPackingRegistrations(String eventId, LocalDateTime startAt, LocalDateTime endAt) {
+    public List<PackingRegistration> findPackingRegistrations(String eventId, LocalDateTime from, LocalDateTime to) {
         return jdbc.query("""
                 SELECT r.id, c.name AS category_name, c.product_type, r.name, r.ph_num, r.address, r.address_detail, r.souvenir_json
                 FROM registration r
                 JOIN event_category c ON c.id = r.event_category_id
                 """ + ROUND_FILTER + """
                 ORDER BY r.registration_date, r.id
-                """, range(eventId, startAt, endAt),
+                """, range(eventId, from, to),
                 (rs, rowNum) -> new PackingRegistration(rs.getString("id"), rs.getString("category_name"),
                         rs.getString("product_type"), rs.getString("name"), rs.getString("ph_num"),
                         rs.getString("address"), rs.getString("address_detail"), rs.getString("souvenir_json")));
@@ -93,7 +95,9 @@ public class VirtualRosterQueryRepository {
                         rs.getString("bib_number"), rs.getString("name")));
     }
 
-    private MapSqlParameterSource range(String eventId, LocalDateTime startAt, LocalDateTime endAt) {
-        return new MapSqlParameterSource("eventId", eventId).addValue("startAt", startAt).addValue("endAt", endAt);
+    /** null 시각도 IS NULL 비교가 되도록 자료형을 함께 넘긴다. */
+    private MapSqlParameterSource range(String eventId, LocalDateTime from, LocalDateTime to) {
+        return new MapSqlParameterSource("eventId", eventId)
+                .addValue("from", from, Types.TIMESTAMP).addValue("to", to, Types.TIMESTAMP);
     }
 }

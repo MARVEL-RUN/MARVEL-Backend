@@ -219,6 +219,9 @@ public enum ErrorCode {
             "차수 정책 행이 MODIFY·PAYMENT·REFUND 세 개씩 맞지 않습니다. 정책 행을 먼저 확인해 주세요."),
     /** 마감 시각에 해당하는 차수가 없는 경우이다. */
     VIRTUAL_ROUND_NOT_FOUND(HttpStatus.BAD_REQUEST, "마감 시각에 해당하는 차수를 찾을 수 없습니다."),
+    /** 명단 다운로드의 차수 마감 시각이 없거나 형식이 틀린 경우이다. */
+    VIRTUAL_ROSTER_DEADLINE_INVALID(HttpStatus.BAD_REQUEST,
+            "차수 마감 시각을 KST yyyy-MM-dd'T'HH:mm:ss 형식으로 입력해 주세요."),
     /** 아직 마감되지 않은 차수의 배번을 발급하려는 경우이다. */
     BIB_ISSUE_ROUND_NOT_CLOSED(HttpStatus.BAD_REQUEST, "차수가 마감된 뒤에 배번을 발급할 수 있습니다."),
     /** 마감 전 신청 중 패키지 상향 대기가 남아 있는 경우이다. */

@@ -6,6 +6,7 @@ import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
 import kr.co.teambrain.marvelrun.admin.event.policy.VirtualRounds;
 import kr.co.teambrain.marvelrun.admin.event.policy.VirtualRounds.Round;
+import kr.co.teambrain.marvelrun.admin.event.policy.VirtualRounds.RosterRange;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualPackingListExcelWriter;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualPrintListExcelWriter;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualRosterModels;
@@ -22,7 +23,6 @@ import kr.co.teambrain.marvelrun.admin.event.query.repository.VirtualRosterQuery
 import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationActionPolicyReader;
 import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationReservationHistoryResolver;
 import kr.co.teambrain.marvelrun.admin.event.query.support.TemporaryExcelResource;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -50,7 +50,8 @@ import java.util.stream.Collectors;
 
 /**
  * 버추얼런 한 차수의 인쇄 업체용·패킹 업체용 명단 엑셀을 만든다.
- * 차수는 마감 시각으로 찾고, 대상은 차수 신청 구간 [시작, 끝)의 미삭제 확정 신청(외부 결제 포함)이다.
+ * 차수는 마감 시각으로 찾는다. 대상은 앞 차수 끝부터 이 차수 끝까지(1차는 처음부터, 마지막 차수는 끝까지) 신청한
+ * 미삭제 확정 신청(외부 결제 포함)이다. 그래서 차수 사이 빈 기간이나 마지막 마감 뒤에 찍힌 신청도 한 차수 명단에 들어간다.
  */
 @Service
 @RequiredArgsConstructor
@@ -71,9 +72,11 @@ public class VirtualRosterExcelService {
     public TemporaryExcelResource createPrintList(String eventId, LocalDateTime deadline) {
         LocalDateTime now = timeProvider.currentDateTime();
         EventInfo event = loadEvent(eventId);
-        Round round = loadRound(eventId, deadline);
+        List<Round> rounds = loadRounds(eventId);
+        Round round = VirtualRounds.requireByDeadline(rounds, deadline);
+        RosterRange range = VirtualRounds.rosterRange(rounds, round);
         String roundLabel = round.number() + "차";
-        List<PrintRow> rows = repository.findPrintEntries(eventId, round.startAt(), round.endAt()).stream()
+        List<PrintRow> rows = repository.findPrintEntries(eventId, range.from(), range.to()).stream()
                 .map(entry -> new PrintRow(entry.bib() == null ? "" : entry.bib(), entry.name(),
                         VirtualRosterModels.stripDistance(entry.categoryName()), roundLabel))
                 .toList();
@@ -85,9 +88,11 @@ public class VirtualRosterExcelService {
     public TemporaryExcelResource createPackingList(String eventId, LocalDateTime deadline) {
         LocalDateTime now = timeProvider.currentDateTime();
         EventInfo event = loadEvent(eventId);
-        Round round = loadRound(eventId, deadline);
+        List<Round> rounds = loadRounds(eventId);
+        Round round = VirtualRounds.requireByDeadline(rounds, deadline);
+        RosterRange range = VirtualRounds.rosterRange(rounds, round);
         List<Course> courses = repository.findChildCourses(eventId);
-        List<PackingRegistration> registrations = repository.findPackingRegistrations(eventId, round.startAt(), round.endAt());
+        List<PackingRegistration> registrations = repository.findPackingRegistrations(eventId, range.from(), range.to());
         List<PackingRow> rows = buildPackingRows(eventId, round.number() + "차", registrations);
         return createFile("marvelrun-packing-", filename(event, "패킹명단", round, now),
                 output -> packingWriter.write(output, courses, rows));
@@ -152,12 +157,8 @@ public class VirtualRosterExcelService {
         return event;
     }
 
-    private Round loadRound(String eventId, LocalDateTime deadline) {
-        if (deadline == null) {
-            throw new CustomException(ErrorCode.VIRTUAL_ROUND_NOT_FOUND);
-        }
-        return VirtualRounds.requireByDeadline(VirtualRounds.fromPolicies(policyReader.loadEnabledRegistrationActionPolicies(eventId,
-                List.of(RegistrationActionType.MODIFY, RegistrationActionType.PAYMENT, RegistrationActionType.REFUND))), deadline);
+    private List<Round> loadRounds(String eventId) {
+        return VirtualRounds.fromPolicies(policyReader.loadEnabledRegistrationActionPolicies(eventId, VirtualRounds.ROUND_ACTION_TYPES));
     }
 
     private String filename(EventInfo event, String kind, Round round, LocalDateTime now) {

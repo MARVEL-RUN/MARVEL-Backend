@@ -101,6 +101,26 @@ class VirtualRosterDatabaseTest {
         assertThat(repository.findPackingEntries(List.of())).isEmpty();
     }
 
+    /** 범위 끝이 null이면 그쪽을 막지 않는다. 1차는 시작 전 신청까지, 마지막 차수는 마감 뒤 신청까지 담고 상향 대기 신청은 뺀다. */
+    @Test
+    void openEndedRangesIncludeEarlyAndLateRegistrations() {
+        String before = registration(eventId, catA, "CONFIRMED", false, true, START.minusDays(1));
+        String inRound = registration(eventId, catA, "CONFIRMED", false, false, START.plusDays(1));
+        String after = registration(eventId, catA, "CONFIRMED", false, true, END.plusDays(30));
+        String upgrading = registration(eventId, catA, "ADDITIONAL_PAYMENT_REQUIRED", false, false, START.plusDays(2));
+        entry(eventId, before, catA, "1", "전");
+        entry(eventId, inRound, catA, "2", "중");
+        entry(eventId, after, catA, "3", "후");
+        entry(eventId, upgrading, catA, "4", "상향");
+
+        assertThat(repository.findPackingRegistrations(eventId, null, END)).extracting(PackingRegistration::id)
+                .containsExactly(before, inRound);
+        assertThat(repository.findPackingRegistrations(eventId, END, null)).extracting(PackingRegistration::id)
+                .containsExactly(after);
+        assertThat(repository.findPrintEntries(eventId, null, null)).extracting(PrintEntry::name)
+                .containsExactly("전", "중", "후");
+    }
+
     /** 하위 종목만 정렬 순서대로 읽고 이벤트 형식을 돌려준다. */
     @Test
     void childCoursesAndEvent() {
