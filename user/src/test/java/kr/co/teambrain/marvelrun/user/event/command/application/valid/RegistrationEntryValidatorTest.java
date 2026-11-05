@@ -23,6 +23,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -272,6 +273,7 @@ class RegistrationEntryValidatorTest {
     private EventRegistrationPolicy eventPolicy() {
         EventRegistrationPolicy policy = mock(EventRegistrationPolicy.class);
         when(policy.getEvent()).thenReturn(event);
+        lenient().when(policy.isGuardianConsentRequired()).thenReturn(true);
         when(policy.getGuardianRequiredBirthFrom()).thenReturn(LocalDate.of(2012, 11, 6));
         return policy;
     }

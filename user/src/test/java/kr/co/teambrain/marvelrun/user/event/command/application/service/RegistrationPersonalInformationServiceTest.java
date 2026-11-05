@@ -232,6 +232,7 @@ class RegistrationPersonalInformationServiceTest {
         Registration current = fixture(RegistrationStatus.CONFIRMED, NOW.minusDays(1), NOW.plusDays(1), EventStatus.OPEN);
         EventRegistrationPolicy policy = mock(EventRegistrationPolicy.class);
         when(policy.getEvent()).thenReturn(current.getEvent());
+        when(policy.isGuardianConsentRequired()).thenReturn(true);
         when(policy.getGuardianRequiredBirthFrom()).thenReturn(LocalDate.of(1990, 1, 1));
         when(guardianPolicies.findByEventId("e")).thenReturn(Optional.of(policy));
         RegistrationModificationRequest original = request("기존 이름", "c", "1990-01-01");

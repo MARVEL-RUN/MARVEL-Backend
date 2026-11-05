@@ -120,6 +120,7 @@ class RegistrationModificationTest {
                 mock(EventRegistrationPolicy.class);
 
         when(eventPolicy.getEvent()).thenReturn(event);
+        when(eventPolicy.isGuardianConsentRequired()).thenReturn(true);
         when(eventPolicy.getGuardianRequiredBirthFrom())
                 .thenReturn(LocalDate.of(2012, 11, 2));
         when(eventPolicy.getAddressRequired()).thenReturn(false);

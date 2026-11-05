@@ -167,6 +167,7 @@ class RegistrationProductModificationServiceTest {
     private void guardianPolicy() {
         EventRegistrationPolicy policy = mock(EventRegistrationPolicy.class);
         when(policy.getEvent()).thenReturn(event);
+        when(policy.isGuardianConsentRequired()).thenReturn(true);
         when(policy.getGuardianRequiredBirthFrom()).thenReturn(LocalDate.of(2012, 11, 6));
         when(policies.findByEventId("event")).thenReturn(Optional.of(policy));
     }

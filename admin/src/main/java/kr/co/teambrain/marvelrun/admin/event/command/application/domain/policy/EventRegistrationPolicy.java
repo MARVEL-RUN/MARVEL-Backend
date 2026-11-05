@@ -52,4 +52,11 @@ public class EventRegistrationPolicy {
      */
     @Column(name = "guardian_required_birth_from", nullable = false)
     private LocalDate guardianRequiredBirthFrom;
+
+    /**
+     * 보호자 이름과 법정대리인 동의를 받는다.
+     * false이면 guardianRequiredBirthFrom과 관계없이 누구에게도 보호자 정보를 요구하지 않는다.
+     */
+    @Column(name = "guardian_consent_required", nullable = false)
+    private boolean guardianConsentRequired;
 }
