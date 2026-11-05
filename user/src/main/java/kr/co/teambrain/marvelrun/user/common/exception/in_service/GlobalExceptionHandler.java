@@ -1,6 +1,8 @@
 package kr.co.teambrain.marvelrun.user.common.exception.in_service;
 
+import jakarta.servlet.http.HttpServletRequest;
 import kr.co.teambrain.marvelrun.user.common.exception.BatchValidationException;
+import kr.co.teambrain.marvelrun.user.common.exception.JwtAuthenticationException;
 import kr.co.teambrain.marvelrun.user.common.exception.out_service.MemberError;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -8,6 +10,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.validation.ObjectError;
@@ -39,6 +45,33 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleCustomException(CustomException e) {
 
         return ErrorResponse.error(e);
+    }
+
+    /**
+     * {@code @PreAuthorize} 거부를 처리한다. 로그인하지 않았으면 401, 로그인했지만 권한이 없으면 403이다.
+     * 이 처리기가 없으면 {@code Exception} 처리기로 가서 500이 된다.
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<?> handleAccessDenied(AccessDeniedException exception, HttpServletRequest request) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null
+                || authentication instanceof AnonymousAuthenticationToken
+                || !authentication.isAuthenticated()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(AuthErrorResponse.of(request.getRequestURI(), AuthErrorCode.UNAUTHORIZED));
+        }
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse(ErrorCode.ACCESS_DENIED));
+    }
+
+    /** 서비스에서 던진 토큰 오류(재발급 실패 등)를 필터와 같은 401 형식으로 응답한다. */
+    @ExceptionHandler(JwtAuthenticationException.class)
+    public ResponseEntity<AuthErrorResponse> handleJwtAuthenticationException(
+            JwtAuthenticationException exception,
+            HttpServletRequest request
+    ) {
+        AuthErrorCode errorCode = exception.getAuthErrorCode();
+        return ResponseEntity.status(errorCode.getHttpStatus())
+                .body(AuthErrorResponse.of(request.getRequestURI(), errorCode));
     }
 
     @ExceptionHandler(Exception.class)

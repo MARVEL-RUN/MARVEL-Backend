@@ -112,6 +112,15 @@ public enum AuthErrorCode {
             HttpStatus.UNAUTHORIZED,
             "유효하지 않은 토큰 발급자입니다.",
             false
+    ),
+
+    /*
+     * Role
+     */
+    NOT_ADMIN_TOKEN(
+            HttpStatus.UNAUTHORIZED,
+            "관리자 토큰이 아닙니다.",
+            false
     );
 
 

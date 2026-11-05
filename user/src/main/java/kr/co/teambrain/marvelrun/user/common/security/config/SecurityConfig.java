@@ -2,6 +2,7 @@ package kr.co.teambrain.marvelrun.user.common.security.config;
 
 
 import jakarta.servlet.http.HttpServletResponse;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.ParticipantTokenRole;
 import kr.co.teambrain.marvelrun.user.common.security.filter.JwtFilter;
 import kr.co.teambrain.marvelrun.user.common.security.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
@@ -71,6 +72,14 @@ public class SecurityConfig {
                                                 "/test-page/**"
                                         )
                                         .permitAll()
+
+                                        // 참가자 API는 참가자 토큰만 받는다. 컨트롤러의 @PreAuthorize와 함께 두 번 막는다.
+                                        .requestMatchers(
+                                                "/v1/participant/**"
+                                        )
+                                        .hasRole(
+                                                ParticipantTokenRole.PARTICIPANT.name()
+                                        )
 
                                         .anyRequest()
                                         .authenticated()
