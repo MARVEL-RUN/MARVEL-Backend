@@ -1,7 +1,6 @@
 package kr.co.teambrain.marvelrun.admin.event;
 
 import jakarta.persistence.EntityManager;
-import kr.co.teambrain.marvelrun.admin.capacity.command.application.service.RegistrationCapacityService;
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
@@ -51,7 +50,7 @@ import static org.mockito.Mockito.when;
         "spring.jpa.hibernate.ddl-auto=none", "spring.sql.init.mode=never",
         "spring.flyway.enabled=false", "spring.liquibase.enabled=false"})
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({BibIssueService.class, BibIssueRepository.class, RegistrationCapacityService.class, RegistrationActionPolicyReader.class,
+@Import({BibIssueService.class, BibIssueRepository.class, RegistrationActionPolicyReader.class,
         RegistrationEntryCommandService.class, RegistrationPolicyLoader.class, RegistrationPolicyValidator.class})
 class BibIssueDatabaseTest {
     private static final LocalDateTime START = LocalDateTime.of(2026, 11, 1, 0, 0);
@@ -100,13 +99,15 @@ class BibIssueDatabaseTest {
         Registration r1 = registration(catA, RegistrationStatus.CONFIRMED, false, false, DEADLINE.minusHours(3));
         Registration r2 = registration(pkg, RegistrationStatus.CONFIRMED, false, false, DEADLINE.minusHours(2));
         Registration r3 = registration(catB, RegistrationStatus.CONFIRMED, false, false, DEADLINE.minusHours(1));
-        // 제외 대상: 삭제, 미확정, 마감 뒤, 외부 결제, 이미 발급, 항목 없음
+        // 제외 대상: 삭제, 미확정, 마감 뒤, 외부 결제(항목 있음·없음), 이미 발급, 항목 없음
         Registration deleted = registration(catA, RegistrationStatus.CONFIRMED, true, false, DEADLINE.minusHours(5));
         Registration pending = registration(catA, RegistrationStatus.PAYMENT_PENDING, false, false, DEADLINE.minusHours(5));
         Registration late = registration(catA, RegistrationStatus.CONFIRMED, false, false, DEADLINE.plusMinutes(30));
         Registration external = registration(catA, RegistrationStatus.CONFIRMED, false, true, DEADLINE.minusHours(5));
         Registration issued = registration(catA, RegistrationStatus.CONFIRMED, false, false, DEADLINE.minusHours(6));
         registration(catB, RegistrationStatus.CONFIRMED, false, false, DEADLINE.minusHours(7));
+        // 항목 없는 외부 결제는 외부 결제 수에만 잡히고 항목 누락 수에는 잡히지 않는다.
+        registration(catA, RegistrationStatus.CONFIRMED, false, true, DEADLINE.minusHours(8));
         em.flush();
         String e1 = entry(r1, catA);
         String e2a = entry(r2, catA);
@@ -132,7 +133,7 @@ class BibIssueDatabaseTest {
         assertThat(jdbc.queryForObject("select bib_issued_at from registration_entry where id=?", LocalDateTime.class, e1)).isEqualTo(NOW);
         assertThat(response.issuedCount()).isEqualTo(5);
         assertThat(response.alreadyIssuedCount()).isEqualTo(1);
-        assertThat(response.externalPaymentSkippedCount()).isEqualTo(1);
+        assertThat(response.externalPaymentSkippedCount()).isEqualTo(2);
         assertThat(response.registrationsWithoutEntriesCount()).isEqualTo(1);
         assertThat(response.perCategory()).extracting(BibIssueResponse.PerCategory::eventCategoryId, BibIssueResponse.PerCategory::issuedCount,
                 BibIssueResponse.PerCategory::firstNumber, BibIssueResponse.PerCategory::lastNumber)
@@ -212,7 +213,7 @@ class BibIssueDatabaseTest {
 
     /** 신청자 정보를 따라 고쳐도, 먼저 읽어 둔 항목이 JDBC로 발급된 배번을 NULL로 되돌리지 않는다. */
     @Test
-    void dynamicUpdateKeepsBibIssuedByJdbc() {
+    void entityUpdateKeepsBibIssuedByJdbc() {
         Registration registration = registration(catA, RegistrationStatus.CONFIRMED, false, false, DEADLINE.minusHours(3));
         em.flush();
         String entryId = entry(registration, catA);
