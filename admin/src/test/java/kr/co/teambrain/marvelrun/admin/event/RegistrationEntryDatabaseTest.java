@@ -7,9 +7,9 @@ import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationSearchCondition;
-import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationEntryListResponse;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationDetailResponse;
+import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationEntryResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationListResponse;
-import kr.co.teambrain.marvelrun.admin.event.query.service.RegistrationEntryQueryService;
 import kr.co.teambrain.marvelrun.admin.event.query.service.RegistrationQueryService;
 import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationActionPolicyReader;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
@@ -46,15 +46,13 @@ import static org.mockito.Mockito.when;
         "spring.jpa.hibernate.ddl-auto=none", "spring.sql.init.mode=never",
         "spring.flyway.enabled=false", "spring.liquibase.enabled=false"})
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({ReferenceFilterQueryService.class, RegistrationQueryService.class, RegistrationActionPolicyReader.class,
-        RegistrationEntryQueryService.class})
+@Import({ReferenceFilterQueryService.class, RegistrationQueryService.class, RegistrationActionPolicyReader.class})
 class RegistrationEntryDatabaseTest {
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 1, 12, 0);
 
     @Autowired EntityManager em;
     @Autowired JdbcTemplate jdbc;
     @Autowired RegistrationQueryService queries;
-    @Autowired RegistrationEntryQueryService entryQueries;
     @MockitoBean ServerTimeProvider time;
 
     private String eventId;
@@ -97,18 +95,27 @@ class RegistrationEntryDatabaseTest {
         assertThat(bibs(page, singleRegistration)).containsExactly("10002");
     }
 
-    /** 패키지 신청의 참가 항목 조회는 entryId와 배번을 하위 종목 순서로 돌려준다. */
+    /** 신청 상세의 참가 항목은 entryId와 배번을 하위 종목 순서로 돌려주고, 패키지만 받는 사람을 고칠 수 있다. */
     @Test
-    void entryListReturnsPackageEntriesInCategoryOrder() {
-        RegistrationEntryListResponse response = entryQueries.getEntries(pkgRegistration.getId());
+    void detailReturnsEntriesInCategoryOrder() {
+        RegistrationDetailResponse response = queries.getRegistrationDetail(pkgRegistration.getId());
 
-        assertThat(response.editable()).isTrue();
+        assertThat(response.entriesEditable()).isTrue();
         assertThat(response.entries()).hasSize(3);
         assertThat(response.entries()).allSatisfy(entry -> assertThat(entry.entryId()).isNotBlank());
-        assertThat(response.entries()).extracting(RegistrationEntryListResponse.Entry::bibNumber)
+        assertThat(response.entries()).extracting(RegistrationEntryResponse::bibNumber)
                 .containsExactly("10001", "20001", "30001");
-        assertThat(response.entries()).extracting(RegistrationEntryListResponse.Entry::eventCategoryId)
+        assertThat(response.entries()).extracting(RegistrationEntryResponse::eventCategoryId)
                 .containsExactly(catA, catB, catC);
+        assertThat(queries.getRegistrationDetail(singleRegistration.getId()).entriesEditable()).isFalse();
+    }
+
+    /** 삭제된 패키지 신청은 상세를 볼 수 있어도 받는 사람을 고칠 수 없다. */
+    @Test
+    void deletedPackageIsNotEditable() {
+        jdbc.update("update registration set is_del=1 where id=?", pkgRegistration.getId());
+
+        assertThat(queries.getRegistrationDetail(pkgRegistration.getId()).entriesEditable()).isFalse();
     }
 
     /** 배번은 정확히 일치할 때만 찾고, 다른 대회의 같은 배번은 잡히지 않는다. */
