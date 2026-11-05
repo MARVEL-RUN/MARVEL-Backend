@@ -238,7 +238,7 @@ public class PaymentCreator {
         String eventName =
                 registration.getEvent().getNameKr();
 
-        if (registration.getEventCategory().getProductType() != null) {
+        if (registration.isProductPurchase()) {
             List<RegistrationItem> items =
                     registrationItemCommandRepository
                             .findByRegistration_IdOrderBySortOrderAsc(registration.getId());

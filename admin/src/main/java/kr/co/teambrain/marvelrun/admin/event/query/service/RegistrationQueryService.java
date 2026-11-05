@@ -272,7 +272,7 @@ public class RegistrationQueryService {
                 .entries(bibEntryRepository.findByRegistrationIds(List.of(registration.getId())).stream()
                         .map(RegistrationEntryResponse::from).toList())
                 .entriesEditable(!registration.isSoftDeleted()
-                        && registration.getEventCategory().getProductType() != null)
+                        && registration.isProductPurchase())
                 .packageUpgrade(packageUpgrades.findAllByRegistrations(List.of(registration.getId()), PackageUpgradeStatus.PENDING)
                         .stream().findFirst().map(PackageUpgradeSummaryResponse::from).orElse(null))
                 .referenceFilter(referenceFilters.loadReferenceFilterSummaries(Collections.singletonList(registration.getReferenceFilterId())).get(registration.getReferenceFilterId()))

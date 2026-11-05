@@ -53,7 +53,7 @@ public class RegistrationProductModificationService {
 
         EventCategory currentCategory = current.getEventCategory();
         // 상품 신청은 같은 종목이어도 기념품을 바꾸면 대표 줄 하나로 정원을 다시 계산하게 되므로 막는다.
-        if (currentCategory.getProductType() != null && classifier.selectionChanged(current, request)) {
+        if (current.isProductPurchase() && classifier.selectionChanged(current, request)) {
             throw new CustomException(
                     ErrorCode.REGISTRATION_PRODUCT_CHANGE_NOT_ALLOWED,
                     " registrationId=" + current.getId()
@@ -88,7 +88,7 @@ public class RegistrationProductModificationService {
             RegistrationModificationRequest request,
             LocalDate applicationDate
     ) {
-        String guardianName = normalizeGuardianName(request.guardianName());
+        String guardianName = RegistrationModificationClassifier.normalizeGuardianName(request.guardianName());
         boolean birthChanged = !Objects.equals(current.getBirth(), request.birth());
         boolean guardianChanged = !Objects.equals(current.getGuardianName(), guardianName)
                 || current.isGuardianConsent() != request.guardianConsent();
@@ -105,13 +105,5 @@ public class RegistrationProductModificationService {
                     new RegistrationPolicyInput(entry.getBirth(), guardianName, request.guardianConsent()),
                     applicationDate);
         }
-    }
-
-    /** 개인 신청 적용 메서드의 보호자 이름 strip·빈 값 null 변환을 따른다. */
-    private static String normalizeGuardianName(String name) {
-        if (name == null || name.strip().isEmpty()) {
-            return null;
-        }
-        return name.strip();
     }
 }

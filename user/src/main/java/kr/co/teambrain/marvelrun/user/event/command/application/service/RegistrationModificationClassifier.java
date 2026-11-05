@@ -228,8 +228,8 @@ public class RegistrationModificationClassifier {
                 || !Objects.equals(current.isStartGroupUnselected(), unselected);
     }
 
-    /** 개인 신청 적용 메서드의 기존 보호자 이름 strip·빈 값 null 변환을 따른다. */
-    private String normalizeGuardianName(String name) {
+    /** 개인 신청 적용 메서드의 기존 보호자 이름 strip·빈 값 null 변환을 따른다. 상품 신청 수정 검사도 같이 쓴다. */
+    static String normalizeGuardianName(String name) {
         if (name == null || name.strip().isEmpty()) {
             return null;
         }

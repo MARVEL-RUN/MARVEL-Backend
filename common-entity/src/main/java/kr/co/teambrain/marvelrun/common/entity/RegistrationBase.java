@@ -255,6 +255,14 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
     @Column(name = "duplicate_allowed", nullable = false, updatable = false)
     protected boolean duplicateAllowed = false;
 
+    /**
+     * 상품(단품·패키지) 신청인지 본다.
+     * 상품 신청의 종목·기념품은 첫 구매 줄의 대표값이므로, 가격·정원을 신청 행 종목 하나로 다시 계산하면 안 된다.
+     */
+    public boolean isProductPurchase() {
+        return eventCategory.getProductType() != null;
+    }
+
     // 약관 관련 컬럼 추가
 
     @Column(name = "terms_essential_agreed", nullable = false)

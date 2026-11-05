@@ -129,7 +129,7 @@ public class RegistrationPersonalModificationService {
                 );
 
         // 상품 신청은 대표 상품 하나로 가격·정원을 다시 계산하면 틀리므로 전체 수정을 하지 않는다.
-        if (access.registration().getEventCategory().getProductType() != null) {
+        if (access.registration().isProductPurchase()) {
             throw new CustomException(
                     ErrorCode.REGISTRATION_PRODUCT_CHANGE_NOT_ALLOWED,
                     " registrationId=" + registrationId

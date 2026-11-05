@@ -35,7 +35,7 @@ public class RegistrationPersonalInformationService {
             registration.applyPersonalInformation(access.request());
             // 상품 신청은 생년월일도 개인정보 수정으로 반영한다(가격·정원은 다시 계산하지 않는다).
             // 보호자 재검사는 호출부가 신청자와 모든 참가 항목에 대해 먼저 마쳤다.
-            if (registration.getEventCategory().getProductType() != null
+            if (registration.isProductPurchase()
                     && !Objects.equals(registration.getBirth(), access.request().birth())) {
                 registration.changeProductApplicantBirth(access.request().birth());
             }
