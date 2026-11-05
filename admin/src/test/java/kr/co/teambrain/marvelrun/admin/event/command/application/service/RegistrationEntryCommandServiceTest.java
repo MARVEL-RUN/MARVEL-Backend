@@ -108,7 +108,7 @@ class RegistrationEntryCommandServiceTest {
     void rejectsSingleRegistration() {
         stubEntries(registration(catA, false, null, false));
 
-        assertError(ErrorCode.INVALID_REGISTRATION_ENTRIES, request(valid("ea")));
+        assertError(ErrorCode.REGISTRATION_ENTRY_PACKAGE_ONLY, request(valid("ea")));
     }
 
     /** 다른 신청의 참가 항목 id는 거절한다. */
@@ -124,7 +124,7 @@ class RegistrationEntryCommandServiceTest {
     void rejectsDuplicateEntryId() {
         stubEntries(registration(pkg, false, null, false));
 
-        assertError(ErrorCode.INVALID_REGISTRATION_ENTRIES, request(valid("ea"), valid("ea")));
+        assertError(ErrorCode.REGISTRATION_ENTRY_DUPLICATED, request(valid("ea"), valid("ea")));
     }
 
     /** 삭제된 신청은 거절한다. */

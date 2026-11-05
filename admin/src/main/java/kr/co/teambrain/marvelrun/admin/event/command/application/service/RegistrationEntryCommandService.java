@@ -52,22 +52,19 @@ public class RegistrationEntryCommandService {
             throw new CustomException(ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET);
         }
         if (registration.getEventCategory().getProductType() != ProductType.PACKAGE) {
-            throw new CustomException(ErrorCode.INVALID_REGISTRATION_ENTRIES,
-                    " 패키지 신청만 받는 사람을 수정할 수 있습니다. 단품은 신청자 정보를 따르므로 기본정보를 수정해주세요.");
+            throw new CustomException(ErrorCode.REGISTRATION_ENTRY_PACKAGE_ONLY);
         }
 
         Set<String> requestedIds = new HashSet<>();
         for (RegistrationEntryModifyRequest.Entry item : request.entries()) {
             if (!requestedIds.add(item.entryId())) {
-                throw new CustomException(ErrorCode.INVALID_REGISTRATION_ENTRIES,
-                        " 같은 참가 항목이 중복되어 있습니다.");
+                throw new CustomException(ErrorCode.REGISTRATION_ENTRY_DUPLICATED);
             }
         }
         Map<String, RegistrationEntry> owned = entryRepository.findByRegistration_Id(registrationId).stream()
                 .collect(Collectors.toMap(RegistrationEntry::getId, Function.identity()));
         if (!owned.keySet().containsAll(requestedIds)) {
-            throw new CustomException(ErrorCode.INVALID_REGISTRATION_ENTRIES,
-                    " 이 신청의 참가 항목이 아닙니다.");
+            throw new CustomException(ErrorCode.INVALID_REGISTRATION_ENTRIES);
         }
 
         // 사용자 서버와 같은 규칙: 보호자 정보는 신청에 저장된 값을 쓰고, 받는 사람 생년월일로 종목 정책을 본다.

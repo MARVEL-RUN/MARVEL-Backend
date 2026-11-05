@@ -230,6 +230,11 @@ public enum ErrorCode {
     BIB_SEQUENCE_NOT_CONFIGURED(HttpStatus.CONFLICT, "배번 시작 번호가 설정되지 않은 종목이 있습니다."),
     /** 참가 항목 입력이 신청 구성과 맞지 않는 경우이다. */
     INVALID_REGISTRATION_ENTRIES(HttpStatus.BAD_REQUEST, "참가 항목이 신청 구성과 맞지 않습니다."),
+    /** 단품 신청의 받는 사람을 고치려는 경우이다. 단품은 신청자 값을 따른다. */
+    REGISTRATION_ENTRY_PACKAGE_ONLY(HttpStatus.BAD_REQUEST,
+            "패키지 신청만 받는 사람을 수정할 수 있습니다. 단품은 기본정보를 수정해 주세요."),
+    /** 요청에 같은 참가 항목이 두 번 들어간 경우이다. */
+    REGISTRATION_ENTRY_DUPLICATED(HttpStatus.BAD_REQUEST, "같은 참가 항목이 중복되어 있습니다."),
 
     // 통계관련
     /** 통계 조회 범위는 접수 시작 이후부터 오늘까지 최대 366일이다. */
