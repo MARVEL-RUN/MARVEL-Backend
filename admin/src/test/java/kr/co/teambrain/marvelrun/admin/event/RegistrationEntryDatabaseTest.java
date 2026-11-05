@@ -53,6 +53,7 @@ class RegistrationEntryDatabaseTest {
     @Autowired EntityManager em;
     @Autowired JdbcTemplate jdbc;
     @Autowired RegistrationQueryService queries;
+    @Autowired kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationCommandRepository registrationCommands;
     @MockitoBean ServerTimeProvider time;
 
     private String eventId;
@@ -95,7 +96,7 @@ class RegistrationEntryDatabaseTest {
         assertThat(bibs(page, singleRegistration)).containsExactly("10002");
     }
 
-    /** 신청 상세의 참가 항목은 entryId와 배번을 하위 종목 순서로 돌려주고, 패키지만 받는 사람을 고칠 수 있다. */
+    /** 신청 상세의 참가 항목은 entryId와 배번을 하위 종목 순서로 돌려주고, 상품 신청(단품·패키지)은 받는 사람을 고칠 수 있다. */
     @Test
     void detailReturnsEntriesInCategoryOrder() {
         RegistrationDetailResponse response = queries.getRegistrationDetail(pkgRegistration.getId());
@@ -107,7 +108,24 @@ class RegistrationEntryDatabaseTest {
                 .containsExactly("10001", "20001", "30001");
         assertThat(response.entries()).extracting(RegistrationEntryResponse::eventCategoryId)
                 .containsExactly(catA, catB, catC);
-        assertThat(queries.getRegistrationDetail(singleRegistration.getId()).entriesEditable()).isFalse();
+        // 단품 받는 사람도 신청자 값을 따르지 않으므로 여기서 고친다.
+        assertThat(queries.getRegistrationDetail(singleRegistration.getId()).entriesEditable()).isTrue();
+    }
+
+    /**
+     * 같은 신청자 주문 여러 건 허용 신청의 신원 검사용 잠금 읽기는 본인과 삭제 이력을 빼고 같은 신원의 살아 있는 신청만 센다.
+     * duplicate_allowed 행은 유니크 인덱스에서 빠지므로 같은 신원 두 행을 만들 수 있다.
+     */
+    @Test
+    void lockingIdentityCountIgnoresSelfAndDeletedRows() {
+        jdbc.update("update registration set duplicate_allowed = 1, name = '같은신청자' where id in (?, ?)",
+                pkgRegistration.getId(), singleRegistration.getId());
+
+        assertThat(registrationCommands.countOtherActiveByEventIdAndUniqueInfoForShare(
+                eventId, pkgRegistration.getId(), "같은신청자", "010-0000-0000", "1990-01-01")).isEqualTo(1);
+        jdbc.update("update registration set is_del = 1 where id = ?", singleRegistration.getId());
+        assertThat(registrationCommands.countOtherActiveByEventIdAndUniqueInfoForShare(
+                eventId, pkgRegistration.getId(), "같은신청자", "010-0000-0000", "1990-01-01")).isZero();
     }
 
     /** 삭제된 패키지 신청은 상세를 볼 수 있어도 받는 사람을 고칠 수 없다. */
@@ -203,9 +221,24 @@ class RegistrationEntryDatabaseTest {
 
     private void entry(String event, Registration registration, String categoryId, String bib) {
         jdbc.update("""
-                insert into registration_entry(id,event_id,registration_id,event_category_id,name,ph_num,birth,gender,bib_number,bib_issued_at,created_at,updated_at)
-                values(?,?,?,?,'받는사람','010-0000-0000','1990-01-01','M',?,NOW(6),NOW(6),NOW(6))
-                """, id(), event, registration.getId(), categoryId, bib);
+                insert into registration_entry(id,event_id,registration_id,registration_item_id,event_category_id,name,ph_num,birth,gender,bib_number,bib_issued_at,created_at,updated_at)
+                values(?,?,?,?,?,'받는사람','010-0000-0000','1990-01-01','M',?,NOW(6),NOW(6),NOW(6))
+                """, id(), event, registration.getId(), item(registration.getId()), categoryId, bib);
+    }
+
+    /** 신청의 첫 구매 줄. 없으면 신청 종목·계약금액으로 만든다. 참가 항목은 구매 줄에 묶어야 한다. */
+    private String item(String registrationId) {
+        List<String> found = jdbc.queryForList(
+                "select id from registration_item where registration_id=? and sort_order=1", String.class, registrationId);
+        if (!found.isEmpty()) {
+            return found.getFirst();
+        }
+        String itemId = UUID.randomUUID().toString();
+        jdbc.update("""
+                insert into registration_item(id,event_id,registration_id,event_category_id,sort_order,amount,souvenir_json)
+                select ?,event_id,id,event_category_id,1,contract_amount,souvenir_json from registration where id=?
+                """, itemId, registrationId);
+        return itemId;
     }
 
     private String id() {

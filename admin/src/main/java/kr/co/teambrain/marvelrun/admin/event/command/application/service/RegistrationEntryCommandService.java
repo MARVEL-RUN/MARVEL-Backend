@@ -14,7 +14,6 @@ import kr.co.teambrain.marvelrun.admin.event.command.application.valid.dto.Regis
 import kr.co.teambrain.marvelrun.admin.event.command.application.valid.loader.RegistrationPolicyLoader;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationCommandRepository;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationEntryCommandRepository;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,7 +28,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * 관리자가 패키지 받는 사람(registration_entry)의 이름·연락처·생년월일·성별을 고친다.
+ * 관리자가 상품 받는 사람(registration_entry)의 이름·연락처·생년월일·성별을 고친다.
+ * 단품 항목도 신청자 값을 따르지 않으므로 여기서 고친다.
  * 차수 마감 뒤에도 고칠 수 있으므로 기간 정책은 보지 않고, 배번은 건드리지 않는다.
  */
 @Service
@@ -51,7 +51,7 @@ public class RegistrationEntryCommandService {
         if (registration.isSoftDeleted()) {
             throw new CustomException(ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET);
         }
-        if (registration.getEventCategory().getProductType() != ProductType.PACKAGE) {
+        if (registration.getEventCategory().getProductType() == null) {
             throw new CustomException(ErrorCode.REGISTRATION_ENTRY_PACKAGE_ONLY);
         }
 

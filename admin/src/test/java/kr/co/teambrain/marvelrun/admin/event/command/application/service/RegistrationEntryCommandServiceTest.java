@@ -103,10 +103,21 @@ class RegistrationEntryCommandServiceTest {
         assertThat(registration.getDetailMemo()).contains("관리자에 의한 패키지 받는 사람 정보 수정 (1명)");
     }
 
-    /** 단품 신청은 신청자 정보를 따르므로 거절한다. */
+    /** 단품 신청의 받는 사람도 신청자 값을 따르지 않으므로 여기서 고친다. */
     @Test
-    void rejectsSingleRegistration() {
+    void updatesSingleRegistrationEntry() {
         stubEntries(registration(catA, false, null, false));
+
+        service.modifyEntries("r", request(new Entry("ea", "새이름", "01011112222", "1991-02-03", GenderClass.F)));
+
+        assertThat(entryA.getName()).isEqualTo("새이름");
+        assertThat(entryA.getBibNumber()).isEqualTo("10001");
+    }
+
+    /** 상품이 아닌 신청에는 받는 사람이 없으므로 거절한다. */
+    @Test
+    void rejectsNonProductRegistration() {
+        stubEntries(registration(category("legacy", "10km", null), false, null, false));
 
         assertError(ErrorCode.REGISTRATION_ENTRY_PACKAGE_ONLY, request(valid("ea")));
     }

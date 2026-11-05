@@ -174,9 +174,24 @@ class VirtualRosterDatabaseTest {
 
     private void entry(String event, String registrationId, String categoryId, String bib, String name) {
         jdbc.update("""
-                insert into registration_entry(id,event_id,registration_id,event_category_id,name,ph_num,birth,gender,bib_number,created_at,updated_at)
-                values(?,?,?,?,?,'010-0000-0000','1990-01-01','M',?,NOW(6),NOW(6))
-                """, id(), event, registrationId, categoryId, name, bib);
+                insert into registration_entry(id,event_id,registration_id,registration_item_id,event_category_id,name,ph_num,birth,gender,bib_number,created_at,updated_at)
+                values(?,?,?,?,?,?,'010-0000-0000','1990-01-01','M',?,NOW(6),NOW(6))
+                """, id(), event, registrationId, item(registrationId), categoryId, name, bib);
+    }
+
+    /** 신청의 첫 구매 줄. 없으면 신청 종목·계약금액으로 만든다. 참가 항목은 구매 줄에 묶어야 한다. */
+    private String item(String registrationId) {
+        List<String> found = jdbc.queryForList(
+                "select id from registration_item where registration_id=? and sort_order=1", String.class, registrationId);
+        if (!found.isEmpty()) {
+            return found.getFirst();
+        }
+        String itemId = UUID.randomUUID().toString();
+        jdbc.update("""
+                insert into registration_item(id,event_id,registration_id,event_category_id,sort_order,amount,souvenir_json)
+                select ?,event_id,id,event_category_id,1,contract_amount,souvenir_json from registration where id=?
+                """, itemId, registrationId);
+        return itemId;
     }
 
     private String id() {

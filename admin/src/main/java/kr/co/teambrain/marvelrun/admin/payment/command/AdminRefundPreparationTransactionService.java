@@ -16,7 +16,6 @@ import kr.co.teambrain.marvelrun.admin.capacity.command.application.service.*;
 import kr.co.teambrain.marvelrun.admin.capacity.command.application.service.ReservationHistoryRecorder;
 import kr.co.teambrain.marvelrun.admin.common.exception.*;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.*;
-import kr.co.teambrain.marvelrun.admin.event.command.application.service.RegistrationApplicantEntrySyncService;
 import kr.co.teambrain.marvelrun.admin.event.command.application.service.RegistrationPricingService;
 import kr.co.teambrain.marvelrun.admin.event.command.application.valid.dto.*;
 import kr.co.teambrain.marvelrun.admin.event.command.application.valid.RegistrationPolicyCandidateValidator;
@@ -57,7 +56,6 @@ public class AdminRefundPreparationTransactionService {
     private final PaymentCancelAllocationCreator allocationCreator;
     private final AdminRefundTime time;
     private final Validator validator;
-    private final RegistrationApplicantEntrySyncService applicantEntries;
 
     /** 결제액 환불은 참가 취소를 동반한다. 단체 일부도 선택한 인원만 취소한다. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -261,8 +259,6 @@ public class AdminRefundPreparationTransactionService {
                 registration.applyAdminAdjustmentCandidate(
                         candidate.category(), candidate.souvenirs(), candidate.birth(), candidate.amount()
                 );
-                // 관리자 조정은 생년월일을 바꿀 수 있으므로 단품 참가 항목도 맞춘다.
-                applicantEntries.syncApplicantEntry(registration);
             }
             if (candidate.cancel()) { registration.cancelParticipation(); }
             Reservation reservation = byRegistration.get(registration.getId());

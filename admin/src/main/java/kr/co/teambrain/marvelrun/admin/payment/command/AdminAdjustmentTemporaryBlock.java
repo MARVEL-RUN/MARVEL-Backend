@@ -52,10 +52,19 @@ public final class AdminAdjustmentTemporaryBlock {
         }
     }
 
-    /** 상품 종류가 있는 종목에서, 또는 그런 종목으로 바꾸면 막는다. 기존 종목끼리는 그대로 둔다. */
+    /**
+     * 상품 종류가 있는 종목에서, 또는 그런 종목으로 바꾸면 막는다. 기존 종목끼리는 그대로 둔다.
+     *
+     * 상품 신청은 종목이 같아도 막는다. 신청 행의 종목은 첫 구매 줄(대표 상품)일 뿐이라
+     * 조정이 신청 전체를 상품 하나 가격·정원으로 다시 계산해 실제 부분 환불을 만들기 때문이다.
+     * 전체 취소(조정 후보가 아닌 경로)는 이 검사를 거치지 않는다.
+     */
     public static void validateProductCategoryChange(EventCategory previousCategory, EventCategory nextCategory) {
+        if (BLOCK_PRODUCT_CATEGORY_CHANGE && previousCategory.getProductType() != null) {
+            throw new CustomException(ErrorCode.ADMIN_ADJUSTMENT_PRODUCT_REGISTRATION_BLOCKED);
+        }
         if (BLOCK_PRODUCT_CATEGORY_CHANGE && !Objects.equals(previousCategory.getId(), nextCategory.getId())
-                && (previousCategory.getProductType() != null || nextCategory.getProductType() != null)) {
+                && nextCategory.getProductType() != null) {
             throw new CustomException(ErrorCode.ADMIN_ADJUSTMENT_PRODUCT_CATEGORY_TEMPORARILY_BLOCKED);
         }
     }

@@ -61,7 +61,7 @@ public record RegistrationDetailResponse(
         /** 진행 중인 단품 → 패키지 상향. 없으면 null */
         PackageUpgradeSummaryResponse packageUpgrade,
 
-        /** 받는 사람 수정 API(PATCH .../entries)를 쓸 수 있는지. 삭제되지 않은 패키지 신청만 true다. */
+        /** 받는 사람 수정 API(PATCH .../entries)를 쓸 수 있는지. 삭제되지 않은 상품(단품·패키지) 신청만 true다. */
         boolean entriesEditable
 ) {
 }

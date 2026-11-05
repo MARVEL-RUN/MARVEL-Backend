@@ -5,6 +5,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 import kr.co.teambrain.marvelrun.admin.common.dto.request.PasswordResetRequest;
@@ -17,6 +18,7 @@ import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegis
 import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegistrationBatchResponse;
 import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegistrationBatchResponse.Failure;
 import kr.co.teambrain.marvelrun.admin.event.command.application.dto.UnpaidRegistrationBatchResponse.Success;
+import kr.co.teambrain.marvelrun.admin.event.command.repository.EventCommandRepository;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationCommandRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,7 +43,7 @@ public class RegistrationCommandService {
     private final RegistrationCommandRepository registrationCommandRepository;
     private final AdminUnpaidRegistrationCancellationService unpaidCancellation;
     private final RegistrationStartGroupResolver startGroups;
-    private final RegistrationApplicantEntrySyncService applicantEntries;
+    private final EventCommandRepository eventCommandRepository;
 
     /**
      * 개인 신청 비밀번호를 해시로 변환하여 초기화한다.
@@ -101,14 +103,7 @@ public class RegistrationCommandService {
         }
 
         // 4. 복합 유니크(이름+연락처+생년월일) 중복 방어
-        if (registrationCommandRepository.existsOtherActiveByEventIdAndUniqueInfo(
-                registration.getEvent().getId(),
-                registration.getId(),
-                request.name(),
-                request.phNum(),
-                request.birth())) {
-            throw new CustomException(ErrorCode.DUPLICATE_REGISTRATION);
-        }
+        validateIdentity(registration, request);
 
         // 기존 기본정보 검증을 유지하고 현재 종목의 그룹만 변경한다.
         RegistrationStartGroupResolver.Selection selection = startGroups.resolveRegistrationStartGroups(List.of(
@@ -128,7 +123,39 @@ public class RegistrationCommandService {
                 request.guardianRelationship(),
                 LocalDateTime.now()
         );
-        applicantEntries.syncApplicantEntry(registration);
+    }
+
+    /**
+     * 같은 신청자 주문 여러 건을 허용한 대회의 신청(duplicate_allowed)은 DB 유니크 인덱스가 보지 않는다.
+     * 그래서 신원(이름·연락처·생년월일)이 그대로면 같은 신청자의 다른 주문이 있어도 통과시키고,
+     * 신원을 바꿀 때만 사용자 서버 신청 생성과 같은 대회 행 잠금을 잡은 뒤 바꿀 신원의 다른 활성 주문을 찾는다.
+     * 그 밖의 신청은 지금처럼 항상 검사한다.
+     */
+    private void validateIdentity(Registration registration, AdminRegistrationModifyRequest request) {
+        String eventId = registration.getEvent().getId();
+        if (registration.isDuplicateAllowed()) {
+            if (Objects.equals(registration.getName(), request.name())
+                    && Objects.equals(registration.getPhNum(), request.phNum())
+                    && Objects.equals(registration.getBirth(), request.birth())) {
+                return;
+            }
+            eventCommandRepository.findByIdForUpdate(eventId)
+                    .orElseThrow(() -> new CustomException(ErrorCode.EVENT_NOT_FOUND));
+            // 잠금 전에 이미 읽은 스냅숏이 아니라 커밋된 최신 행을 본다.
+            if (registrationCommandRepository.countOtherActiveByEventIdAndUniqueInfoForShare(
+                    eventId, registration.getId(), request.name(), request.phNum(), request.birth()) > 0) {
+                throw new CustomException(ErrorCode.DUPLICATE_REGISTRATION);
+            }
+            return;
+        }
+        if (registrationCommandRepository.existsOtherActiveByEventIdAndUniqueInfo(
+                eventId,
+                registration.getId(),
+                request.name(),
+                request.phNum(),
+                request.birth())) {
+            throw new CustomException(ErrorCode.DUPLICATE_REGISTRATION);
+        }
     }
 
     /** 미결제 취소의 금융 잠금·주문 무효화·자원 반환을 하나의 트랜잭션으로 위임한다. */
