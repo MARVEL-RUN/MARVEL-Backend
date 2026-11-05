@@ -21,7 +21,7 @@ public final class AdminAdjustmentTemporaryBlock {
     private static final boolean BLOCK_AGE_GROUP_CHANGE = false;
     /** 종목 변경으로 변경 전 계약금액보다 금액이 커지는 경우만 중단한다. */
     private static final boolean BLOCK_CATEGORY_PRICE_INCREASE = false;
-    /** 참가 항목이 있는 상품의 종목 변경은 항목을 다시 만들 흐름이 없어 막는다. */
+    /** 상품 종목으로 바꾸는 조정은 참가 항목·구매 줄을 만들 흐름이 없어 막는다. 상품 신청 자체의 조정은 스위치와 관계없이 막는다. */
     private static final boolean BLOCK_PRODUCT_CATEGORY_CHANGE = true;
 
     /** 인스턴스 생성이 필요 없는 공통 가드이다. */
@@ -53,16 +53,20 @@ public final class AdminAdjustmentTemporaryBlock {
     }
 
     /**
-     * 상품 종류가 있는 종목에서, 또는 그런 종목으로 바꾸면 막는다. 기존 종목끼리는 그대로 둔다.
+     * 상품 신청은 종목이 같아도 조정하지 않는다. 임시 스위치와 관계없이 항상 막는다.
      *
-     * 상품 신청은 종목이 같아도 막는다. 신청 행의 종목은 첫 구매 줄(대표 상품)일 뿐이라
-     * 조정이 신청 전체를 상품 하나 가격·정원으로 다시 계산해 실제 부분 환불을 만들기 때문이다.
+     * 신청 행의 종목은 첫 구매 줄(대표 상품)일 뿐이라, 조정이 신청 전체를 상품 하나 가격·정원으로 다시 계산해
+     * 실제 부분 환불과 다른 줄의 정원 반환을 만들기 때문이다. 줄 단위 조정이 생기기 전까지 지켜야 하는 규칙이다.
      * 전체 취소(조정 후보가 아닌 경로)는 이 검사를 거치지 않는다.
      */
-    public static void validateProductCategoryChange(EventCategory previousCategory, EventCategory nextCategory) {
-        if (BLOCK_PRODUCT_CATEGORY_CHANGE && previousCategory.getProductType() != null) {
+    public static void validateProductRegistration(EventCategory previousCategory) {
+        if (previousCategory.getProductType() != null) {
             throw new CustomException(ErrorCode.ADMIN_ADJUSTMENT_PRODUCT_REGISTRATION_BLOCKED);
         }
+    }
+
+    /** 기존 종목에서 상품 종류가 있는 종목으로 바꾸면 막는다. 기존 종목끼리는 그대로 둔다. */
+    public static void validateProductCategoryChange(EventCategory previousCategory, EventCategory nextCategory) {
         if (BLOCK_PRODUCT_CATEGORY_CHANGE && !Objects.equals(previousCategory.getId(), nextCategory.getId())
                 && nextCategory.getProductType() != null) {
             throw new CustomException(ErrorCode.ADMIN_ADJUSTMENT_PRODUCT_CATEGORY_TEMPORARILY_BLOCKED);

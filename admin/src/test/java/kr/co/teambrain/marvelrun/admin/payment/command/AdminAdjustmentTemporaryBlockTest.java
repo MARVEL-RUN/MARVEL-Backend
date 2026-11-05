@@ -42,19 +42,19 @@ class AdminAdjustmentTemporaryBlockTest {
                 .doesNotThrowAnyException();
     }
 
-    /** 상품 신청은 종목을 그대로 두거나 다른 종목으로 바꿔도 조정을 막는다. 신청 행 종목은 대표 상품일 뿐이다. */
+    /**
+     * 상품 신청은 조정을 항상 막는다. 신청 행 종목은 대표 상품일 뿐이다.
+     * 임시 스위치(BLOCK_PRODUCT_CATEGORY_CHANGE)와 분리된 검사라 스위치를 꺼도 막혀야 한다.
+     */
     @Test void blocksAnyAdjustmentOfProductRegistration() {
-        EventCategory single = category("single", ProductType.SINGLE);
-        EventCategory pack = category("package", ProductType.PACKAGE);
-        EventCategory legacy = category("legacy", null);
-        for (EventCategory next : java.util.List.of(single, pack, legacy)) {
-            assertThatThrownBy(() -> AdminAdjustmentTemporaryBlock.validateProductCategoryChange(single, next))
+        for (EventCategory current : java.util.List.of(category("single", ProductType.SINGLE),
+                category("package", ProductType.PACKAGE))) {
+            assertThatThrownBy(() -> AdminAdjustmentTemporaryBlock.validateProductRegistration(current))
                     .isInstanceOfSatisfying(CustomException.class, exception -> assertThat(exception.getErrorCode())
                             .isEqualTo(ErrorCode.ADMIN_ADJUSTMENT_PRODUCT_REGISTRATION_BLOCKED));
         }
-        assertThatThrownBy(() -> AdminAdjustmentTemporaryBlock.validateProductCategoryChange(pack, pack))
-                .isInstanceOfSatisfying(CustomException.class, exception -> assertThat(exception.getErrorCode())
-                        .isEqualTo(ErrorCode.ADMIN_ADJUSTMENT_PRODUCT_REGISTRATION_BLOCKED));
+        assertThatCode(() -> AdminAdjustmentTemporaryBlock.validateProductRegistration(category("legacy", null)))
+                .doesNotThrowAnyException();
     }
 
     private static EventCategory category(String id, ProductType productType) {

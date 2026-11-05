@@ -168,6 +168,7 @@ public class AdminRefundPreparationTransactionService {
                 AdminPaymentPartialRefundTarget target = requests.get(registration.getId());
                 if (target == null) { throw invalid(); }
                 RegistrationPolicyCandidateResult checked = checkedById.get(registration.getId());
+                AdminAdjustmentTemporaryBlock.validateProductRegistration(registration.getEventCategory());
                 AdminAdjustmentTemporaryBlock.validateProductCategoryChange(
                         registration.getEventCategory(), checked.eventCategory());
                 DiscountModels.PriceResult discountPrice = pricing.calculateRegistrationPrice(
