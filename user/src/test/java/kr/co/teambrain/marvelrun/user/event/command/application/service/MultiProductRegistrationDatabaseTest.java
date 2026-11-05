@@ -204,6 +204,8 @@ class MultiProductRegistrationDatabaseTest {
     /** 같은 신청자 주문 여러 건을 허용하지 않은 대회는 지금처럼 이미 신청한 대회로 거절한다. */
     @Test
     void duplicateNotAllowedEventKeepsRejectingSecondOrder() {
+        // 로컬 DB에 허용 값이 켜져 있어도 이 테스트는 허용하지 않는 대회로 본다(트랜잭션 롤백).
+        jdbc.update("update event_registration_policy set duplicate_registration_allowed = 0 where event_id = ?", EVENT_ID);
         String name = uniqueName("중복불가");
         registrations.register(EVENT_ID, request(name, List.of(single("vr-avengers", "아이1"))));
         entityManager.flush();
