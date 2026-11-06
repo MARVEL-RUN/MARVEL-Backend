@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import kr.co.teambrain.marvelrun.user.participantauth.command.application.service.ParticipantOrderAccess;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
@@ -54,9 +55,13 @@ public class RegistrationEntryModificationService {
 
     /** 받는 사람 목록. 수정할 entryId를 여기서 읽는다. 일반 종목 신청은 빈 목록이다. */
     @Transactional(readOnly = true)
-    public RegistrationEntryListResponse findEntries(String registrationId) {
+    public RegistrationEntryListResponse findEntries(String registrationId, String ordererKey) {
         Registration registration = entityManager.find(Registration.class, registrationId);
-        if (registration == null || registration.isSoftDeleted() || registration.getOrganization() != null) {
+        if (registration == null) {
+            throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
+        }
+        ParticipantOrderAccess.verifyOwned(registration, ordererKey);
+        if (registration.isSoftDeleted()) {
             throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
         }
         return new RegistrationEntryListResponse(entryRepository.findByRegistration_Id(registrationId).stream()
@@ -70,9 +75,10 @@ public class RegistrationEntryModificationService {
 
     /** 요청에 담긴 받는 사람만 정책 검증을 거쳐 고친다. 한 명이라도 거절되면 전체를 취소한다. */
     @Transactional
-    public RegistrationEntryModifyResponse modifyEntries(String registrationId, RegistrationEntryModifyRequest request) {
+    public RegistrationEntryModifyResponse modifyEntries(String registrationId, String ordererKey,
+                                                         RegistrationEntryModifyRequest request) {
         LocalDateTime now = time.currentDateTime();
-        Registration registration = lock(registrationId);
+        Registration registration = lock(registrationId, ordererKey);
 
         informationPolicyValidator.validateStatus(registration);
         if (!registration.isProductPurchase()) {
@@ -121,13 +127,17 @@ public class RegistrationEntryModificationService {
     }
 
     /**
-     * 토큰의 신청을 잠그고 살아 있는 온라인 개인 신청인지 본다.
+     * 신청을 잠그고 토큰 주문자의 살아 있는 온라인 개인 주문인지 본다.
      * 정원·결제를 건드리지 않으므로 대회·결제 행은 잠그지 않는다. 다른 수정과는 신청 행 잠금으로 순서를 맞춘다.
      */
-    private Registration lock(String registrationId) {
+    private Registration lock(String registrationId, String ordererKey) {
         Registration registration = entityManager.find(Registration.class, registrationId,
                 LockModeType.PESSIMISTIC_WRITE);
-        if (registration == null || registration.isSoftDeleted() || registration.getOrganization() != null) {
+        if (registration == null) {
+            throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
+        }
+        ParticipantOrderAccess.verifyOwned(registration, ordererKey);
+        if (registration.isSoftDeleted()) {
             throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
         }
         registration.validateOnlineRegistrationProcessingAllowed();

@@ -75,6 +75,7 @@ class RegistrationEntryModificationServiceTest {
     void setUp() {
         lenient().when(time.currentDateTime()).thenReturn(NOW);
         lenient().when(entityManager.find(Registration.class, "r1", LockModeType.PESSIMISTIC_WRITE)).thenReturn(registration);
+        lenient().when(registration.getOrdererKey()).thenReturn("orderer");
         lenient().when(registration.getEvent()).thenReturn(event);
         lenient().when(registration.isProductPurchase()).thenReturn(true);
         lenient().when(event.getId()).thenReturn("event-1");
@@ -98,7 +99,7 @@ class RegistrationEntryModificationServiceTest {
                 new RegistrationPolicyInput("2015-01-01", "보호자", true), NOW.toLocalDate()))
                 .thenReturn(LocalDate.of(2015, 1, 1));
 
-        RegistrationEntryModifyResponse response = service.modifyEntries("r1", request(entry("e1")));
+        RegistrationEntryModifyResponse response = service.modifyEntries("r1", "orderer", request(entry("e1")));
 
         verify(informationPolicyValidator).validateStatus(registration);
         verify(informationPolicyValidator).validateRegistrationModificationPeriod(event, NOW);
@@ -115,13 +116,13 @@ class RegistrationEntryModificationServiceTest {
     void 일반_종목_신청은_받는_사람을_고치지_않는다() {
         when(registration.isProductPurchase()).thenReturn(false);
 
-        assertError(() -> service.modifyEntries("r1", request(entry("e1"))), ErrorCode.REGISTRATION_ENTRY_PRODUCT_ONLY);
+        assertError(() -> service.modifyEntries("r1", "orderer", request(entry("e1"))), ErrorCode.REGISTRATION_ENTRY_PRODUCT_ONLY);
         verifyNoInteractions(entryRepository, policyLoader);
     }
 
     @Test
     void 같은_참가_항목을_두_번_보내면_거절한다() {
-        assertError(() -> service.modifyEntries("r1", request(entry("e1"), entry("e1"))),
+        assertError(() -> service.modifyEntries("r1", "orderer", request(entry("e1"), entry("e1"))),
                 ErrorCode.REGISTRATION_ENTRY_DUPLICATED);
         verifyNoInteractions(entryRepository);
     }
@@ -130,7 +131,7 @@ class RegistrationEntryModificationServiceTest {
     void 다른_신청의_참가_항목은_거절하고_아무것도_고치지_않는다() {
         when(entryRepository.findByRegistration_Id("r1")).thenReturn(List.of(first));
 
-        assertError(() -> service.modifyEntries("r1", request(entry("e1"), entry("other"))),
+        assertError(() -> service.modifyEntries("r1", "orderer", request(entry("e1"), entry("other"))),
                 ErrorCode.INVALID_REGISTRATION_ENTRIES);
         verify(first, never()).updateRecipient(any(), any(), any(), any());
     }
@@ -141,7 +142,7 @@ class RegistrationEntryModificationServiceTest {
                 .when(actionPolicies).validateRegistrationActionPolicy(eq(event), eq(registration), eq(Action.MODIFY),
                         eq(NOW), any());
 
-        assertError(() -> service.modifyEntries("r1", request(entry("e1"))),
+        assertError(() -> service.modifyEntries("r1", "orderer", request(entry("e1"))),
                 ErrorCode.REGISTRATION_PERIOD_BLOCKED);
         verifyNoInteractions(entryRepository);
     }
@@ -149,11 +150,22 @@ class RegistrationEntryModificationServiceTest {
     @Test
     void 삭제된_신청과_단체_신청은_본인_신청이_아닌_것으로_본다() {
         when(registration.isSoftDeleted()).thenReturn(true);
-        assertError(() -> service.modifyEntries("r1", request(entry("e1"))), ErrorCode.REGISTRATION_ACCESS_DENIED);
+        assertError(() -> service.modifyEntries("r1", "orderer", request(entry("e1"))), ErrorCode.REGISTRATION_ACCESS_DENIED);
 
-        when(registration.isSoftDeleted()).thenReturn(false);
+        // 단체 신청은 주문자 소유 확인에서 먼저 거절되어 삭제 여부를 보지 않는다.
+        lenient().when(registration.isSoftDeleted()).thenReturn(false);
         when(registration.getOrganization()).thenReturn(mock(Organization.class));
-        assertError(() -> service.modifyEntries("r1", request(entry("e1"))), ErrorCode.REGISTRATION_ACCESS_DENIED);
+        assertError(() -> service.modifyEntries("r1", "orderer", request(entry("e1"))), ErrorCode.REGISTRATION_ACCESS_DENIED);
+    }
+
+    @Test
+    void 다른_주문자의_주문은_받는_사람을_보거나_고칠_수_없다() {
+        when(entityManager.find(Registration.class, "r1")).thenReturn(registration);
+
+        assertError(() -> service.modifyEntries("r1", "other-orderer", request(entry("e1"))),
+                ErrorCode.REGISTRATION_ACCESS_DENIED);
+        assertError(() -> service.findEntries("r1", "other-orderer"), ErrorCode.REGISTRATION_ACCESS_DENIED);
+        verify(entryRepository, never()).findByRegistration_Id(any());
     }
 
     @Test
@@ -178,7 +190,7 @@ class RegistrationEntryModificationServiceTest {
         when(second.getRegistrationItem()).thenReturn(secondItem);
         when(entryRepository.findByRegistration_Id("r1")).thenReturn(List.of(packageIronman, second, first));
 
-        assertThat(service.findEntries("r1").entries())
+        assertThat(service.findEntries("r1", "orderer").entries())
                 .extracting(RegistrationEntryListResponse.Entry::entryId)
                 .containsExactly("e1", "e2", "e3");
     }

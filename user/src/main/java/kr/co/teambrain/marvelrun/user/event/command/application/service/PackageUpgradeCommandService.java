@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import kr.co.teambrain.marvelrun.user.participantauth.command.application.service.ParticipantOrderAccess;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
@@ -71,9 +72,9 @@ public class PackageUpgradeCommandService {
 
     /** 상향을 요청하고 차액 결제창 정보를 돌려준다. */
     @Transactional
-    public PackageUpgradeOrderResponse request(String registrationId, PackageUpgradeRequest request) {
+    public PackageUpgradeOrderResponse request(String registrationId, String ordererKey, PackageUpgradeRequest request) {
         LocalDateTime now = time.currentDateTime();
-        Locked locked = lock(registrationId);
+        Locked locked = lock(registrationId, ordererKey);
         Registration registration = locked.registration();
         Event event = registration.getEvent();
 
@@ -161,9 +162,9 @@ public class PackageUpgradeCommandService {
 
     /** 결제창을 다시 연다. 같은 금액의 READY 주문이 있으면 그 주문을 그대로 쓴다. */
     @Transactional
-    public PackageUpgradeOrderResponse preparePayment(String registrationId) {
+    public PackageUpgradeOrderResponse preparePayment(String registrationId, String ordererKey) {
         LocalDateTime now = time.currentDateTime();
-        Locked locked = lock(registrationId);
+        Locked locked = lock(registrationId, ordererKey);
         PackageUpgrade upgrade = upgradeRepository
                 .findByRegistrationForUpdate(registrationId, PackageUpgradeStatus.PENDING)
                 .orElseThrow(() -> new CustomException(ErrorCode.PACKAGE_UPGRADE_NOT_FOUND));
@@ -176,9 +177,9 @@ public class PackageUpgradeCommandService {
 
     /** 결제하지 않은 상향을 취소한다. 기간 정책은 보지 않는다(마감 뒤에도 스스로 풀 수 있다). */
     @Transactional
-    public void cancel(String registrationId) {
+    public void cancel(String registrationId, String ordererKey) {
         LocalDateTime now = time.currentDateTime();
-        Locked locked = lock(registrationId);
+        Locked locked = lock(registrationId, ordererKey);
         PackageUpgrade upgrade = upgradeRepository
                 .findByRegistrationForUpdate(registrationId, PackageUpgradeStatus.PENDING)
                 .orElseThrow(() -> new CustomException(ErrorCode.PACKAGE_UPGRADE_NOT_FOUND));
@@ -208,8 +209,8 @@ public class PackageUpgradeCommandService {
         return items.get(0);
     }
 
-    /** 대회 → 결제 → 신청 순으로 잠그고 토큰의 신청이 살아 있는 개인 신청인지 본다. */
-    private Locked lock(String registrationId) {
+    /** 대회 → 결제 → 신청 순으로 잠그고, 다시 읽은 신청이 토큰 주문자의 살아 있는 개인 주문인지 본다. */
+    private Locked lock(String registrationId, String ordererKey) {
         Registration found = entityManager.find(Registration.class, registrationId);
         if (found == null) {
             throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
@@ -218,7 +219,8 @@ public class PackageUpgradeCommandService {
         registrationCapacityService.lockEvent(eventId);
         List<Payment> payments = paymentGuard.lockPersonal(eventId, registrationId);
         entityManager.refresh(found, LockModeType.PESSIMISTIC_WRITE);
-        if (found.isSoftDeleted() || found.getOrganization() != null) {
+        ParticipantOrderAccess.verifyOwned(found, ordererKey);
+        if (found.isSoftDeleted()) {
             throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
         }
         found.validateOnlineRegistrationProcessingAllowed();
