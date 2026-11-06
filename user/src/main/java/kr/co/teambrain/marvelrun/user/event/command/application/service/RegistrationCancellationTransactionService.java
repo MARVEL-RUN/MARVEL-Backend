@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import kr.co.teambrain.marvelrun.user.participantauth.command.application.service.ParticipantOrderAccess;
+import java.util.function.Consumer;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -59,6 +61,19 @@ public class RegistrationCancellationTransactionService {
     /** 개인 신청을 현재 정보로 인증하며 단체 구성원의 개인 취소 진입을 차단한다. */
     @Transactional
     public Prepared cancelPersonal(String eventId, String registrationId, RegistrationAccessRequest access) {
+        return cancelLockedPersonal(eventId, registrationId,
+                registration -> RegistrationAccessVerifier.verifyPersonal(registration, access, passwordEncoder));
+    }
+
+    /** 로그인한 주문자의 주문 전체 취소. 본인확인 대신 잠금 뒤 다시 읽은 행으로 주문자 소유를 본다. */
+    @Transactional
+    public Prepared cancelOwnedPersonal(String eventId, String registrationId, String ordererKey) {
+        return cancelLockedPersonal(eventId, registrationId,
+                registration -> ParticipantOrderAccess.verifyOwned(registration, ordererKey));
+    }
+
+    /** 대회 → 결제 → 신청 순으로 잠그고, 다시 읽은 신청을 진입점별 확인(verify)에 넘긴 뒤 같은 취소 처리를 한다. */
+    private Prepared cancelLockedPersonal(String eventId, String registrationId, Consumer<Registration> verify) {
         Event event = lockEvent(eventId);
         List<Payment> payments = paymentGuard.lockPersonal(eventId, registrationId);
         Registration registration = entityManager.find(Registration.class, registrationId);
@@ -67,7 +82,7 @@ public class RegistrationCancellationTransactionService {
         if (registration.getOrganization() != null || !eventId.equals(registration.getEvent().getId())) {
             throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
         }
-        RegistrationAccessVerifier.verifyPersonal(registration, access, passwordEncoder);
+        verify.accept(registration);
         return prepareRegistrationCancellation(event, null, List.of(registration), payments);
     }
 

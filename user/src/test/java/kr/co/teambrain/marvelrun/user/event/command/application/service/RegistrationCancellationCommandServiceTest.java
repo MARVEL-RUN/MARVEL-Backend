@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import kr.co.teambrain.marvelrun.user.participantauth.command.application.service.ParticipantOrderAccess;
 import java.math.BigDecimal;
 import java.util.List;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_cancel.PaymentCancelStatus;
@@ -18,7 +19,8 @@ class RegistrationCancellationCommandServiceTest {
     private final RegistrationCancellationTransactionService transactions = mock(RegistrationCancellationTransactionService.class);
     private final ModificationRefundExecutor executor = mock(ModificationRefundExecutor.class);
     private final ModificationRefundResultReader reader = mock(ModificationRefundResultReader.class);
-    private final RegistrationCancellationCommandService service = new RegistrationCancellationCommandService(transactions, executor, reader);
+    private final RegistrationCancellationCommandService service = new RegistrationCancellationCommandService(transactions, executor, reader,
+            mock(ParticipantOrderAccess.class));
     private final RegistrationAccessRequest access = new RegistrationAccessRequest("참가자", "1990-01-01", "010-0000-0000", "Test1234!");
 
     /** 준비 서비스가 반환한 뒤 외부 실행과 최종 결과 조회를 순서대로 수행한다. */

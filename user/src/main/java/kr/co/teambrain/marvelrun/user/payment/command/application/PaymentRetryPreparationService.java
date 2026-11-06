@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.user.payment.command.application;
 
+import kr.co.teambrain.marvelrun.user.participantauth.command.application.service.ParticipantOrderAccess;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.RegistrationModificationPaymentGuard;
 
@@ -57,6 +58,31 @@ public class PaymentRetryPreparationService {
     @Transactional
     public Order preparePersonal(String eventId, String registrationId, String paymentId,
             RegistrationAccessRequest access) {
+        Locked locked = lockPersonal(eventId, registrationId, paymentId);
+        RegistrationAccessVerifier.verifyPersonal(locked.registration(), access, passwordEncoder);
+        // 상향 결제는 로그인한 참가자만 상향 화면에서 진행한다.
+        upgradeGuard.rejectPendingPackageUpgrade(registrationId, ErrorCode.PACKAGE_UPGRADE_LOGIN_REQUIRED);
+        return preparePaymentRetryOrder(locked.original(), locked.payments(), locked.registration().getEvent());
+    }
+
+    /**
+     * 로그인한 주문자의 결제 재시도. 본인확인 대신 잠금 뒤 다시 읽은 신청으로 주문자 소유를 본다.
+     * 진행 중 상향이 있으면 상향 결제(.../upgrade/payment)로 하도록 거절한다.
+     */
+    @Transactional
+    public Order prepareOwnedPersonal(String registrationId, String paymentId, String ordererKey) {
+        Registration found = entityManager.find(Registration.class, registrationId);
+        if (found == null) {
+            throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
+        }
+        Locked locked = lockPersonal(found.getEvent().getId(), registrationId, paymentId);
+        ParticipantOrderAccess.verifyOwned(locked.registration(), ordererKey);
+        upgradeGuard.rejectPendingPackageUpgrade(registrationId, ErrorCode.PACKAGE_UPGRADE_IN_PROGRESS);
+        return preparePaymentRetryOrder(locked.original(), locked.payments(), locked.registration().getEvent());
+    }
+
+    /** 대회 → 결제 → 신청 순으로 잠그고, 원 주문이 경로의 개인 신청 것이며 대회가 같은지 본다. */
+    private Locked lockPersonal(String eventId, String registrationId, String paymentId) {
         List<Payment> locked = support.lockForPreparation(paymentId);
         Payment original = required(locked, paymentId);
         if (!original.isRegistrationPayment()
@@ -69,10 +95,10 @@ public class PaymentRetryPreparationService {
                 || !Objects.equals(registration.getEvent().getId(), eventId)) {
             throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
         }
-        RegistrationAccessVerifier.verifyPersonal(registration, access, passwordEncoder);
-        // 상향 결제는 로그인한 참가자만 상향 화면에서 진행한다.
-        upgradeGuard.rejectPendingPackageUpgrade(registrationId, ErrorCode.PACKAGE_UPGRADE_LOGIN_REQUIRED);
-        return preparePaymentRetryOrder(original, locked, registration.getEvent());
+        return new Locked(original, locked, registration);
+    }
+
+    private record Locked(Payment original, List<Payment> payments, Registration registration) {
     }
 
     /** 단체 인증 후 원 주문에 귀속된 참가자 전체를 함께 재준비하며 프론트의 금액·명단을 받지 않는다. */

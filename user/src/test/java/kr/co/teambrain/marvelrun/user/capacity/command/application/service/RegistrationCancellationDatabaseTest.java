@@ -1,4 +1,5 @@
 package kr.co.teambrain.marvelrun.user.capacity.command.application.service;
+import kr.co.teambrain.marvelrun.user.participantauth.command.application.service.ParticipantOrderAccess;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.OrganizationLifecycleService;
 
 import java.math.BigDecimal;
@@ -53,6 +54,7 @@ import static org.mockito.Mockito.*;
 /** 실제 MySQL에서 취소 원자성·귀속 환불·중복·충돌을 검증한다. Toss 승인과 환불은 대역이다. */
 @Import({
         OrganizationLifecycleService.class,RegistrationCancellationCommandService.class, RegistrationCancellationTransactionService.class,
+        ParticipantOrderAccess.class,
         RegistrationModificationPaymentGuard.class, RegistrationModificationSettlementService.class,
         ReservationRemovalService.class, RefundExecutionLock.class, RefundExecutionTransactionService.class,
         ModificationRefundExecutor.class, ModificationRefundResultReader.class})
