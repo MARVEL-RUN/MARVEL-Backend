@@ -17,7 +17,11 @@ import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationSearchConditi
 import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationDetailResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationListResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.service.RegistrationQueryService;
+import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationRowQueryRepository;
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
+import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
 import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationActionPolicyReader;
+import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationReservationHistoryResolver;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import org.junit.jupiter.api.BeforeEach;
@@ -48,7 +52,9 @@ import static org.mockito.Mockito.when;
         "spring.flyway.enabled=false", "spring.liquibase.enabled=false"})
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import({
-        ReferenceFilterQueryService.class,RegistrationQueryService.class, RegistrationActionPolicyReader.class})
+        ReferenceFilterQueryService.class,RegistrationQueryService.class, RegistrationActionPolicyReader.class,
+        RegistrationRowQueryRepository.class, RegistrationReservationHistoryResolver.class})
+@ImportAutoConfiguration(JacksonAutoConfiguration.class)
 class RegistrationStartGroupDatabaseTest {
     @Autowired private EntityManager entityManager;
     @Autowired private JdbcTemplate jdbc;

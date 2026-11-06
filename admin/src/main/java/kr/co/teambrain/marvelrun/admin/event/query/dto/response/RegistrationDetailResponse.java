@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import kr.co.teambrain.marvelrun.admin.event.policy.RegistrationActionPolicyModels;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import lombok.Builder;
 
@@ -62,6 +63,21 @@ public record RegistrationDetailResponse(
         PackageUpgradeSummaryResponse packageUpgrade,
 
         /** 받는 사람 수정 API(PATCH .../entries)를 쓸 수 있는지. 삭제되지 않은 상품(단품·패키지) 신청만 true다. */
-        boolean entriesEditable
+        boolean entriesEditable,
+
+        /** 구매 줄 목록(신청 안 순서). 상품이 아닌 신청은 빈 목록이다. 금액은 이 줄 단위다. */
+        List<ItemResponse> items
 ) {
+
+    /** 구매 줄 하나. 사용자 마이페이지 응답과 같은 모양이다. 받는 사람은 줄에 묶인 참가 항목이다. */
+    public record ItemResponse(
+            String itemId,
+            String eventCategoryId,
+            String eventCategoryName,
+            ProductType productType,
+            BigDecimal amount,
+            List<SouvenirJson> selectedSouvenirList,
+            List<RegistrationEntryResponse> entries
+    ) {
+    }
 }

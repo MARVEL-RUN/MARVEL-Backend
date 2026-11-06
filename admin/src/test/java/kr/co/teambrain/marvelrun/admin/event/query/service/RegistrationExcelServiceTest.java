@@ -6,14 +6,15 @@ import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Root;
-import kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
-import kr.co.teambrain.marvelrun.admin.event.command.application.domain.RegistrationEntry;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationSearchCondition;
-import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationEntryQueryRepository;
+import kr.co.teambrain.marvelrun.admin.event.query.repository.EventCategorySouvenirQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
+import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationRowQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.SouvenirQueryRepository;
+import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationReservationHistoryResolver;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventFormat;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -27,6 +28,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.mock.web.MockHttpServletResponse;
 
 import java.io.ByteArrayInputStream;
+import java.math.BigDecimal;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -42,9 +44,10 @@ import static org.mockito.Mockito.when;
 class RegistrationExcelServiceTest {
 
     private final RegistrationQueryRepository repository = mock(RegistrationQueryRepository.class);
-    private final RegistrationEntryQueryRepository entryRepository = mock(RegistrationEntryQueryRepository.class);
+    private final RegistrationRowQueryRepository rowRepository = mock(RegistrationRowQueryRepository.class);
     private final RegistrationExcelService service = new RegistrationExcelService(
-            repository, mock(SouvenirQueryRepository.class), entryRepository);
+            repository, mock(SouvenirQueryRepository.class), rowRepository,
+            mock(EventCategorySouvenirQueryRepository.class), new RegistrationReservationHistoryResolver(new ObjectMapper()));
 
     /** 선택 ID 유무에 따른 삭제 필터와 대회·검색·단체 조건 및 정렬 계약을 검증한다. */
     @ParameterizedTest
@@ -158,52 +161,65 @@ class RegistrationExcelServiceTest {
         try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(response.getContentAsByteArray()))) {
             assertThat(workbook.getSheet("신청목록").getRow(0).getLastCellNum()).isEqualTo((short) 28);
         }
-        verifyNoInteractions(entryRepository);
+        verifyNoInteractions(rowRepository);
     }
 
-    /** 버추얼 대회는 끝에 배번·참가 항목 열을 덧붙이고 종목명의 거리 접두어를 뺀다. */
+    /**
+     * 버추얼 대회는 "상품" 시트(구매 줄마다 한 행, 금액 열 있음)와 "참가자" 시트(참가자마다 한 행, 금액 열 없음)를 쓴다.
+     * 패키지 한 줄은 참가자 3행이고 상품 시트에는 한 행만 남는다. 구매 줄이 없는 신청은 계약금액으로 한 행이다.
+     */
     @Test
     @SuppressWarnings("unchecked")
-    void virtualAppendsBibAndEntryColumns() throws Exception {
+    void virtualWritesProductAndParticipantSheets() throws Exception {
         when(repository.findEventFormatById("event-1")).thenReturn(EventFormat.VIRTUAL);
-        Registration registration = Registration.builder().id("r1").name("참가자").build();
-        Registration single = Registration.builder().id("r2").name("단품").build();
-        Registration empty = Registration.builder().id("r3").name("항목없음").build();
-        when(repository.findAll(any(Specification.class), any(Sort.class)))
-                .thenReturn(List.of(registration, single, empty));
-        List<RegistrationEntry> entries = List.of(
-                entry(registration, "5km | 어벤저스", "받는1", "10001"),
-                entry(registration, "10km | 엑스맨", "받는2", "20001"),
-                entry(registration, "3km | 가디언즈", "받는3", "30001"),
-                entry(single, "어벤저스", "단품", null));
-        when(entryRepository.findByRegistrationIds(any())).thenReturn(entries);
+        Registration pack = Registration.builder().id("r1").name("주문자").contractAmount(new BigDecimal("30000")).build();
+        Registration single = Registration.builder().id("r2").name("단품").contractAmount(new BigDecimal("10000")).build();
+        Registration none = Registration.builder().id("r3").name("항목없음").contractAmount(new BigDecimal("5000")).build();
+        when(repository.findByIdIn(any())).thenReturn(List.of(pack, single, none));
+        when(rowRepository.find(any(), any(), any(), any())).thenReturn(List.of(
+                row("r1", "i1", "패키지", "30000", "5km 어벤저스", "받는1", "10001"),
+                row("r1", "i1", "패키지", "30000", "10km 엑스맨", "받는2", "20001"),
+                row("r1", "i1", "패키지", "30000", "3km 가디언즈", "받는3", "30001"),
+                row("r2", "i2", "어벤저스", "10000", "어벤저스", "단품", null),
+                row("r3", null, "항목없음", null, null, "항목없음", null)));
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         service.download(new RegistrationSearchCondition("event-1", null, null, null, null),
                 null, null, response);
 
         try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(response.getContentAsByteArray()))) {
-            Sheet sheet = workbook.getSheet("신청목록");
-            assertThat(sheet.getRow(0).getLastCellNum()).isEqualTo((short) 30);
-            assertThat(sheet.getRow(0).getCell(27).getStringCellValue()).isEqualTo("현재 명단 제외 여부");
-            assertThat(sheet.getRow(0).getCell(28).getStringCellValue()).isEqualTo("배번");
-            assertThat(sheet.getRow(0).getCell(29).getStringCellValue()).isEqualTo("참가 항목");
-            assertThat(sheet.getRow(1).getCell(28).getStringCellValue()).isEqualTo("10001 | 20001 | 30001");
-            assertThat(sheet.getRow(1).getCell(29).getStringCellValue())
-                    .isEqualTo("어벤저스 받는1 | 엑스맨 받는2 | 가디언즈 받는3");
-            assertThat(sheet.getRow(2).getCell(28).getStringCellValue()).isEmpty();
-            assertThat(sheet.getRow(2).getCell(29).getStringCellValue()).isEqualTo("어벤저스 단품");
-            assertThat(sheet.getRow(3).getCell(28).getStringCellValue()).isEmpty();
-            assertThat(sheet.getRow(3).getCell(29).getStringCellValue()).isEmpty();
+            // "상품" 시트: 줄 3개(패키지 1, 단품 1, 항목 없는 신청 1). 금액은 줄 금액, 없으면 계약금액이다.
+            Sheet lines = workbook.getSheet("상품");
+            assertThat(lines.getLastRowNum()).isEqualTo(3);
+            assertThat(lines.getRow(0).getLastCellNum()).isEqualTo((short) 22);
+            assertThat(lines.getRow(0).getCell(8).getStringCellValue()).isEqualTo("금액");
+            assertThat(lines.getRow(1).getCell(6).getStringCellValue()).isEqualTo("패키지");
+            assertThat(lines.getRow(1).getCell(8).getNumericCellValue()).isEqualTo(30000);
+            assertThat(lines.getRow(2).getCell(8).getNumericCellValue()).isEqualTo(10000);
+            assertThat(lines.getRow(3).getCell(6).getStringCellValue()).isEqualTo("항목없음");
+            assertThat(lines.getRow(3).getCell(8).getNumericCellValue()).isEqualTo(5000);
+
+            // "참가자" 시트: 목록과 같은 5행이다. 금액 열이 없고 배번은 참가자마다 따로 적는다.
+            Sheet participants = workbook.getSheet("참가자");
+            assertThat(participants.getLastRowNum()).isEqualTo(5);
+            assertThat(participants.getRow(0).getLastCellNum()).isEqualTo((short) 18);
+            assertThat(participants.getRow(0).getCell(8).getStringCellValue()).isEqualTo("배번");
+            assertThat(participants.getRow(1).getCell(3).getStringCellValue()).isEqualTo("5km 어벤저스");
+            assertThat(participants.getRow(1).getCell(4).getStringCellValue()).isEqualTo("받는1");
+            assertThat(participants.getRow(1).getCell(8).getStringCellValue()).isEqualTo("10001");
+            assertThat(participants.getRow(2).getCell(8).getStringCellValue()).isEqualTo("20001");
+            assertThat(participants.getRow(3).getCell(8).getStringCellValue()).isEqualTo("30001");
+            assertThat(participants.getRow(4).getCell(8).getStringCellValue()).isEmpty();
+            assertThat(participants.getRow(5).getCell(4).getStringCellValue()).isEqualTo("항목없음");
         }
     }
 
-    private RegistrationEntry entry(Registration registration, String categoryName, String name, String bib) {
-        EventCategory category = mock(EventCategory.class);
-        when(category.getName()).thenReturn(categoryName);
-        return RegistrationEntry.builder().registration(registration)
-                .eventCategory(category)
-                .name(name).bibNumber(bib).build();
+    private RegistrationRowQueryRepository.Row row(String registrationId, String itemId, String productName,
+            String itemAmount, String entryCategoryName, String name, String bib) {
+        return new RegistrationRowQueryRepository.Row(registrationId, itemId, productName,
+                itemAmount == null ? null : new BigDecimal(itemAmount), null,
+                entryCategoryName == null ? null : "e-" + name, entryCategoryName == null ? null : "c-" + name,
+                entryCategoryName, name, "19900101", GenderClass.M, "01000000000", bib);
     }
 
     /** 한글 표시명 추가 후에도 API 직렬화와 영문 상태 식별자의 왕복 변환을 유지한다. */
