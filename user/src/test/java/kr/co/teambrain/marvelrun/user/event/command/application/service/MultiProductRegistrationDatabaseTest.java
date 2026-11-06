@@ -189,16 +189,23 @@ class MultiProductRegistrationDatabaseTest {
                 .isInstanceOfSatisfying(CustomException.class, exception -> assertThat(exception.getErrorCode())
                         .isEqualTo(ErrorCode.REGISTRATION_ADDITIONAL_ORDER_LOGIN_REQUIRED));
 
-        var second = registrations.register(EVENT_ID, request(name, List.of(single("vr-xmen", "아이2"))), true);
+        Map<String, Object> source = jdbc.queryForMap(
+                "select password, orderer_key from registration where id = ?", first.registrationId());
+        var second = registrations.registerAdditional(EVENT_ID, request(name, List.of(single("vr-xmen", "아이2"))),
+                (String) source.get("password"), (String) source.get("orderer_key"));
         entityManager.flush();
 
         assertThat(jdbc.queryForList("""
-                select duplicate_allowed, active_unique_info from registration where id in (?, ?)
+                select duplicate_allowed, active_unique_info, password, orderer_key from registration where id in (?, ?)
                 """, first.registrationId(), second.registrationId()))
                 .allSatisfy(row -> {
                     assertThat(row.get("duplicate_allowed")).isIn(true, 1, (byte) 1);
                     assertThat(row.get("active_unique_info")).isNull();
+                    // 추가 주문은 첫 주문의 비밀번호 해시와 주문자 키를 그대로 가진다.
+                    assertThat(row.get("password")).isEqualTo(source.get("password"));
+                    assertThat(row.get("orderer_key")).isEqualTo(source.get("orderer_key"));
                 });
+        assertThat((String) source.get("orderer_key")).isNotBlank().isNotEqualTo(first.registrationId());
     }
 
     /** 같은 신청자 주문 여러 건을 허용하지 않은 대회는 지금처럼 이미 신청한 대회로 거절한다. */
@@ -207,10 +214,13 @@ class MultiProductRegistrationDatabaseTest {
         // 로컬 DB에 허용 값이 켜져 있어도 이 테스트는 허용하지 않는 대회로 본다(트랜잭션 롤백).
         jdbc.update("update event_registration_policy set duplicate_registration_allowed = 0 where event_id = ?", EVENT_ID);
         String name = uniqueName("중복불가");
-        registrations.register(EVENT_ID, request(name, List.of(single("vr-avengers", "아이1"))));
+        var first = registrations.register(EVENT_ID, request(name, List.of(single("vr-avengers", "아이1"))));
         entityManager.flush();
+        Map<String, Object> source = jdbc.queryForMap(
+                "select password, orderer_key from registration where id = ?", first.registrationId());
 
-        assertThatThrownBy(() -> registrations.register(EVENT_ID, request(name, List.of(single("vr-xmen", "아이2"))), true))
+        assertThatThrownBy(() -> registrations.registerAdditional(EVENT_ID, request(name, List.of(single("vr-xmen", "아이2"))),
+                (String) source.get("password"), (String) source.get("orderer_key")))
                 .isInstanceOfSatisfying(CustomException.class, exception -> assertThat(exception.getErrorCode())
                         .isEqualTo(ErrorCode.REGISTRATION_ALREADY_EXISTS));
     }
