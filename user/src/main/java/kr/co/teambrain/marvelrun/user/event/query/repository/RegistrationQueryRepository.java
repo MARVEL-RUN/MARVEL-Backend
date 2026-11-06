@@ -75,6 +75,19 @@ public class RegistrationQueryRepository {
                         t.get("addressDetail", String.class), t.get("paymentDeadline", LocalDateTime.class), mapEventActionPolicyInput(t))).toList();
     }
 
+    /**
+     * 로그인한 주문자의 개인 주문 전부를 읽는다. 취소한 주문도 넣는다(환불 상태 열람).
+     * 살아 있는 주문, 최근 신청 순이다. 외부 결제·단체 신청은 주문자 키가 없어 걸리지 않지만 조건으로도 뺀다.
+     */
+    public List<RegistrationQueryData.Member> orderer(String ordererKey) {
+        return entityManager.createQuery(MEMBER_SELECT + """
+                where r.ordererKey = :ordererKey and r.organization is null and r.externalPayment = false
+                order by r.softDeleted asc, r.registrationDate desc, r.id
+                """, Tuple.class)
+                .setParameter("ordererKey", ordererKey)
+                .getResultList().stream().map(this::mapRegistrationMemberProjection).toList();
+    }
+
     /** 단체의 조회 당시 활성 구성원 전체를 한 번에 읽는다. 제거·취소 행은 포함하지 않는다. */
     public List<RegistrationQueryData.Member> members(String eventId, String organizationId) {
         return entityManager.createQuery(MEMBER_SELECT + """

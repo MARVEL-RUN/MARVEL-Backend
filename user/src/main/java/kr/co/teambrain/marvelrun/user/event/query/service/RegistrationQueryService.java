@@ -97,6 +97,18 @@ public class RegistrationQueryService {
         if (members.isEmpty()) {
             throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
         }
+        return assemblePersonalResponses(eventId, members, now);
+    }
+
+    /**
+     * 본인확인(공개 조회) 또는 소유 확인(마이페이지)을 마친 개인 신청 행을 응답으로 조립한다.
+     * 결제 안내·작업 가능 여부·진행 중 상향을 공개 조회와 같은 규칙으로 계산한다.
+     */
+    List<RegistrationQueryResponse> assemblePersonalResponses(String eventId, List<RegistrationQueryData.Member> members,
+                                                              LocalDateTime now) {
+        if (members.isEmpty()) {
+            return List.of();
+        }
         List<RegistrationActionPolicyInput> policies = actionPolicies.loadEnabledRegistrationActionPolicies(eventId, List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT));
         Map<String, String> names = souvenirNames(eventId, members);
         Map<String, String> groupCodes = findStartGroupCodes(members);

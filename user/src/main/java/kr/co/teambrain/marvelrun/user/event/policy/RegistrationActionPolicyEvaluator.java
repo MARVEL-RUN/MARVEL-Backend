@@ -125,6 +125,27 @@ public final class RegistrationActionPolicyEvaluator {
                         ? organizationReasonPriority(action, reason) : registrationReasonPriority(action, reason))).orElse(null));
     }
 
+    /**
+     * 신청일이 속한 차수 기준으로 수정·환불이 막히기 시작하는 시각. 화면 안내용이며 판정은 evaluateRegistrationActionPolicy가 한다.
+     * 대회 접수 마감과, 신청일이 [registrationStart, registrationEnd)에 드는 켜진 정책의 effectiveFrom 가운데 이른 값이다.
+     * 둘 다 없으면 null이다. 처음 결제하지 않은 신청의 MODIFY 면제는 반영하지 않는다.
+     */
+    public LocalDateTime deadlineOf(EventInput event, LocalDateTime registrationDate, Action action,
+            List<RegistrationActionPolicyInput> policies) {
+        LocalDateTime deadline = event.registrationDeadline();
+        for (RegistrationActionPolicyInput policy : policies) {
+            if (!policy.enabled() || policy.action() != action || !Objects.equals(event.eventId(), policy.eventId())
+                    || registrationDate.isBefore(policy.registrationStart())
+                    || !registrationDate.isBefore(policy.registrationEnd())) {
+                continue;
+            }
+            if (deadline == null || policy.effectiveFrom().isBefore(deadline)) {
+                deadline = policy.effectiveFrom();
+            }
+        }
+        return deadline;
+    }
+
     /** 명령 검증에서도 구성원 목록 순서와 무관한 동일 대표 사유를 사용한다. */
     public Decision evaluateRegistrationActionsPolicy(EventInput event, List<ParticipantInput> participants,
             Action action, LocalDateTime now, List<RegistrationActionPolicyInput> policies, boolean organizationScope) {
