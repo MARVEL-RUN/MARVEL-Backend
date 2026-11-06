@@ -1,8 +1,6 @@
 package kr.co.teambrain.marvelrun.admin.event.query.dto.report;
 
 import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualRosterModels.AddressParts;
-import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualRosterModels.Course;
-import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualRosterModels.EntryCell;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualRosterModels.PackingRow;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualRosterModels.PrintRow;
 import org.apache.poi.ss.usermodel.CellType;
@@ -15,9 +13,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -45,24 +41,23 @@ class VirtualRosterWriterTest {
         }
     }
 
-    /** 패키지 한 건은 패킹 1행이고 하위 종목마다 배번·이름 쌍이 종목 순서대로 붙는다. */
+    /** 패키지 한 건은 참가 항목 수만큼 패킹 행이고, 열은 고정이며 모든 셀은 문자열이다. */
     @Test
-    void packingListHasOneRowWithBibNamePairs() throws IOException {
-        List<Course> courses = List.of(new Course("a", "5km | 어벤저스"), new Course("b", "10km | 엑스맨"), new Course("c", "가디언즈"));
-        Map<String, EntryCell> entries = new LinkedHashMap<>();
-        entries.put("c", new EntryCell("30001", "다"));
-        entries.put("a", new EntryCell("00001", "가"));
-        List<PackingRow> rows = List.of(new PackingRow("reg-1", "1차", "패키지", "패키지 A", entries, "티셔츠(L), 메달",
-                "신청자", "010-0000-0001", "01234", "서울시 어딘가", "101호"));
-        Sheet sheet = read(out -> packingWriter.write(out, courses, rows));
+    void packingListHasOneRowPerEntry() throws IOException {
+        List<PackingRow> rows = List.of(
+                new PackingRow("reg-1", "1차", "패키지", "패키지 A", "어벤저스", "00001", "가", "티셔츠(L), 메달",
+                        "신청자", "010-0000-0001", "01234", "서울시 어딘가", "101호"),
+                new PackingRow("reg-1", "1차", "패키지", "패키지 A", "엑스맨", "", "나", "",
+                        "신청자", "010-0000-0001", "01234", "서울시 어딘가", "101호"));
+        Sheet sheet = read(out -> packingWriter.write(out, rows));
 
-        assertThat(headers(sheet)).containsExactly("신청 번호", "차수", "상품", "종목",
-                "어벤저스 배번", "어벤저스 이름", "엑스맨 배번", "엑스맨 이름", "가디언즈 배번", "가디언즈 이름",
+        assertThat(headers(sheet)).containsExactly("신청 번호", "차수", "상품", "종목", "부문", "배번", "이름",
                 "기념품", "받는 사람", "연락처", "우편번호", "주소", "상세주소");
-        assertThat(sheet.getLastRowNum()).isEqualTo(1);
-        assertThat(values(sheet.getRow(1))).containsExactly("reg-1", "1차", "패키지", "패키지 A",
-                "00001", "가", "", "", "30001", "다",
+        assertThat(sheet.getLastRowNum()).isEqualTo(2);
+        assertThat(values(sheet.getRow(1))).containsExactly("reg-1", "1차", "패키지", "패키지 A", "어벤저스", "00001", "가",
                 "티셔츠(L), 메달", "신청자", "010-0000-0001", "01234", "서울시 어딘가", "101호");
+        assertThat(values(sheet.getRow(2))).containsExactly("reg-1", "1차", "패키지", "패키지 A", "엑스맨", "", "나",
+                "", "신청자", "010-0000-0001", "01234", "서울시 어딘가", "101호");
         List<String> cellTypes = new ArrayList<>();
         sheet.getRow(1).forEach(cell -> cellTypes.add(cell.getCellType().name()));
         assertThat(cellTypes).containsOnly("STRING");

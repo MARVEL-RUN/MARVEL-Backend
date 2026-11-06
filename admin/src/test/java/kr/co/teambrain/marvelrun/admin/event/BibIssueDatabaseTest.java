@@ -150,6 +150,51 @@ class BibIssueDatabaseTest {
         assertThat(last(catA)).isEqualTo(10002);
     }
 
+    /**
+     * 한 주문에 같은 종목 구매 줄이 둘이면 앞 줄의 항목이 앞 번호를 받는다(항목 ID 순서와 무관).
+     * 같은 줄 안에서는 종목 순서다. 참가 항목이 없는 구매 줄이 있는 주문은 누락 수에 잡힌다.
+     */
+    @Test
+    void ordersByItemThenCategoryAndCountsItemsWithoutEntries() {
+        Registration order = registration(catA, RegistrationStatus.CONFIRMED, false, false, DEADLINE.minusHours(3));
+        Registration missing = registration(catA, RegistrationStatus.CONFIRMED, false, false, DEADLINE.minusHours(2));
+        em.flush();
+        String firstItem = item(order.getId());
+        String secondItem = addItem(order.getId(), catA, 2);
+        String packageItem = addItem(order.getId(), pkg, 3);
+        String laterEntry = entryInItem(order, firstItem, catA, "ffffffff-0000-0000-0000-000000000000");
+        String earlierEntry = entryInItem(order, secondItem, catA, "00000000-0000-0000-0000-000000000000");
+        String packageB = entryInItem(order, packageItem, catB, "00000000-0000-0000-0000-000000000001");
+        String packageA = entryInItem(order, packageItem, catA, "ffffffff-0000-0000-0000-000000000001");
+        entry(missing, catA);
+        addItem(missing.getId(), catB, 2);
+
+        BibIssueResponse response = service.issue(eventId, new BibIssueRequest(DEADLINE));
+
+        assertThat(bib(laterEntry)).isEqualTo("10001");
+        assertThat(bib(earlierEntry)).isEqualTo("10002");
+        assertThat(bib(packageA)).isEqualTo("10003");
+        assertThat(bib(packageB)).isEqualTo("20001");
+        assertThat(response.issuedCount()).isEqualTo(5);
+        assertThat(response.registrationsWithoutEntriesCount()).isEqualTo(1);
+    }
+
+    /** 빈 구매 줄이 여럿인 신청도 한 번만 센다. 구매 줄이 없고 대표 종목이 상품이 아닌 신청은 세지 않는다. */
+    @Test
+    void countsRegistrationWithEmptyItemsOnceAndSkipsNonProduct() {
+        Registration emptyItems = registration(catA, RegistrationStatus.CONFIRMED, false, false, DEADLINE.minusHours(3));
+        String general = category("일반 종목", 5, null, null);
+        registration(general, RegistrationStatus.CONFIRMED, false, false, DEADLINE.minusHours(2));
+        em.flush();
+        item(emptyItems.getId());
+        addItem(emptyItems.getId(), catB, 2);
+
+        BibIssueResponse response = service.issue(eventId, new BibIssueRequest(DEADLINE));
+
+        assertThat(response.issuedCount()).isZero();
+        assertThat(response.registrationsWithoutEntriesCount()).isEqualTo(1);
+    }
+
     /** 순번이 이어지는 두 번째 발급은 last_number 다음 번호부터 준다. */
     @Test
     void continuesFromLastNumber() {
@@ -320,6 +365,25 @@ class BibIssueDatabaseTest {
                 select ?,event_id,id,event_category_id,1,contract_amount,souvenir_json from registration where id=?
                 """, itemId, registrationId);
         return itemId;
+    }
+
+    /** 신청에 구매 줄을 더한다. */
+    private String addItem(String registrationId, String categoryId, int sortOrder) {
+        String itemId = UUID.randomUUID().toString();
+        jdbc.update("""
+                insert into registration_item(id,event_id,registration_id,event_category_id,sort_order,amount,souvenir_json)
+                select ?,event_id,id,?,?,40000,souvenir_json from registration where id=?
+                """, itemId, categoryId, sortOrder, registrationId);
+        return itemId;
+    }
+
+    /** 지정한 구매 줄에 ID를 정해 참가 항목을 더한다. */
+    private String entryInItem(Registration registration, String itemId, String categoryId, String entryId) {
+        jdbc.update("""
+                insert into registration_entry(id,event_id,registration_id,registration_item_id,event_category_id,name,ph_num,birth,gender,created_at,updated_at)
+                values(?,?,?,?,?,'받는사람','010-0000-0000','1990-01-01','M',NOW(6),NOW(6))
+                """, entryId, eventId, registration.getId(), itemId, categoryId);
+        return entryId;
     }
 
     private void upgrade(Registration registration) {

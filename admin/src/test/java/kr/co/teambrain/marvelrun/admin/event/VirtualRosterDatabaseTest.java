@@ -1,8 +1,7 @@
 package kr.co.teambrain.marvelrun.admin.event;
 
-import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualRosterModels.Course;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.VirtualRosterQueryRepository;
-import kr.co.teambrain.marvelrun.admin.event.query.repository.VirtualRosterQueryRepository.PackingRegistration;
+import kr.co.teambrain.marvelrun.admin.event.query.repository.VirtualRosterQueryRepository.PackingLine;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.VirtualRosterQueryRepository.PrintEntry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -81,9 +80,9 @@ class VirtualRosterDatabaseTest {
         assertThat(rows.getFirst().categoryName()).isEqualTo("5km | A");
     }
 
-    /** 신청 하나가 한 행이며 신청일시 순이고, 항목은 신청 ID 묶음으로 읽는다. */
+    /** 참가 항목 하나가 한 행이며 신청일시 순이다. 삭제·미확정·구간 밖은 빠지고 외부 결제는 들어간다. */
     @Test
-    void packingRegistrationsAndEntries() {
+    void packingLinesFilterAndRegistrationOrder() {
         String late = registration(eventId, catA, "CONFIRMED", false, false, START.plusDays(3));
         String early = registration(eventId, pkg, "CONFIRMED", false, true, START.plusDays(1));
         registration(eventId, pkg, "REFUNDED", false, false, START.plusDays(2));
@@ -93,12 +92,41 @@ class VirtualRosterDatabaseTest {
         entry(eventId, early, catB, "2", "나");
         entry(eventId, late, catA, "3", "다");
 
-        List<PackingRegistration> rows = repository.findPackingRegistrations(eventId, START, END);
+        List<PackingLine> rows = repository.findPackingLines(eventId, START, END);
 
-        assertThat(rows).extracting(PackingRegistration::id).containsExactly(early, late);
-        assertThat(rows).extracting(PackingRegistration::productType).containsExactly("PACKAGE", "SINGLE");
-        assertThat(repository.findPackingEntries(List.of(early, late))).hasSize(3);
-        assertThat(repository.findPackingEntries(List.of())).isEmpty();
+        assertThat(rows).extracting(PackingLine::registrationId).containsExactly(early, early, late);
+        assertThat(rows).extracting(PackingLine::productType).containsExactly("PACKAGE", "PACKAGE", "SINGLE");
+        assertThat(rows).extracting(PackingLine::entryName).containsExactly("가", "나", "다");
+        assertThat(rows.getFirst().receiver()).startsWith("신청자-");
+        assertThat(rows.getFirst().address()).isEqualTo("주소_01234");
+    }
+
+    /**
+     * 한 주문의 구매 줄은 줄 순서, 줄 안 항목은 종목 순서다. 같은 종목 단품 두 줄의 두 사람이 모두 나온다.
+     * 상품·기념품은 그 줄 값이고, 항목 없는 구매 줄과 구매 줄이 없는 신청도 한 행이다.
+     */
+    @Test
+    void packingLinesFollowItemOrderAndKeepEveryEntry() {
+        String order = registration(eventId, catA, "CONFIRMED", false, false, START.plusDays(1));
+        String first = item(order);
+        String second = addItem(order, catA, 2, "[{\"souvenirId\":\"s2\"}]");
+        String third = addItem(order, pkg, 3, "[{\"souvenirId\":\"s3\"}]");
+        String empty = addItem(order, catB, 4, "[]");
+        entryInItem(eventId, order, third, catB, null, "패키지B");
+        entryInItem(eventId, order, third, catA, "11", "패키지A");
+        entryInItem(eventId, order, second, catA, "12", "둘째");
+        entryInItem(eventId, order, first, catA, "13", "첫째");
+        String noItem = registration(eventId, catA, "CONFIRMED", false, false, START.plusDays(2));
+
+        List<PackingLine> rows = repository.findPackingLines(eventId, START, END);
+
+        assertThat(rows).extracting(PackingLine::itemId).containsExactly(first, second, third, third, empty, null);
+        assertThat(rows).extracting(PackingLine::entryName).containsExactly("첫째", "둘째", "패키지A", "패키지B", null, null);
+        assertThat(rows).extracting(PackingLine::entryCategoryName).containsExactly("5km | A", "5km | A", "5km | A", "B", null, null);
+        assertThat(rows).extracting(PackingLine::productName).containsExactly("5km | A", "5km | A", "패키지", "패키지", "B", "5km | A");
+        assertThat(rows.get(1).souvenirJson()).contains("s2");
+        assertThat(rows.get(2).souvenirJson()).contains("s3");
+        assertThat(rows.getLast().registrationId()).isEqualTo(noItem);
     }
 
     /** 범위 끝이 null이면 그쪽을 막지 않는다. 1차는 시작 전 신청까지, 마지막 차수는 마감 뒤 신청까지 담고 상향 대기 신청은 뺀다. */
@@ -113,33 +141,19 @@ class VirtualRosterDatabaseTest {
         entry(eventId, after, catA, "3", "후");
         entry(eventId, upgrading, catA, "4", "상향");
 
-        assertThat(repository.findPackingRegistrations(eventId, null, END)).extracting(PackingRegistration::id)
+        assertThat(repository.findPackingLines(eventId, null, END)).extracting(PackingLine::registrationId)
                 .containsExactly(before, inRound);
-        assertThat(repository.findPackingRegistrations(eventId, END, null)).extracting(PackingRegistration::id)
+        assertThat(repository.findPackingLines(eventId, END, null)).extracting(PackingLine::registrationId)
                 .containsExactly(after);
         assertThat(repository.findPrintEntries(eventId, null, null)).extracting(PrintEntry::name)
                 .containsExactly("전", "중", "후");
     }
 
-    /** 하위 종목만 정렬 순서대로 읽고 이벤트 형식을 돌려준다. */
+    /** 대회 형식을 돌려주고 없는 대회는 비어 있다. */
     @Test
-    void childCoursesAndEvent() {
-        assertThat(repository.findChildCourses(eventId)).extracting(Course::categoryId).containsExactly(catA, catB);
+    void findsEvent() {
         assertThat(repository.findEvent(eventId)).hasValueSatisfying(e -> assertThat(e.format()).isEqualTo("VIRTUAL"));
         assertThat(repository.findEvent("nope")).isEmpty();
-    }
-
-    /** 패키지에 묶이지 않은 단품 종목도 열이 되고, 상품 유형이 없는 종목은 빠진다. */
-    @Test
-    void childCoursesIncludeStandaloneSingle() {
-        String other = event("VIRTUAL");
-        String standalone = category(other, "단독 단품", 1, "SINGLE", null);
-        category(other, "오프라인식", 2, null, null);
-        String r = registration(other, standalone, "CONFIRMED", false, false, START.plusDays(1));
-        entry(other, r, standalone, "7", "단독");
-
-        assertThat(repository.findChildCourses(other)).extracting(Course::categoryId).containsExactly(standalone);
-        assertThat(repository.findPackingEntries(List.of(r))).hasSize(1);
     }
 
     private String event(String format) {
@@ -192,6 +206,24 @@ class VirtualRosterDatabaseTest {
                 select ?,event_id,id,event_category_id,1,contract_amount,souvenir_json from registration where id=?
                 """, itemId, registrationId);
         return itemId;
+    }
+
+    /** 신청에 구매 줄을 더한다. */
+    private String addItem(String registrationId, String categoryId, int sortOrder, String souvenirJson) {
+        String itemId = UUID.randomUUID().toString();
+        jdbc.update("""
+                insert into registration_item(id,event_id,registration_id,event_category_id,sort_order,amount,souvenir_json)
+                select ?,event_id,id,?,?,40000,? from registration where id=?
+                """, itemId, categoryId, sortOrder, souvenirJson, registrationId);
+        return itemId;
+    }
+
+    /** 지정한 구매 줄에 참가 항목을 더한다. */
+    private void entryInItem(String event, String registrationId, String itemId, String categoryId, String bib, String name) {
+        jdbc.update("""
+                insert into registration_entry(id,event_id,registration_id,registration_item_id,event_category_id,name,ph_num,birth,gender,bib_number,created_at,updated_at)
+                values(?,?,?,?,?,?,'010-0000-0000','1990-01-01','M',?,NOW(6),NOW(6))
+                """, id(), event, registrationId, itemId, categoryId, name, bib);
     }
 
     private String id() {
