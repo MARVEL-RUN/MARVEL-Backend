@@ -26,6 +26,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** 실제 MVC 검증이 인증·생성 요청의 필수값 오류를 서비스 호출 전에 차단하는지 확인한다. */
@@ -194,6 +195,52 @@ class RegistrationRequestBoundaryTest {
         ObjectNode nullEntry = json.createObjectNode().put("password", "test");
         nullEntry.putArray("entries").addNull();
         reject("/registrations", false, nullEntry, "entries[0]");
+        assertServicesUntouched();
+    }
+
+    /** 구매 줄의 받는 사람·상품·기념품 누락은 서비스 호출 전에 items[n] 경로로 차단한다. */
+    @Test
+    void rejectsInvalidRegistrationItems() throws Exception {
+        ObjectNode blankEntry = json.createObjectNode().put("password", "test");
+        ObjectNode item = blankEntry.putArray("items").addObject().put("eventCategoryId", "avengers");
+        item.putArray("selectedSouvenirList").addObject().put("souvenirId", "kit").put("selectedSize", "FREE");
+        item.putArray("entries").addObject().put("eventCategoryId", "avengers").put("name", " ")
+                .put("phNum", "010-0000-0000").put("birth", "1990-01-01").put("gender", "M");
+        reject("/registrations", false, blankEntry, "items[0].entries[0].name");
+        ObjectNode missingProduct = json.createObjectNode().put("password", "test");
+        missingProduct.putArray("items").addObject().putArray("selectedSouvenirList").addObject()
+                .put("souvenirId", "kit");
+        reject("/registrations", false, missingProduct, "items[0].eventCategoryId");
+        ObjectNode missingSouvenir = json.createObjectNode().put("password", "test");
+        missingSouvenir.putArray("items").addObject().put("eventCategoryId", "avengers");
+        reject("/registrations", false, missingSouvenir, "items[0].selectedSouvenirList");
+        assertServicesUntouched();
+    }
+
+    /** 최상위 종목·기념품은 items가 없을 때 필수이고, items를 보내면 비워야 한다. */
+    @Test
+    void rejectsMixedOrMissingCategorySelection() throws Exception {
+        reject("/registrations", false, json.createObjectNode().put("password", "test"), "eventCategoryId");
+        reject("/registrations", false, json.createObjectNode().put("password", "test"), "selectedSouvenirList");
+        ObjectNode mixed = json.createObjectNode().put("password", "test").put("eventCategoryId", "avengers");
+        ObjectNode item = mixed.putArray("items").addObject().put("eventCategoryId", "avengers");
+        item.putArray("selectedSouvenirList").addObject().put("souvenirId", "kit");
+        reject("/registrations", false, mixed, "categorySelectionValid");
+        assertServicesUntouched();
+    }
+
+    /** items 없는 일반 신청의 종목·기념품 누락은 items 도입 전과 같은 필드·코드(REQUIRED)로 응답한다. */
+    @Test
+    void keepsLegacyRequiredErrorsForCategoryAndSouvenirs() throws Exception {
+        ObjectNode body = json.createObjectNode().put("password", "test").put("eventCategoryId", " ");
+        body.putArray("selectedSouvenirList");
+        mvc.perform(post(ROOT + "/registrations").contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(body)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[?(@.target == 'eventCategoryId')].code").value("REQUIRED"))
+                .andExpect(jsonPath("$.errors[?(@.target == 'eventCategoryId')].rejectedValue").value(" "))
+                .andExpect(jsonPath("$.errors[?(@.target == 'selectedSouvenirList')].code").value("REQUIRED"))
+                .andExpect(jsonPath("$.errors[?(@.target == 'categorySelectionValid')]").isEmpty());
         assertServicesUntouched();
     }
 

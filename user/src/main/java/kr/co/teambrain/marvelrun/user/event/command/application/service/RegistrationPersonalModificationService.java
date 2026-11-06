@@ -128,6 +128,14 @@ public class RegistrationPersonalModificationService {
                         now
                 );
 
+        // 상품 신청은 대표 상품 하나로 가격·정원을 다시 계산하면 틀리므로 전체 수정을 하지 않는다.
+        if (access.registration().isProductPurchase()) {
+            throw new CustomException(
+                    ErrorCode.REGISTRATION_PRODUCT_CHANGE_NOT_ALLOWED,
+                    " registrationId=" + registrationId
+            );
+        }
+
         /*
          * 본인확인 성공 이후에만 주문 상태를 변경한다.
          * 이후 후보 검증 실패 시 무효화도 함께 롤백된다.

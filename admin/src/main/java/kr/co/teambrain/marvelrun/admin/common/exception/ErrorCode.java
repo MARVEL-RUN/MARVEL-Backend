@@ -184,6 +184,9 @@ public enum ErrorCode {
     /** 임시 운영 차단: 관리자 상품 변경(참가 항목 재구성) 흐름을 만든 뒤 별도 해제한다. */
     ADMIN_ADJUSTMENT_PRODUCT_CATEGORY_TEMPORARILY_BLOCKED(HttpStatus.CONFLICT,
             "상품(단품·패키지·옵션) 종목으로, 또는 상품 종목에서 바꾸는 관리자 수정은 현재 임시 중단되었습니다."),
+    /** 상품 신청은 종목이 같아도 금액 조정을 막는다. 대표 상품 하나로 다시 계산하면 실제 환불이 잘못 나간다. */
+    ADMIN_ADJUSTMENT_PRODUCT_REGISTRATION_BLOCKED(HttpStatus.CONFLICT,
+            "상품(단품·패키지) 신청은 관리자 금액 조정을 할 수 없습니다. 전체 취소 후 다시 신청해 주세요."),
 
     // 단품 → 패키지 상향
     ADMIN_PACKAGE_UPGRADE_PENDING(HttpStatus.CONFLICT,
@@ -230,9 +233,9 @@ public enum ErrorCode {
     BIB_SEQUENCE_NOT_CONFIGURED(HttpStatus.CONFLICT, "배번 시작 번호가 설정되지 않은 종목이 있습니다."),
     /** 참가 항목 입력이 신청 구성과 맞지 않는 경우이다. */
     INVALID_REGISTRATION_ENTRIES(HttpStatus.BAD_REQUEST, "참가 항목이 신청 구성과 맞지 않습니다."),
-    /** 단품 신청의 받는 사람을 고치려는 경우이다. 단품은 신청자 값을 따른다. */
+    /** 상품이 아닌 신청의 받는 사람을 고치려는 경우이다. 참가 항목은 상품 신청에만 있다. */
     REGISTRATION_ENTRY_PACKAGE_ONLY(HttpStatus.BAD_REQUEST,
-            "패키지 신청만 받는 사람을 수정할 수 있습니다. 단품은 기본정보를 수정해 주세요."),
+            "상품(단품·패키지) 신청만 받는 사람을 수정할 수 있습니다."),
     /** 요청에 같은 참가 항목이 두 번 들어간 경우이다. */
     REGISTRATION_ENTRY_DUPLICATED(HttpStatus.BAD_REQUEST, "같은 참가 항목이 중복되어 있습니다."),
 

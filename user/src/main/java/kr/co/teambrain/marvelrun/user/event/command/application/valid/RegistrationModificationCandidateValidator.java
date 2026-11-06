@@ -76,7 +76,7 @@ public class RegistrationModificationCandidateValidator
                 accessContext.now()
         );
 
-        uniqueInfoValidator.validateOtherActive(accessContext.event().getId(), currentRegistration.getId(),
+        uniqueInfoValidator.validatePersonalIdentity(currentRegistration,
                 request.name(), request.phNum(), request.birth());
 
         Set<String> souvenirIds =

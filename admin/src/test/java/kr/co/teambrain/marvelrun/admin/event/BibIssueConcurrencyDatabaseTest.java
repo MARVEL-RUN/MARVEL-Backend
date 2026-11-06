@@ -107,10 +107,15 @@ class BibIssueConcurrencyDatabaseTest {
                 em.persist(row);
                 em.flush();
                 jdbc.update("update registration set registration_date=? where id=?", DEADLINE.minusHours(REGISTRATIONS - i), row.getId());
+                String itemId = UUID.randomUUID().toString();
                 jdbc.update("""
-                        insert into registration_entry(id,event_id,registration_id,event_category_id,name,ph_num,birth,gender,created_at,updated_at)
-                        values(?,?,?,?,'받는사람','010-0000-0000','1990-01-01','M',NOW(6),NOW(6))
-                        """, UUID.randomUUID().toString(), eventId, row.getId(), categoryId);
+                        insert into registration_item(id,event_id,registration_id,event_category_id,sort_order,amount,souvenir_json)
+                        values(?,?,?,?,1,40000,'[]')
+                        """, itemId, eventId, row.getId(), categoryId);
+                jdbc.update("""
+                        insert into registration_entry(id,event_id,registration_id,registration_item_id,event_category_id,name,ph_num,birth,gender,created_at,updated_at)
+                        values(?,?,?,?,?,'받는사람','010-0000-0000','1990-01-01','M',NOW(6),NOW(6))
+                        """, UUID.randomUUID().toString(), eventId, row.getId(), itemId, categoryId);
             }
         });
     }
@@ -152,6 +157,7 @@ class BibIssueConcurrencyDatabaseTest {
         if (eventId == null || tx == null) return;
         tx.executeWithoutResult(status -> {
             jdbc.update("delete from registration_entry where event_id=?", eventId);
+            jdbc.update("delete from registration_item where event_id=?", eventId);
             jdbc.update("delete from registration where event_id=?", eventId);
             jdbc.update("delete from bib_sequence where event_id=?", eventId);
             jdbc.update("delete g from event_category_start_group g join event_category c on c.id=g.event_category_id where c.event_id=?", eventId);

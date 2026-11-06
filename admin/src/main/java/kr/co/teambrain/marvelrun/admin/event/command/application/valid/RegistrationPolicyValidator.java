@@ -113,10 +113,12 @@ public class RegistrationPolicyValidator {
                 applicationDate
         );
 
+        // 보호자 동의를 받지 않는 대회(버추얼런)는 출생일 기준과 관계없이 보호자 정보를 요구하지 않는다.
         boolean guardianRequired =
-                !birth.isBefore(
-                        policy.getGuardianRequiredBirthFrom()
-                );
+                policy.isGuardianConsentRequired()
+                        && !birth.isBefore(
+                                policy.getGuardianRequiredBirthFrom()
+                        );
 
         if (guardianRequired) {
 

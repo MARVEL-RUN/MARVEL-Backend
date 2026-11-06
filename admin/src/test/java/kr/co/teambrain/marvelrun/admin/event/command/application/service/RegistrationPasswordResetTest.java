@@ -5,6 +5,7 @@ import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationCommandRepository;
+import kr.co.teambrain.marvelrun.admin.event.command.repository.EventCommandRepository;
 import kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.admin.user.command.application.service.OrganizationCommandService;
 import kr.co.teambrain.marvelrun.admin.user.command.repository.OrganizationCommandRepository;
@@ -20,8 +21,19 @@ import kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCat
 import kr.co.teambrain.marvelrun.admin.event.command.application.dto.AdminRegistrationModifyRequest;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.EventCategoryStartGroupRepository;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
+import kr.co.teambrain.marvelrun.admin.event.command.application.context.RegistrationPolicyContext;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.RegistrationEntry;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.policy.EventRegistrationPolicy;
+import kr.co.teambrain.marvelrun.admin.event.command.application.valid.RegistrationPolicyValidator;
+import kr.co.teambrain.marvelrun.admin.event.command.application.valid.loader.RegistrationPolicyLoader;
+import kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationEntryCommandRepository;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType;
 
 import java.util.Optional;
 
@@ -62,14 +74,58 @@ class RegistrationPasswordResetTest {
     }
     private final PasswordEncoder encoder = new BCryptPasswordEncoder(4);
     private final RegistrationCommandRepository registrations = mock(RegistrationCommandRepository.class);
+    private final EventCommandRepository events = mock(EventCommandRepository.class);
     private final OrganizationCommandRepository organizations = mock(OrganizationCommandRepository.class);
     private final EventCategoryStartGroupRepository groupRepository = mock(EventCategoryStartGroupRepository.class);
-    private final RegistrationApplicantEntrySyncService applicantEntries = mock(RegistrationApplicantEntrySyncService.class);
+    private final RegistrationPolicyLoader policyLoader = mock(RegistrationPolicyLoader.class);
+    private final RegistrationEntryCommandRepository entries = mock(RegistrationEntryCommandRepository.class);
+    private final ServerTimeProvider time = mock(ServerTimeProvider.class);
     private final RegistrationCommandService personalService = new RegistrationCommandService(
-            encoder, registrations, mock(AdminUnpaidRegistrationCancellationService.class), new RegistrationStartGroupResolver(groupRepository),
-            applicantEntries);
+            encoder, registrations, mock(AdminUnpaidRegistrationCancellationService.class), new RegistrationStartGroupResolver(groupRepository), events,
+            policyLoader, new RegistrationPolicyValidator(), entries, time);
     private final OrganizationCommandService organizationService = new OrganizationCommandService(
             encoder, organizations, registrations);
+
+    /**
+     * 상품 신청은 오프라인 대회의 연령 규칙(요금 구분 변경 차단)을 보지 않는다.
+     * 보호자는 대회 정책으로 신청자와 받는 사람 모두에 대해 본다.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void productRegistrationUsesEventGuardianPolicyInsteadOfOfflineAgeRules(boolean guardianConsentRequired) {
+        Event event = mock(Event.class);
+        EventCategory category = mock(EventCategory.class);
+        when(event.getId()).thenReturn("event");
+        when(category.getId()).thenReturn("category");
+        when(category.getProductType()).thenReturn(ProductType.SINGLE);
+        when(groupRepository.findByEventCategoryIdInAndActiveTrueOrderByEventCategoryIdAscSortOrderAsc(List.of("category")))
+                .thenReturn(List.of(EventCategoryStartGroup.builder().id("rear").eventCategoryId("category").active(true).sortOrder(20).build()));
+        Registration registration = Registration.builder().id("r").event(event).eventCategory(category)
+                .birth("1990-01-01").build();
+        when(registrations.findById("r")).thenReturn(Optional.of(registration));
+        EventRegistrationPolicy policy = mock(EventRegistrationPolicy.class);
+        when(policy.getEvent()).thenReturn(event);
+        when(policy.getGuardianRequiredBirthFrom()).thenReturn(LocalDate.of(2012, 11, 6));
+        when(policy.isGuardianConsentRequired()).thenReturn(guardianConsentRequired);
+        when(policyLoader.load("event", Set.of(), Set.of())).thenReturn(new RegistrationPolicyContext(policy, Map.of(), Map.of()));
+        RegistrationEntry child = mock(RegistrationEntry.class);
+        when(child.getBirth()).thenReturn("2015-01-01");
+        when(entries.findByRegistration_Id("r")).thenReturn(List.of(child));
+        when(time.currentDateTime()).thenReturn(LocalDateTime.of(2026, 11, 6, 10, 0));
+        // 오프라인 규칙이면 요금 구분이 바뀌어 PRICE_TIER_CHANGE_NOT_ALLOWED가 나는 생년월일 변경
+        AdminRegistrationModifyRequest request = new AdminRegistrationModifyRequest(
+                "테스트", "01012345678", "2014-01-01", GenderClass.M,
+                "", "주소", "없음", "", "", "", "rear", false);
+
+        if (guardianConsentRequired) {
+            assertThatThrownBy(() -> personalService.modifyRegistrationBasicInfo("r", request))
+                    .isInstanceOfSatisfying(CustomException.class,
+                            exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.GUARDIAN_NAME_REQUIRED));
+        } else {
+            personalService.modifyRegistrationBasicInfo("r", request);
+            assertThat(registration.getBirth()).isEqualTo("2014-01-01");
+        }
+    }
 
     /** 관리자 기본정보 수정은 직접 후미 선택과 미선택을 구별하며 외부결제 신청에도 반영된다. */
     @ParameterizedTest
@@ -93,8 +149,48 @@ class RegistrationPasswordResetTest {
                 unselected ? "ignored" : "rear", unselected));
         assertThat(registration.getStartGroupId()).isEqualTo("rear");
         assertThat(registration.isStartGroupUnselected()).isEqualTo(unselected);
-        // 바뀐 신청자 값을 단품 참가 항목에도 맞춘다(단품 여부는 동기화 서비스가 본다).
-        verify(applicantEntries).syncApplicantEntry(registration);
+    }
+
+    /**
+     * 같은 신청자 주문 여러 건 허용 대회의 신청은 신원이 그대로면 같은 신청자의 다른 주문이 있어도 기본정보를 고친다.
+     * 신원을 바꾸면 대회 행 잠금을 먼저 잡고 최신 행을 잠금 읽기로 세어, 다른 활성 주문이 있으면 거절한다.
+     */
+    @Test
+    void duplicateAllowedBasicInfoChecksIdentityOnlyWhenChangedAndUnderEventLock() {
+        Event event = mock(Event.class);
+        EventCategory category = mock(EventCategory.class);
+        when(event.getId()).thenReturn("event");
+        when(event.getStartDate()).thenReturn(LocalDateTime.of(2026, 11, 1, 9, 0));
+        when(category.getId()).thenReturn("category");
+        when(category.getName()).thenReturn("5km");
+        when(groupRepository.findByEventCategoryIdInAndActiveTrueOrderByEventCategoryIdAscSortOrderAsc(List.of("category")))
+                .thenReturn(List.of(EventCategoryStartGroup.builder().id("rear").eventCategoryId("category")
+                        .code("C").sortOrder(30).active(true).build()));
+        Registration registration = Registration.builder().id("r").event(event).eventCategory(category)
+                .name("신청자").phNum("01012345678").birth("1990-01-01").duplicateAllowed(true)
+                .startGroupId("rear").startGroupUnselected(true).build();
+        when(registrations.findById("r")).thenReturn(Optional.of(registration));
+        when(registrations.existsOtherActiveByEventIdAndUniqueInfo(any(), any(), any(), any(), any())).thenReturn(true);
+
+        // 신원이 그대로면 다른 주문이 있어도 주소를 고친다. 잠금·잠금 읽기는 하지 않는다.
+        personalService.modifyRegistrationBasicInfo("r", new AdminRegistrationModifyRequest("신청자", "01012345678",
+                "1990-01-01", GenderClass.M, null, "새 주소", null, null, null, null, "rear", true));
+        assertThat(registration.getAddress()).isEqualTo("새 주소");
+        verifyNoInteractions(events);
+        verify(registrations, never()).countOtherActiveByEventIdAndUniqueInfoForShare(any(), any(), any(), any(), any());
+
+        // 신원을 바꾸면 대회 잠금 뒤 잠금 읽기로 세고, 다른 활성 주문이 있으면 거절한다.
+        when(events.findByIdForUpdate("event")).thenReturn(Optional.of(event));
+        when(registrations.countOtherActiveByEventIdAndUniqueInfoForShare("event", "r", "다른이", "01012345678", "1990-01-01"))
+                .thenReturn(1L);
+        assertThatThrownBy(() -> personalService.modifyRegistrationBasicInfo("r", new AdminRegistrationModifyRequest(
+                "다른이", "01012345678", "1990-01-01", GenderClass.M, null, "새 주소", null, null, null, null, "rear", true)))
+                .isInstanceOfSatisfying(CustomException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.DUPLICATE_REGISTRATION));
+        var order = inOrder(events, registrations);
+        order.verify(events).findByIdForUpdate("event");
+        order.verify(registrations).countOtherActiveByEventIdAndUniqueInfoForShare("event", "r", "다른이", "01012345678", "1990-01-01");
+        assertThat(registration.getName()).isEqualTo("신청자");
     }
 
     /** 개인·단체 초기화 후 새 원문만 인증되며 요청 record의 원문은 유지된다. */

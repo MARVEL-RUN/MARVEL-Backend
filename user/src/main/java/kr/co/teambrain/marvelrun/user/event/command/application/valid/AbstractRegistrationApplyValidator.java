@@ -364,17 +364,32 @@ public abstract class AbstractRegistrationApplyValidator {
             String phNum,
             String birth
     ) {
-        if (registrationCommandRepository
+        if (isAlreadyRegisteredParticipant(
+                eventId,
+                name,
+                phNum,
+                birth
+        )) {
+            throw new CustomException(
+                    ErrorCode.REGISTRATION_ALREADY_EXISTS
+            );
+        }
+    }
+
+    /** 동일 Event에 같은 참가자 정보의 살아 있는 Registration이 있는지 본다. */
+    protected boolean isAlreadyRegisteredParticipant(
+            String eventId,
+            String name,
+            String phNum,
+            String birth
+    ) {
+        return registrationCommandRepository
                 .existsByEventIdAndUniqueInfo(
                         eventId,
                         name,
                         phNum,
                         birth
-                )) {
-            throw new CustomException(
-                    ErrorCode.REGISTRATION_ALREADY_EXISTS
-            );
-        }
+                );
     }
 
     /**

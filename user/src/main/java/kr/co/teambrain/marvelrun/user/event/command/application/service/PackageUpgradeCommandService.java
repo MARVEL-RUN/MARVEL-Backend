@@ -20,6 +20,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.PackageUpgrade;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.RegistrationItem;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult.Order;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.PackageUpgradeRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.PackageUpgradeOrderResponse;
@@ -27,6 +28,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.valid.Registrati
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.loader.RegistrationPolicyLoader;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategoryCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.PackageUpgradeCommandRepository;
+import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationItemCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels.Action;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels.RegistrationActionPolicyInput;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
@@ -65,6 +67,7 @@ public class PackageUpgradeCommandService {
     private final PackageUpgradeCapacitySupport capacitySupport;
     private final AdditionalPaymentPreparationService additionalPayments;
     private final PackageUpgradePricing pricing;
+    private final RegistrationItemCommandRepository itemRepository;
 
     /** 상향을 요청하고 차액 결제창 정보를 돌려준다. */
     @Transactional
@@ -91,6 +94,8 @@ public class PackageUpgradeCommandService {
             throw CustomException.withResponseMessage(ErrorCode.PACKAGE_UPGRADE_NOT_ALLOWED,
                     "단품 신청만 패키지로 상향할 수 있습니다.");
         }
+        // 상향은 구매 줄이 단품 하나뿐인 신청만 한다. 줄을 골라 상향하는 흐름은 아직 없다.
+        RegistrationItem item = singleItem(registration);
         EventCategory packageCategory = categoryRepository.findById(current.getParentCategoryId())
                 .filter(found -> Objects.equals(found.getEvent().getId(), event.getId()))
                 .filter(found -> found.getProductType() == ProductType.PACKAGE)
@@ -135,7 +140,7 @@ public class PackageUpgradeCommandService {
         paymentGuard.invalidateLockedReadyPayments(locked.payments());
 
         Reservation reservation = capacitySupport.lockConsumedReservation(registration);
-        CapacityRequirementDiff diff = capacitySupport.packageDiff(registration, packageCategory, reservation);
+        CapacityRequirementDiff diff = capacitySupport.packageDiff(item, packageCategory, components.size(), reservation);
         List<PackageUpgradeHeldCapacity> held = capacitySupport.holdIncreases(event.getId(), diff, now);
 
         capacitySupport.recordAmountChange(reservation, now, "패키지 상향 요청: 계약금액에 차액 추가",
@@ -186,6 +191,21 @@ public class PackageUpgradeCommandService {
                 () -> locked.registration().cancelPackageUpgrade(upgrade.getAmount()));
         upgrade.cancel(now);
         entityManager.flush();
+    }
+
+    /** 신청의 구매 줄이 하나뿐이고 그 줄이 신청 행의 단품과 같을 때 그 줄을 돌려준다. */
+    private RegistrationItem singleItem(Registration registration) {
+        List<RegistrationItem> items = itemRepository.findByRegistration_IdOrderBySortOrderAsc(registration.getId());
+        if (items.size() > 1) {
+            throw new CustomException(ErrorCode.PACKAGE_UPGRADE_MULTI_ITEM_NOT_ALLOWED,
+                    " registrationId=" + registration.getId() + ", itemCount=" + items.size());
+        }
+        if (items.isEmpty()
+                || !Objects.equals(items.get(0).getEventCategory().getId(), registration.getEventCategory().getId())) {
+            throw new CustomException(ErrorCode.PACKAGE_UPGRADE_STATE_CONFLICT,
+                    " 상향할 단품 구매 줄이 신청 종목과 맞지 않습니다. registrationId=" + registration.getId());
+        }
+        return items.get(0);
     }
 
     /** 대회 → 결제 → 신청 순으로 잠그고 토큰의 신청이 살아 있는 개인 신청인지 본다. */

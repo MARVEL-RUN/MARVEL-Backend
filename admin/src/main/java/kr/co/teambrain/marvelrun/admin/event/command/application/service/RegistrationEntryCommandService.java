@@ -14,7 +14,6 @@ import kr.co.teambrain.marvelrun.admin.event.command.application.valid.dto.Regis
 import kr.co.teambrain.marvelrun.admin.event.command.application.valid.loader.RegistrationPolicyLoader;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationCommandRepository;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationEntryCommandRepository;
-import kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,7 +28,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * 관리자가 패키지 받는 사람(registration_entry)의 이름·연락처·생년월일·성별을 고친다.
+ * 관리자가 상품 받는 사람(registration_entry)의 이름·연락처·생년월일·성별을 고친다.
+ * 단품 항목도 신청자 값을 따르지 않으므로 여기서 고친다.
  * 차수 마감 뒤에도 고칠 수 있으므로 기간 정책은 보지 않고, 배번은 건드리지 않는다.
  */
 @Service
@@ -46,12 +46,13 @@ public class RegistrationEntryCommandService {
     /** 요청에 담긴 받는 사람만 정책 검증을 거쳐 고친다. 한 명이라도 거절되면 전체를 취소한다. */
     public RegistrationEntryModifyResponse modifyEntries(String registrationId, RegistrationEntryModifyRequest request) {
         LocalDateTime now = serverTimeProvider.currentDateTime();
-        Registration registration = registrationCommandRepository.findById(registrationId)
+        // 참가자 받는 사람 수정·신청자 정보 수정과 겹치지 않도록 신청 행을 잠근 뒤 항목을 읽는다.
+        Registration registration = registrationCommandRepository.findByIdForUpdate(registrationId)
                 .orElseThrow(() -> new CustomException(ErrorCode.REGISTRATION_NOT_FOUND));
         if (registration.isSoftDeleted()) {
             throw new CustomException(ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET);
         }
-        if (registration.getEventCategory().getProductType() != ProductType.PACKAGE) {
+        if (!registration.isProductPurchase()) {
             throw new CustomException(ErrorCode.REGISTRATION_ENTRY_PACKAGE_ONLY);
         }
 

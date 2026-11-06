@@ -181,8 +181,8 @@ class RegistrationPasswordStorageTest {
     /** 해시 저장 경계에 집중하도록 기존 개인 신청 정책 검증 결과를 준비한다. */
     private void preparePersonal(RegistrationCreateRequest request) {
         when(time.currentDateTime()).thenReturn(NOW);
-        when(personalValidator.validate("event", request, NOW))
-                .thenReturn(new RegistrationCreateContext(event, category, List.of(), List.of()));
+        when(personalValidator.validate("event", request, NOW, false))
+                .thenReturn(new RegistrationCreateContext(event, category, List.of(), List.of(), false));
         when(pricing.calculateRegistrationPrice(eq(event), eq(category), eq(request.birth()), eq(false), isNull(), anyList())).thenReturn(new DiscountModels.PriceResult(DiscountModels.Failure.NONE, BigDecimal.TEN, BigDecimal.TEN, BigDecimal.ZERO, List.of()));
     }
 

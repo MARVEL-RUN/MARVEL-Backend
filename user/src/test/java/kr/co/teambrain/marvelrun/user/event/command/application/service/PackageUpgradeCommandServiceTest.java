@@ -20,6 +20,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.PackageUpgrade;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.RegistrationItem;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult.Order;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.PackageUpgradeRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.response.PackageUpgradeOrderResponse;
@@ -27,6 +28,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.valid.Registrati
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.loader.RegistrationPolicyLoader;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategoryCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.PackageUpgradeCommandRepository;
+import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationItemCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import kr.co.teambrain.marvelrun.user.payment.command.application.AdditionalPaymentPreparationService;
 import org.junit.jupiter.api.BeforeEach;
@@ -71,6 +73,7 @@ class PackageUpgradeCommandServiceTest {
     @Mock private PackageUpgradeCapacitySupport capacitySupport;
     @Mock private AdditionalPaymentPreparationService additionalPayments;
     @Mock private PackageUpgradePricing pricing;
+    @Mock private RegistrationItemCommandRepository itemRepository;
     @Mock private Reservation reservation;
 
     private final Event event = Event.builder().id("event").build();
@@ -87,7 +90,7 @@ class PackageUpgradeCommandServiceTest {
     void setUp() {
         service = new PackageUpgradeCommandService(time, entityManager, registrationCapacityService, paymentGuard,
                 actionPolicies, categoryRepository, policyLoader, entryValidator, upgradeRepository, capacitySupport,
-                additionalPayments, pricing);
+                additionalPayments, pricing, itemRepository);
         when(time.currentDateTime()).thenReturn(NOW);
     }
 
@@ -150,8 +153,11 @@ class PackageUpgradeCommandServiceTest {
                 .thenReturn(List.of(new RegistrationEntryDraft(xmen, "받는사람", "010-1111-2222", "1990-01-01", GenderClass.F)));
         when(pricing.calculate(registration, pkg)).thenReturn(price(PACKAGE_PRICE));
         CapacityRequirementDiff diff = new CapacityRequirementDiff("reservation", ReservationStatus.CONSUMED, 1L, List.of());
+        RegistrationItem item = RegistrationItem.create(registration, 1, avengers, List.of(), SINGLE_PRICE);
+        when(itemRepository.findByRegistration_IdOrderBySortOrderAsc("registration")).thenReturn(List.of(item));
         when(capacitySupport.lockConsumedReservation(registration)).thenReturn(reservation);
-        when(capacitySupport.packageDiff(registration, pkg, reservation)).thenReturn(diff);
+        // 상향 뒤 사람 수(하위 종목 수)만큼 전체 정원을 쓰도록 단품 줄과 하위 종목 수를 넘긴다.
+        when(capacitySupport.packageDiff(item, pkg, 2, reservation)).thenReturn(diff);
         when(capacitySupport.holdIncreases("event", diff, NOW))
                 .thenReturn(List.of(new PackageUpgradeHeldCapacity("cap-package", 1)));
         runAmountChange();
@@ -173,6 +179,24 @@ class PackageUpgradeCommandServiceTest {
         assertThat(saved.getValue().getAmount()).isEqualByComparingTo(DIFF);
         assertThat(saved.getValue().getPaymentId()).isEqualTo("payment-1");
         assertThat(response.paymentId()).isEqualTo("payment-1");
+    }
+
+    /** 구매 줄이 여럿인 신청은 정원·주문을 만들기 전에 새 오류로 거절한다. 줄 단위 상향은 아직 없다. */
+    @Test
+    void rejectsMultiItemRegistrationBeforeHolding() {
+        Registration registration = confirmed();
+        locked(registration);
+        when(upgradeRepository.findByRegistrationForUpdate("registration", PackageUpgradeStatus.PENDING))
+                .thenReturn(Optional.empty());
+        when(itemRepository.findByRegistration_IdOrderBySortOrderAsc("registration")).thenReturn(List.of(
+                RegistrationItem.create(registration, 1, avengers, List.of(), SINGLE_PRICE),
+                RegistrationItem.create(registration, 2, avengers, List.of(), SINGLE_PRICE)));
+
+        assertThatThrownBy(() -> service.request("registration", request()))
+                .isInstanceOf(CustomException.class)
+                .extracting(e -> ((CustomException) e).getErrorCode())
+                .isEqualTo(ErrorCode.PACKAGE_UPGRADE_MULTI_ITEM_NOT_ALLOWED);
+        verifyNoInteractions(capacitySupport, additionalPayments, pricing);
     }
 
     /** 결제창을 다시 열면 상향 대기가 이번 주문을 가리킨다. */

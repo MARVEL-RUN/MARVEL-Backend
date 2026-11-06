@@ -7,19 +7,25 @@ import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomExceptio
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationCreateContext;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationEntryDraft;
+import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationItemDraft;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationPolicyContext;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.RegistrationEntry;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.RegistrationItem;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.policy.EventCategoryRegistrationPolicy;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationCreateRequest;
+import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationItemRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.dto.RegistrationPolicyInput;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.loader.RegistrationPolicyLoader;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategoryCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategorySouvenirCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
+import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationEntryCommandRepository;
+import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationItemCommandRepository;
 import org.springframework.stereotype.Component;
 
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.dto.RegistrationPolicySelection;
@@ -37,7 +43,14 @@ import java.util.stream.Collectors;
 @Component
 public class RegistrationApplyValidator extends AbstractRegistrationApplyValidator {
 
+    /** 한 신청에 담을 수 있는 구매 줄 수 */
+    private static final int MAX_ITEMS = 10;
+
     private final RegistrationEntryValidator registrationEntryValidator;
+
+    private final RegistrationItemCommandRepository registrationItemCommandRepository;
+
+    private final RegistrationEntryCommandRepository registrationEntryCommandRepository;
 
     /**
      * 개인 신청 검증에 필요한 기존 조회·정책 의존성을 연결한다.
@@ -49,7 +62,9 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
             EventCategorySouvenirCommandRepository eventCategorySouvenirCommandRepository,
             RegistrationPolicyLoader registrationPolicyLoader,
             RegistrationPolicyValidator registrationPolicyValidator,
-            RegistrationEntryValidator registrationEntryValidator
+            RegistrationEntryValidator registrationEntryValidator,
+            RegistrationItemCommandRepository registrationItemCommandRepository,
+            RegistrationEntryCommandRepository registrationEntryCommandRepository
     ) {
         super(
                 registrationCommandRepository,
@@ -60,6 +75,8 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
                 registrationPolicyValidator
         );
         this.registrationEntryValidator = registrationEntryValidator;
+        this.registrationItemCommandRepository = registrationItemCommandRepository;
+        this.registrationEntryCommandRepository = registrationEntryCommandRepository;
     }
 
 
@@ -68,11 +85,27 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
      *
      * Service는 개별 검증 로직을 알지 않고,
      * 검증 완료된 Context만 전달받는다.
+     * 공개 신청이므로 같은 신청자의 살아 있는 신청이 있으면 거절한다.
      */
     public RegistrationCreateContext validate(
             String eventId,
             RegistrationCreateRequest request,
             LocalDateTime now
+    ) {
+        return validate(eventId, request, now, false);
+    }
+
+    /**
+     * 개인 신청 생성 검증.
+     *
+     * @param additionalOrder 로그인한 신청자의 추가 주문이면 true.
+     *                        같은 신청자 주문 여러 건을 허용한 대회에서만 같은 신청자 거절을 건너뛴다.
+     */
+    public RegistrationCreateContext validate(
+            String eventId,
+            RegistrationCreateRequest request,
+            LocalDateTime now,
+            boolean additionalOrder
     ) {
         Event event =
                 getEvent(eventId);
@@ -82,12 +115,19 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
                 now
         );
 
-        validateAlreadyRegisteredParticipant(
+        validateSameApplicant(
                 eventId,
-                request.name(),
-                request.phNum(),
-                request.birth()
+                request,
+                additionalOrder
         );
+
+        if (request.hasItems()) {
+            return validateItems(
+                    event,
+                    request,
+                    now
+            );
+        }
 
         Set<String> souvenirIds =
                 collectRequestedSouvenirIds(
@@ -134,37 +174,229 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
         EventCategory eventCategory =
                 validated.eventCategory();
 
-        List<EventCategory> packageComponents =
-                packageComponents(event, eventCategory);
-
-        // 받는 사람은 자기 하위 종목의 출생일 정책을 따른다. 하위 종목 정책 행도 필수다.
-        Map<String, EventCategoryRegistrationPolicy> componentPolicies =
-                packageComponents.isEmpty()
-                        ? Map.of()
-                        : registrationPolicyLoader.loadCategoryPolicies(
-                                event.getId(),
-                                packageComponents.stream()
-                                        .map(EventCategory::getId)
-                                        .collect(Collectors.toSet())
-                        );
-
-        List<RegistrationEntryDraft> entries =
-                registrationEntryValidator.validate(
-                        event,
-                        eventCategory,
-                        packageComponents,
-                        request,
-                        policies.eventPolicy(),
-                        componentPolicies,
-                        now.toLocalDate()
-                );
+        // 상품은 구매 줄로만 산다. 최상위 종목은 참가 항목이 없는 일반 종목이다.
+        registrationEntryValidator.validateWithoutItems(
+                eventCategory,
+                request.entries()
+        );
 
         return new RegistrationCreateContext(
                 event,
                 eventCategory,
                 validated.souvenirJsons(),
-                entries
+                List.of(),
+                policies.eventPolicy().isDuplicateRegistrationAllowed()
         );
+    }
+
+    /**
+     * 같은 신청자(이름·연락처·생년월일)의 살아 있는 신청이 있으면 거절한다.
+     *
+     * 같은 신청자 주문 여러 건을 허용한 대회는 공개 신청에 로그인 후 추가 주문을 안내하고,
+     * 로그인한 추가 주문만 통과시킨다. 대회 정책은 같은 신청자가 있을 때만 읽는다.
+     */
+    private void validateSameApplicant(
+            String eventId,
+            RegistrationCreateRequest request,
+            boolean additionalOrder
+    ) {
+        if (!isAlreadyRegisteredParticipant(
+                eventId,
+                request.name(),
+                request.phNum(),
+                request.birth()
+        )) {
+            return;
+        }
+
+        boolean duplicateAllowed =
+                registrationPolicyLoader.loadEventPolicy(eventId)
+                        .isDuplicateRegistrationAllowed();
+
+        if (!duplicateAllowed) {
+            throw new CustomException(
+                    ErrorCode.REGISTRATION_ALREADY_EXISTS
+            );
+        }
+
+        if (!additionalOrder) {
+            throw new CustomException(
+                    ErrorCode.REGISTRATION_ADDITIONAL_ORDER_LOGIN_REQUIRED
+            );
+        }
+    }
+
+    /**
+     * 상품 구매 줄을 검증한다.
+     *
+     * 신청자는 대회 정책(생년월일 형식·보호자)만 보고, 종목 출생일 범위는 받는 사람마다 자기 종목으로 본다.
+     * 상품은 연령 구분이 없어 기념품 연령별 사이즈 제한은 보지 않는다. 같은 상품을 여러 번 사도 종목·정책은 한 번만 읽는다.
+     * 첫 줄의 상품·기념품이 신청 행의 대표값이 된다.
+     */
+    private RegistrationCreateContext validateItems(
+            Event event,
+            RegistrationCreateRequest request,
+            LocalDateTime now
+    ) {
+        List<RegistrationItemRequest> items =
+                request.items();
+
+        if (items.size() > MAX_ITEMS) {
+            throw new CustomException(
+                    ErrorCode.REGISTRATION_ITEM_LIMIT_EXCEEDED,
+                    " itemCount=" + items.size()
+            );
+        }
+
+        Map<String, Set<String>> souvenirIdsByCategory =
+                new LinkedHashMap<>();
+
+        for (RegistrationItemRequest item : items) {
+            souvenirIdsByCategory.computeIfAbsent(
+                    item.eventCategoryId(),
+                    ignored -> new HashSet<>()
+            ).addAll(
+                    collectRequestedSouvenirIds(
+                            item.selectedSouvenirList()
+                    )
+            );
+        }
+
+        SelectionData selections =
+                loadSelections(
+                        event,
+                        souvenirIdsByCategory
+                );
+
+        RegistrationPolicyContext policies =
+                loadPolicies(
+                        event,
+                        selections
+                );
+
+        LocalDate applicationDate =
+                now.toLocalDate();
+
+        registrationPolicyValidator.validateParticipant(
+                        event,
+                        policies.eventPolicy(),
+                        new RegistrationPolicyInput(
+                                request.birth(),
+                                request.guardianName(),
+                                request.guardianConsent()
+                        ),
+                        applicationDate
+                );
+
+        registrationPolicyValidator.validateAddress(
+                policies.eventPolicy(),
+                request.address()
+        );
+
+        Map<String, List<EventCategory>> componentsByProduct =
+                packageComponentsByProduct(
+                        event,
+                        selections.categories().values()
+                );
+
+        Map<String, EventCategoryRegistrationPolicy> entryPolicies =
+                registrationPolicyLoader.loadCategoryPolicies(
+                        event.getId(),
+                        entryCategoryIds(
+                                selections.categories().values(),
+                                componentsByProduct
+                        )
+                );
+
+        List<RegistrationItemDraft> drafts =
+                new ArrayList<>(items.size());
+
+        for (RegistrationItemRequest item : items) {
+            EventCategory product =
+                    selections.categories().get(
+                            item.eventCategoryId()
+                    );
+
+            List<RegistrationEntryDraft> entries =
+                    registrationEntryValidator.validateItem(
+                            event,
+                            product,
+                            componentsByProduct.get(product.getId()),
+                            item.entries(),
+                            request.guardianName(),
+                            request.guardianConsent(),
+                            policies.eventPolicy(),
+                            entryPolicies,
+                            applicationDate
+                    );
+
+            // 상품은 연령 구분이 없어 기념품 연령별 사이즈 제한을 보지 않는다.
+            List<SouvenirJson> souvenirs =
+                    validateSouvenirs(
+                            item.selectedSouvenirList(),
+                            selections.mappingsByCategory().get(
+                                    product.getId()
+                            ),
+                            null,
+                            policies
+                    );
+
+            drafts.add(
+                    new RegistrationItemDraft(
+                            product,
+                            souvenirs,
+                            entries
+                    )
+            );
+        }
+
+        RegistrationItemDraft representative =
+                drafts.getFirst();
+
+        return new RegistrationCreateContext(
+                event,
+                representative.product(),
+                representative.souvenirs(),
+                List.copyOf(drafts),
+                policies.eventPolicy().isDuplicateRegistrationAllowed()
+        );
+    }
+
+    /** 상품마다 패키지 하위 종목을 읽는다. 같은 패키지를 여러 번 사도 한 번만 읽는다. */
+    private Map<String, List<EventCategory>> packageComponentsByProduct(
+            Event event,
+            Collection<EventCategory> products
+    ) {
+        Map<String, List<EventCategory>> result =
+                new HashMap<>();
+
+        for (EventCategory product : products) {
+            result.put(
+                    product.getId(),
+                    packageComponents(event, product)
+            );
+        }
+
+        return result;
+    }
+
+    /** 받는 사람 종목은 단품 줄이면 그 상품, 패키지 줄이면 하위 종목이다. */
+    private static Set<String> entryCategoryIds(
+            Collection<EventCategory> products,
+            Map<String, List<EventCategory>> componentsByProduct
+    ) {
+        Set<String> result =
+                new HashSet<>();
+
+        for (EventCategory product : products) {
+            if (product.getProductType() == ProductType.SINGLE) {
+                result.add(product.getId());
+            }
+            componentsByProduct.get(product.getId())
+                    .forEach(component -> result.add(component.getId()));
+        }
+
+        return result;
     }
 
     /**
@@ -192,6 +424,7 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
      *
      * 현재 대회 상태와 신청 기간, 종목 및 기념품 매핑,
      * 참가자 출생일·보호자·사이즈 정책을 다시 확인한다.
+     * 상품 신청은 신청 행의 대표 상품이 아니라 저장된 구매 줄과 참가 항목으로 확인한다.
      *
      * 기존 신청 자체를 검증하므로 신규 신청의 중복 참가자 검사는 수행하지 않는다.
      * 신청 내용과 계약금액은 변경하지 않는다.
@@ -213,8 +446,8 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
 
         validateEvent(event, now);
 
-        Map<String, Set<String>> souvenirIdsByCategory =
-                new HashMap<>();
+        List<String> productRegistrationIds =
+                new ArrayList<>();
 
         for (Registration registration : registrations) {
 
@@ -237,15 +470,50 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
                 );
             }
 
-            Set<String> souvenirIds =
-                    collectRequestedSouvenirIds(
-                            registration.getSouvenirJson()
-                    );
+            if (registration.isProductPurchase()) {
+                productRegistrationIds.add(registration.getId());
+            }
+        }
 
-            souvenirIdsByCategory.computeIfAbsent(
-                    registration.getEventCategory().getId(),
-                    ignored -> new HashSet<>()
-            ).addAll(souvenirIds);
+        Map<String, List<RegistrationItem>> itemsByRegistration =
+                loadItems(productRegistrationIds);
+
+        Map<String, List<RegistrationEntry>> entriesByItem =
+                loadEntriesByItem(productRegistrationIds);
+
+        Map<String, Set<String>> souvenirIdsByCategory =
+                new HashMap<>();
+
+        Set<String> entryCategoryIds =
+                new HashSet<>();
+
+        for (Registration registration : registrations) {
+            if (!itemsByRegistration.containsKey(registration.getId())) {
+                souvenirIdsByCategory.computeIfAbsent(
+                        registration.getEventCategory().getId(),
+                        ignored -> new HashSet<>()
+                ).addAll(
+                        collectRequestedSouvenirIds(
+                                registration.getSouvenirJson()
+                        )
+                );
+                continue;
+            }
+
+            for (RegistrationItem item : itemsByRegistration.get(registration.getId())) {
+                souvenirIdsByCategory.computeIfAbsent(
+                        item.getEventCategory().getId(),
+                        ignored -> new HashSet<>()
+                ).addAll(
+                        collectRequestedSouvenirIds(
+                                item.getSouvenirJson()
+                        )
+                );
+
+                for (RegistrationEntry entry : entriesOf(item, entriesByItem)) {
+                    entryCategoryIds.add(entry.getEventCategory().getId());
+                }
+            }
         }
 
         /*
@@ -262,6 +530,12 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
                 loadPolicies(
                         event,
                         selections
+                );
+
+        Map<String, EventCategoryRegistrationPolicy> entryPolicies =
+                registrationPolicyLoader.loadCategoryPolicies(
+                        event.getId(),
+                        entryCategoryIds
                 );
 
         for (Registration registration : registrations) {
@@ -294,6 +568,23 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
                             now.toLocalDate()
                     );
 
+            List<RegistrationItem> items =
+                    itemsByRegistration.get(registration.getId());
+
+            if (items != null) {
+                validateStoredItems(
+                        event,
+                        registration,
+                        items,
+                        entriesByItem,
+                        selections,
+                        policies,
+                        entryPolicies,
+                        now.toLocalDate()
+                );
+                continue;
+            }
+
             EventCategory category =
                     selections.categories().get(
                             registration.getEventCategory().getId()
@@ -309,29 +600,163 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
              * 최초 신청 때 저장한 선택값이 현재 정책에서도 유효한지 확인한다.
              * 이 경로에서는 종목이나 사이즈를 다른 값으로 변경하지 않는다.
              */
-            List<SouvenirJson> validatedSouvenirs =
-                    validateSouvenirs(
-                            registration.getSouvenirJson(),
-                            selections.mappingsByCategory().get(
-                                    category.getId()
-                            ),
-                            birth,
-                            policies
+            validateStoredSouvenirs(
+                    registration,
+                    registration.getSouvenirJson(),
+                    category,
+                    birth,
+                    selections,
+                    policies
+            );
+        }
+    }
+
+    /**
+     * 상품 신청의 저장된 구매 줄을 다시 검증한다.
+     * 줄마다 기념품을, 참가 항목마다 보호자·자기 종목 출생일 범위를 본다.
+     * 상품은 연령 구분이 없어 기념품 연령별 사이즈 제한은 보지 않는다(신청 때와 같은 규칙).
+     */
+    private void validateStoredItems(
+            Event event,
+            Registration registration,
+            List<RegistrationItem> items,
+            Map<String, List<RegistrationEntry>> entriesByItem,
+            SelectionData selections,
+            RegistrationPolicyContext policies,
+            Map<String, EventCategoryRegistrationPolicy> entryPolicies,
+            LocalDate applicationDate
+    ) {
+        for (RegistrationItem item : items) {
+            EventCategory product =
+                    selections.categories().get(
+                            item.getEventCategory().getId()
                     );
 
-            /*
-             * 확보 계산에는 저장된 값을 그대로 사용하므로,
-             * 검증 과정의 정규화 결과와 저장값이 다르면 진행하지 않는다.
-             */
-            if (!validatedSouvenirs.equals(
-                    registration.getSouvenirJson()
-            )) {
+            validateStoredSouvenirs(
+                    registration,
+                    item.getSouvenirJson() == null ? List.of() : item.getSouvenirJson(),
+                    product,
+                    null,
+                    selections,
+                    policies
+            );
+
+            List<RegistrationEntry> entries =
+                    entriesOf(item, entriesByItem);
+
+            if (entries.isEmpty()) {
                 throw new CustomException(
-                        ErrorCode.INVALID_SOUVENIR_SIZE,
-                        " 저장된 기념품 선택값이 현재 검증 결과와 일치하지 않습니다."
-                                + " registrationId=" + registration.getId()
+                        ErrorCode.REGISTRATION_POLICY_CONFIGURATION_ERROR,
+                        " 구매 줄에 참가 항목이 없습니다. itemId=" + item.getId()
+                );
+            }
+
+            for (RegistrationEntry entry : entries) {
+                LocalDate entryBirth =
+                        registrationPolicyValidator.validateParticipant(
+                                event,
+                                policies.eventPolicy(),
+                                new RegistrationPolicyInput(
+                                        entry.getBirth(),
+                                        registration.getGuardianName(),
+                                        registration.isGuardianConsent()
+                                ),
+                                applicationDate
+                        );
+
+                registrationPolicyValidator.validateCategoryBirth(
+                        entry.getEventCategory(),
+                        entryPolicies.get(entry.getEventCategory().getId()),
+                        entryBirth
                 );
             }
         }
+    }
+
+    /**
+     * 저장된 기념품 선택이 현재 정책에서도 유효한지 확인한다.
+     *
+     * 확보 계산에는 저장된 값을 그대로 사용하므로,
+     * 검증 과정의 정규화 결과와 저장값이 다르면 진행하지 않는다.
+     */
+    private void validateStoredSouvenirs(
+            Registration registration,
+            List<SouvenirJson> stored,
+            EventCategory category,
+            LocalDate birth,
+            SelectionData selections,
+            RegistrationPolicyContext policies
+    ) {
+        List<SouvenirJson> validatedSouvenirs =
+                validateSouvenirs(
+                        stored,
+                        selections.mappingsByCategory().get(
+                                category.getId()
+                        ),
+                        birth,
+                        policies
+                );
+
+        if (!validatedSouvenirs.equals(stored)) {
+            throw new CustomException(
+                    ErrorCode.INVALID_SOUVENIR_SIZE,
+                    " 저장된 기념품 선택값이 현재 검증 결과와 일치하지 않습니다."
+                            + " registrationId=" + registration.getId()
+            );
+        }
+    }
+
+    /** 상품 신청의 구매 줄을 신청 id별로 묶는다. 구매 줄이 없는 상품 신청은 설정 오류다. */
+    private Map<String, List<RegistrationItem>> loadItems(
+            List<String> productRegistrationIds
+    ) {
+        if (productRegistrationIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<String, List<RegistrationItem>> result =
+                new LinkedHashMap<>();
+
+        for (RegistrationItem item :
+                registrationItemCommandRepository.findAllByRegistrationIds(productRegistrationIds)) {
+            result.computeIfAbsent(
+                    item.getRegistration().getId(),
+                    ignored -> new ArrayList<>()
+            ).add(item);
+        }
+
+        for (String registrationId : productRegistrationIds) {
+            if (!result.containsKey(registrationId)) {
+                throw new CustomException(
+                        ErrorCode.REGISTRATION_POLICY_CONFIGURATION_ERROR,
+                        " 상품 신청에 구매 줄이 없습니다. registrationId=" + registrationId
+                );
+            }
+        }
+
+        return result;
+    }
+
+    /** 상품 신청의 참가 항목을 구매 줄 id별로 묶는다. */
+    private Map<String, List<RegistrationEntry>> loadEntriesByItem(
+            List<String> productRegistrationIds
+    ) {
+        if (productRegistrationIds.isEmpty()) {
+            return Map.of();
+        }
+
+        return registrationEntryCommandRepository
+                .findByRegistration_IdIn(productRegistrationIds)
+                .stream()
+                .collect(Collectors.groupingBy(
+                        entry -> entry.getRegistrationItem().getId()
+                ));
+    }
+
+    private static List<RegistrationEntry> entriesOf(
+            RegistrationItem item,
+            Map<String, List<RegistrationEntry>> entriesByItem
+    ) {
+        return entriesByItem.getOrDefault(item.getId(), List.of());
     }
 }

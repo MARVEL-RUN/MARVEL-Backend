@@ -317,7 +317,7 @@ public class GlobalExceptionHandler {
         }
 
         return switch (fe.getCode()) {
-            case "NotNull", "NotBlank", "NotEmpty" -> "REQUIRED";
+            case "NotNull", "NotBlank", "NotEmpty", "CategorySelectionRequired" -> "REQUIRED";
             case "Pattern", "Email", "Size", "Past", "Future", "Positive", "PositiveOrZero",
                     "Negative", "NegativeOrZero", "Min", "Max", "DecimalMin", "DecimalMax" -> "INVALID_FORMAT";
             case "ValidCashReceiptIdentifier" -> "INVALID_FORMAT";

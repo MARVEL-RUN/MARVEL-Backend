@@ -8,6 +8,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
+import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationItemCommandRepository;
 import kr.co.teambrain.marvelrun.user.payment.command.application.creator.PaymentCreator;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.PaymentProcessLog;
@@ -35,7 +36,7 @@ class PaymentAdditionalCreatorTest {
         payments = mock(PaymentCommandRepository.class);
         logs = mock(PaymentProcessLogCommandRepository.class);
         orderIds = mock(PaymentOrderIdGenerator.class);
-        creator = new PaymentCreator(payments, logs, orderIds);
+        creator = new PaymentCreator(payments, logs, orderIds, mock(RegistrationItemCommandRepository.class));
         when(payments.save(any(Payment.class))).thenAnswer(call -> call.getArgument(0));
         when(orderIds.generate()).thenReturn("additional-order-1");
     }

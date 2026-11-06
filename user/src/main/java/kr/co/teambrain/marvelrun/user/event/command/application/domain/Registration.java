@@ -110,7 +110,10 @@ public class Registration extends RegistrationBase<
         }
     }
 
-    /** 개인 신청 정보를 생성하며 서비스에서 만든 비밀번호 해시를 그대로 저장한다. */
+    /**
+     * 개인 신청 정보를 생성하며 서비스에서 만든 비밀번호 해시를 그대로 저장한다.
+     * 상품 구매면 종목·기념품은 첫 구매 줄의 값(대표값)이고 계약금액은 줄 가격의 합이다.
+     */
     public static Registration createForPaymentMvp(
             Event event,
             EventCategory eventCategory,
@@ -118,7 +121,8 @@ public class Registration extends RegistrationBase<
             RegistrationCreateRequest request,
             String encodedPassword,
             BigDecimal contractAmount,
-            LocalDateTime now
+            LocalDateTime now,
+            boolean duplicateAllowed
     ) {
 
         String guardianName = request.guardianName();
@@ -159,6 +163,7 @@ public class Registration extends RegistrationBase<
                 .termsMarketingChannelAgreed(request.termsMarketingChannelAgreed())
                 .termsAgreedAt(now)
                 .email(request.email())
+                .duplicateAllowed(duplicateAllowed)
                 .build();
     }
 
@@ -482,6 +487,17 @@ public class Registration extends RegistrationBase<
         }
         this.contractAmount = contractAmount.subtract(amount);
         this.status = RegistrationStatus.CONFIRMED;
+    }
+
+    /**
+     * 상품 신청의 신청자 생년월일을 바꾼다. 상품 신청은 생년월일로 가격·정원을 다시 계산하지 않는다.
+     * 호출자는 보호자 정책을 신청자와 모든 참가 항목에 대해 다시 검증해야 한다.
+     */
+    public void changeProductApplicantBirth(String birth) {
+        if (organization != null || softDeleted || birth == null) {
+            throw new CustomException(ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET);
+        }
+        this.birth = birth;
     }
 
     /** 상향 결제 승인 때 종목만 패키지로 바꾼다. 계약금액은 요청 때 이미 올렸다. */

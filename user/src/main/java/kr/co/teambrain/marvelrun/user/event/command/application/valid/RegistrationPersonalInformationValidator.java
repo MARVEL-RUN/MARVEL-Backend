@@ -40,7 +40,8 @@ public class RegistrationPersonalInformationValidator {
         policyValidator.validateRegistrationModificationPeriod(access.event(), access.now());
         policyValidator.validateStatus(access.registration());
         RegistrationModificationRequest request = access.request();
-        uniqueInfoValidator.validateOtherActive(access.event().getId(), access.registration().getId(),
+        // 신원이 바뀔 때만(같은 신청자 주문 여러 건 허용 대회) 대회를 잠그고 다른 활성 주문을 찾는다.
+        uniqueInfoValidator.validatePersonalIdentity(access.registration(),
                 request.name(), request.phNum(), request.birth());
 
         String guardianName = request.guardianName();

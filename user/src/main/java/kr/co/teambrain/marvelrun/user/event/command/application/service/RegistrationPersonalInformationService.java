@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Objects;
 
 /** 개인정보와 변경 없음 경로를 기존 신청의 정정으로 처리한다. 결제·예약·정원 서비스에 의존하지 않는다. */
 @Service
@@ -32,6 +33,12 @@ public class RegistrationPersonalInformationService {
         Registration registration = access.registration();
         if (change == RegistrationModificationClassifier.Change.PERSONAL_INFORMATION) {
             registration.applyPersonalInformation(access.request());
+            // 상품 신청은 생년월일도 개인정보 수정으로 반영한다(가격·정원은 다시 계산하지 않는다).
+            // 보호자 재검사는 호출부가 신청자와 모든 참가 항목에 대해 먼저 마쳤다.
+            if (registration.isProductPurchase()
+                    && !Objects.equals(registration.getBirth(), access.request().birth())) {
+                registration.changeProductApplicantBirth(access.request().birth());
+            }
             // UPDATE의 기존 @Version 조건이 전체 수정·결제 반영과의 오래된 저장을 차단한다.
             repository.flush();
         } else if (change == RegistrationModificationClassifier.Change.NONE) {

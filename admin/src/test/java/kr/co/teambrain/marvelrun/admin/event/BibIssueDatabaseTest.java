@@ -211,7 +211,7 @@ class BibIssueDatabaseTest {
         assertError(DEADLINE, ErrorCode.VIRTUAL_EVENT_REQUIRED);
     }
 
-    /** 신청자 정보를 따라 고쳐도, 먼저 읽어 둔 항목이 JDBC로 발급된 배번을 NULL로 되돌리지 않는다. */
+    /** 받는 사람을 엔티티로 고쳐도, 먼저 읽어 둔 항목이 JDBC로 발급된 배번을 NULL로 되돌리지 않는다. */
     @Test
     void entityUpdateKeepsBibIssuedByJdbc() {
         Registration registration = registration(catA, RegistrationStatus.CONFIRMED, false, false, DEADLINE.minusHours(3));
@@ -222,10 +222,7 @@ class BibIssueDatabaseTest {
         assertThat(loaded.getBibNumber()).isNull();
 
         service.issue(eventId, new BibIssueRequest(DEADLINE));
-        jdbc.update("update registration set name='변경된이름' where id=?", registration.getId());
-        Registration changed = em.find(Registration.class, registration.getId());
-        em.refresh(changed);
-        loaded.followApplicant(changed);
+        loaded.modifyRecipientByAdmin("변경된이름", loaded.getPhNum(), loaded.getBirth(), loaded.getGender());
         em.flush();
 
         assertThat(bib(entryId)).isEqualTo("10001");
@@ -304,10 +301,25 @@ class BibIssueDatabaseTest {
     private String entry(Registration registration, String categoryId) {
         String id = id();
         jdbc.update("""
-                insert into registration_entry(id,event_id,registration_id,event_category_id,name,ph_num,birth,gender,created_at,updated_at)
-                values(?,?,?,?,'받는사람','010-0000-0000','1990-01-01','M',NOW(6),NOW(6))
-                """, id, eventId, registration.getId(), categoryId);
+                insert into registration_entry(id,event_id,registration_id,registration_item_id,event_category_id,name,ph_num,birth,gender,created_at,updated_at)
+                values(?,?,?,?,?,'받는사람','010-0000-0000','1990-01-01','M',NOW(6),NOW(6))
+                """, id, eventId, registration.getId(), item(registration.getId()), categoryId);
         return id;
+    }
+
+    /** 신청의 첫 구매 줄. 없으면 신청 종목·계약금액으로 만든다. 참가 항목은 구매 줄에 묶어야 한다. */
+    private String item(String registrationId) {
+        List<String> found = jdbc.queryForList(
+                "select id from registration_item where registration_id=? and sort_order=1", String.class, registrationId);
+        if (!found.isEmpty()) {
+            return found.getFirst();
+        }
+        String itemId = UUID.randomUUID().toString();
+        jdbc.update("""
+                insert into registration_item(id,event_id,registration_id,event_category_id,sort_order,amount,souvenir_json)
+                select ?,event_id,id,event_category_id,1,contract_amount,souvenir_json from registration where id=?
+                """, itemId, registrationId);
+        return itemId;
     }
 
     private void upgrade(Registration registration) {

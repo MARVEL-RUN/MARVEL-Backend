@@ -73,6 +73,13 @@ public class RegistrationModificationTransactionService {
         RegistrationModificationAccessContext access = new RegistrationModificationAccessContext(
                 verified.event(), verified.registration(), request, now);
         RegistrationModificationClassifier.Change change = classifier.classifyPersonal(access.registration(), request);
+        // 상품 신청의 신청 행 종목은 대표 상품일 뿐이라 가격·정원을 다시 계산하는 전체 수정으로 보내지 않는다.
+        // 상품 가격·정원·기념품은 생년월일을 보지 않으므로 생년월일 변경은 보호자 재검사를 거친 개인정보 수정으로 처리하고,
+        // 상품·기념품 변경은 아래에서 거절한다.
+        boolean product = access.registration().isProductPurchase();
+        if (product && change == RegistrationModificationClassifier.Change.FULL) {
+            change = RegistrationModificationClassifier.Change.PERSONAL_INFORMATION;
+        }
         // 개인정보 수정은 MODIFY만, 전체 수정은 후속 결제·환불 정책까지 함께 읽는다.
         List<RegistrationActionPolicyInput> policies = change == RegistrationModificationClassifier.Change.FULL
                 ? actionPolicies.loadEnabledRegistrationActionPolicies(eventId,
@@ -82,12 +89,11 @@ public class RegistrationModificationTransactionService {
         // 주소 필수 정책과 상품 종목 변경 제한은 수정 종류와 관계없이 보되, 상태·기간·외부 결제 검증 뒤에 본다.
         productModifications.validate(access.registration(), request);
         if (change != RegistrationModificationClassifier.Change.FULL) {
-            RegistrationModificationSettlementResult modified = informationService.modify(access, change);
-            // 변경 없음은 신청자 값이 그대로라 맞출 것이 없다. version도 올리지 않으므로 항목을 만들면 동시 요청이 겹친다.
-            if (change != RegistrationModificationClassifier.Change.NONE) {
-                productModifications.syncApplicantEntry(access.registration(), request);
+            // 신청자 정보를 바꿔도 참가 항목(받는 사람)은 그대로 둔다.
+            if (product && change != RegistrationModificationClassifier.Change.NONE) {
+                productModifications.validateApplicantChange(access.registration(), request, now.toLocalDate());
             }
-            return modified;
+            return informationService.modify(access, change);
         }
 
         RegistrationPersonalModificationResult result =
@@ -98,7 +104,6 @@ public class RegistrationModificationTransactionService {
                         now,
                         access.registration().getVersion()
                 );
-        productModifications.syncApplicantEntry(access.registration(), request);
 
         return settlementService.settleRegistrationModification(
                 eventId,

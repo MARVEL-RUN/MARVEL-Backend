@@ -90,10 +90,12 @@ public class RegistrationPolicyValidator {
                 applicationDate
         );
 
+        // 보호자 동의를 받지 않는 대회(버추얼런)는 출생일 기준과 관계없이 보호자 정보를 요구하지 않는다.
         boolean guardianRequired =
-                !birth.isBefore(
-                        policy.getGuardianRequiredBirthFrom()
-                );
+                policy.isGuardianConsentRequired()
+                        && !birth.isBefore(
+                                policy.getGuardianRequiredBirthFrom()
+                        );
 
         if (guardianRequired) {
 
@@ -287,7 +289,9 @@ public class RegistrationPolicyValidator {
                 throw configurationError();
             }
 
-            if (isWithinRange(birth, from, to)
+            // 상품은 연령 구분이 없어 birth 없이 부르며, 이때는 연령별 사이즈 제한을 보지 않는다.
+            if (birth != null
+                    && isWithinRange(birth, from, to)
                     && !policySizes.contains(normalizedSize)) {
 
                 throw new CustomException(

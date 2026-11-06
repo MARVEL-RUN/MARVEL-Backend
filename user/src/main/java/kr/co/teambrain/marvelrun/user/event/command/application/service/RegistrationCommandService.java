@@ -21,6 +21,7 @@ import kr.co.teambrain.marvelrun.user.capacity.command.application.service.Regis
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationCreateContext;
+import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationItemDraft;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationApplyValidator;
@@ -34,7 +35,9 @@ import kr.co.teambrain.marvelrun.user.event.command.repository.EventCategoryComm
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationEntryCommandRepository;
+import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationItemCommandRepository;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.RegistrationEntry;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.RegistrationItem;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.PaymentCommandRepository;
 import kr.co.teambrain.marvelrun.user.payment.command.application.dto.PaymentAllocationTarget;
 import lombok.RequiredArgsConstructor;
@@ -43,6 +46,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
@@ -72,6 +76,9 @@ public class RegistrationCommandService {
 
     private final EventCategoryCommandRepository
             eventCategoryCommandRepository;
+
+    private final RegistrationItemCommandRepository
+            registrationItemCommandRepository;
 
     private final RegistrationEntryCommandRepository
             registrationEntryCommandRepository;
@@ -109,6 +116,22 @@ public class RegistrationCommandService {
             String eventId,
             RegistrationCreateRequest request
     ) {
+        return register(eventId, request, false);
+    }
+
+    /**
+     * 개인 신청을 만든다.
+     *
+     * @param additionalOrder 로그인한 신청자의 추가 주문이면 true.
+     *                        같은 신청자 주문 여러 건을 허용한 대회에서 같은 신청자 거절을 건너뛴다.
+     *                        공개 신청은 false다.
+     */
+    @Transactional
+    public RegistrationCreateResponse register(
+            String eventId,
+            RegistrationCreateRequest request,
+            boolean additionalOrder
+    ) {
         registrationCapacityService.lockEvent(eventId);
 
         LocalDateTime now = serverTimeProvider.currentDateTime();
@@ -117,7 +140,8 @@ public class RegistrationCommandService {
                 registrationApplyValidator.validate(
                         eventId,
                         request,
-                        now
+                        now,
+                        additionalOrder
                 );
 
         Event event = context.event();
@@ -131,8 +155,18 @@ public class RegistrationCommandService {
         List<DiscountModels.Policy> discountSnapshot = discountPolicies.resolveEventPolicies(eventId);
         DiscountLink discountLink = discountEligibility.acquireRegistrationLink(
                 request.discountLinkCode(), eventId, false, now, discountSnapshot);
-        DiscountModels.PriceResult discountPrice = registrationPricingService.calculateRegistrationPrice(
-                event, eventCategory, request.birth(), false, discountLink, discountSnapshot);
+
+        // 상품 구매는 줄마다 가격을 계산해 더한다. 상품은 연령 할인이 없어 생년월일을 보지 않는다.
+        // 할인 링크는 신청에 한 번만 획득한다.
+        List<DiscountModels.PriceResult> itemPrices = new ArrayList<>();
+        for (RegistrationItemDraft item : context.items()) {
+            itemPrices.add(registrationPricingService.calculateProductPrice(
+                    event, item.product(), discountLink, discountSnapshot));
+        }
+        DiscountModels.PriceResult discountPrice = itemPrices.isEmpty()
+                ? registrationPricingService.calculateRegistrationPrice(
+                        event, eventCategory, request.birth(), false, discountLink, discountSnapshot)
+                : RegistrationPricingService.sum(itemPrices);
         BigDecimal contractAmount = discountPrice.finalAmount();
 
         // BCrypt의 입력 한도를 넘는 원문은 자르지 않고 업무 오류로 거부한다.
@@ -148,7 +182,8 @@ public class RegistrationCommandService {
                         request,
                         encodedPassword,
                         contractAmount,
-                        now
+                        now,
+                        context.duplicateAllowed()
                 );
 
         // 비대상 종목도 링크 자격을 보존하며 실제 적용 내역은 별도 계산 기록에 남긴다.
@@ -156,7 +191,7 @@ public class RegistrationCommandService {
             registration.assignDiscountQualification(discountLink.getId(), discountLink.getReferenceFilterId());
         }
 
-        // 종목별 선택을 검증하고 미선택은 실제 후미 UUID로 저장한다.
+        // 종목별 선택을 검증하고 미선택은 실제 후미 UUID로 저장한다. 상품 구매는 대표 상품의 그룹을 쓴다.
         RegistrationStartGroupResolver.Selection selection = startGroups.resolveRegistrationStartGroups(List.of(
                 new RegistrationStartGroupResolver.Input(eventCategory.getId(), request.startGroupId(),
                         request.startGroupUnselected()))).getFirst();
@@ -165,13 +200,19 @@ public class RegistrationCommandService {
         Registration savedRegistration =
                 registrationCommandRepository.save(registration);
 
-        // 상품 종류가 정한 코스별 참가 항목을 신청과 함께 저장한다. 기존 대회는 항목이 없다.
-        if (!context.entries().isEmpty()) {
-            registrationEntryCommandRepository.saveAll(
-                    context.entries().stream()
-                            .map(entry -> RegistrationEntry.create(savedRegistration, entry))
-                            .toList()
-            );
+        // 구매 줄을 요청 순서(1부터)로 저장한 뒤 참가 항목을 자기 줄에 묶어 저장한다. 일반 종목은 줄이 없다.
+        if (!context.items().isEmpty()) {
+            List<RegistrationItem> items = new ArrayList<>();
+            List<RegistrationEntry> entries = new ArrayList<>();
+            for (int index = 0; index < context.items().size(); index++) {
+                RegistrationItemDraft draft = context.items().get(index);
+                RegistrationItem item = RegistrationItem.create(savedRegistration, index + 1, draft.product(),
+                        draft.souvenirs(), itemPrices.get(index).finalAmount());
+                items.add(item);
+                draft.entries().forEach(entry -> entries.add(RegistrationEntry.create(item, entry)));
+            }
+            registrationItemCommandRepository.saveAll(items);
+            registrationEntryCommandRepository.saveAll(entries);
         }
 
         // 신청 저장과 같은 트랜잭션에서 계산 근거와 현재 참조를 보존한다.

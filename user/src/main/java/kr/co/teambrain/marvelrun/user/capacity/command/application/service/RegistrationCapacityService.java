@@ -2,6 +2,11 @@ package kr.co.teambrain.marvelrun.user.capacity.command.application.service;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.CapacityType;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.dto.CapacityHoldRequest;
+import kr.co.teambrain.marvelrun.user.capacity.command.application.dto.CapacityRequirementInput;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.RegistrationEntry;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.RegistrationItem;
+import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationEntryCommandRepository;
+import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationItemCommandRepository;
 import kr.co.teambrain.marvelrun.user.capacity.command.repository.CapacityCommandRepository;
 import kr.co.teambrain.marvelrun.user.capacity.command.repository.ReservationCommandRepository;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
@@ -30,7 +35,9 @@ import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
@@ -57,6 +64,8 @@ public class RegistrationCapacityService {
     private final CapacityHoldService capacityHoldService;
     private final ReservationCommandRepository reservationRepository;
     private final PaymentCommandRepository paymentCommandRepository;
+    private final RegistrationItemCommandRepository registrationItemRepository;
+    private final RegistrationEntryCommandRepository registrationEntryRepository;
 
     /**
      * 신규 신청의 검증과 저장에 앞서 대회 행을 잠근다.
@@ -98,16 +107,7 @@ public class RegistrationCapacityService {
         LocalDate eventDate = event.getStartDate().toLocalDate();
 
         List<CapacityHoldRequest> holdRequests =
-                new ArrayList<>(registrations.size());
-
-        for (Registration registration : registrations) {
-            holdRequests.add(
-                    new CapacityHoldRequest(
-                            registration,
-                            isChild(registration.getBirth(), eventDate)
-                    )
-            );
-        }
+                holdRequests(registrations, eventDate);
 
         capacityHoldService.holdAll(
                 event.getId(),
@@ -167,20 +167,7 @@ public class RegistrationCapacityService {
                 event.getStartDate().toLocalDate();
 
         List<CapacityHoldRequest> holdRequests =
-                new ArrayList<>(registrations.size());
-
-        for (Registration registration : registrations) {
-
-            holdRequests.add(
-                    new CapacityHoldRequest(
-                            registration,
-                            isChild(
-                                    registration.getBirth(),
-                                    eventDate
-                            )
-                    )
-            );
-        }
+                holdRequests(registrations, eventDate);
 
         /*
          * RELEASED 여부와 예약 버전은 재확보 내부에서 검증한다.
@@ -332,6 +319,102 @@ public class RegistrationCapacityService {
                     now
             );
         }
+    }
+
+    /**
+     * 신청마다 확보 입력을 만든다.
+     *
+     * 상품 신청은 신청 행의 대표 상품이 아니라 저장된 구매 줄마다 입력을 만든다.
+     * 전체 정원은 줄의 참가 항목 수(사람 수)만큼, 그 밖의 정원·기념품은 줄마다 1개를 쓴다.
+     * 상품은 연령 구분이 없어 어린이 정원을 쓰지 않는다(생년월일을 바꿔도 정원이 그대로다).
+     * 구매 줄이 없는 신청(일반 종목·단체)은 지금처럼 신청 행 하나로 계산한다.
+     */
+    private List<CapacityHoldRequest> holdRequests(
+            List<Registration> registrations,
+            LocalDate eventDate
+    ) {
+        List<String> productRegistrationIds =
+                registrations.stream()
+                        .filter(registration -> registration.isProductPurchase())
+                        .map(Registration::getId)
+                        .toList();
+
+        Map<String, List<RegistrationItem>> itemsByRegistration =
+                new HashMap<>();
+        Map<String, Long> participantsByItem =
+                new HashMap<>();
+
+        if (!productRegistrationIds.isEmpty()) {
+            for (RegistrationItem item :
+                    registrationItemRepository.findAllByRegistrationIds(productRegistrationIds)) {
+                itemsByRegistration.computeIfAbsent(
+                        item.getRegistration().getId(),
+                        ignored -> new ArrayList<>()
+                ).add(item);
+            }
+            for (RegistrationEntry entry :
+                    registrationEntryRepository.findByRegistration_IdIn(productRegistrationIds)) {
+                participantsByItem.merge(entry.getRegistrationItem().getId(), 1L, Long::sum);
+            }
+        }
+
+        List<CapacityHoldRequest> holdRequests =
+                new ArrayList<>(registrations.size());
+
+        for (Registration registration : registrations) {
+            if (!registration.isProductPurchase()) {
+                holdRequests.add(
+                        new CapacityHoldRequest(
+                                registration,
+                                isChild(registration.getBirth(), eventDate)
+                        )
+                );
+                continue;
+            }
+
+            List<RegistrationItem> items =
+                    itemsByRegistration.getOrDefault(registration.getId(), List.of());
+
+            if (items.isEmpty()) {
+                throw new CustomException(
+                        ErrorCode.CAPACITY_CONFIGURATION_ERROR,
+                        " 상품 신청에 구매 줄이 없습니다. registrationId=" + registration.getId()
+                );
+            }
+
+            List<CapacityRequirementInput> requirements =
+                    new ArrayList<>(items.size());
+
+            for (RegistrationItem item : items) {
+                Long participants =
+                        participantsByItem.get(item.getId());
+
+                if (participants == null) {
+                    throw new CustomException(
+                            ErrorCode.CAPACITY_CONFIGURATION_ERROR,
+                            " 구매 줄에 참가 항목이 없습니다. itemId=" + item.getId()
+                    );
+                }
+
+                requirements.add(
+                        new CapacityRequirementInput(
+                                item.getEventCategory().getId(),
+                                false,
+                                item.getSouvenirJson() == null ? List.of() : item.getSouvenirJson(),
+                                participants.intValue()
+                        )
+                );
+            }
+
+            holdRequests.add(
+                    new CapacityHoldRequest(
+                            registration,
+                            requirements
+                    )
+            );
+        }
+
+        return holdRequests;
     }
 
     /**

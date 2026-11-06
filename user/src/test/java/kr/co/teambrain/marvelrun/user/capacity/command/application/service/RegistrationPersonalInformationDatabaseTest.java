@@ -290,6 +290,61 @@ class RegistrationPersonalInformationDatabaseTest extends CapacityMvpTestSupport
                 .isEqualTo(1);
     }
 
+    /**
+     * 같은 신청자 주문 여러 건 허용 신청은 DB 유니크 인덱스가 보지 않는다.
+     * 두 신청이 동시에 같은 신원으로 바뀌어도 대회 행 잠금과 잠금 읽기로 하나만 통과한다.
+     * 잠금이 없으면 두 검사가 함께 통과해 둘 다 성공한다.
+     */
+    @Test
+    void duplicateAllowedConcurrentIdentityChangesAreSerializedByEventLock() throws Exception {
+        RegistrationCreateResponse first = createPersonalRegistration(categoryA, "S", "1990-01-01");
+        RegistrationCreateResponse second = createPersonalRegistration(categoryA, "S", "1990-01-01");
+        jdbc.update("update registration set duplicate_allowed = 1 where id in (?, ?)",
+                first.registrationId(), second.registrationId());
+        RegistrationModificationRequest firstRequest = request(first.registrationId(), categoryA, "S", "허용 최종 이름", "정정 주소");
+        RegistrationModificationRequest secondRequest = request(second.registrationId(), categoryA, "S", "허용 최종 이름", "정정 주소");
+        CountDownLatch checked = new CountDownLatch(2);
+        doAnswer(invocation -> {
+            invocation.callRealMethod();
+            checked.countDown();
+            // 잠금이 없으면 두 검사가 여기서 만난다. 잠금이 있으면 뒤 요청은 앞 요청이 커밋할 때까지 검사에 닿지 못한다.
+            checked.await(3, TimeUnit.SECONDS);
+            return null;
+        }).when(uniqueInfo).validatePersonalIdentity(any(Registration.class), eq("허용 최종 이름"), anyString(), anyString());
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Throwable> a = executor.submit(() -> attempt(first.registrationId(), firstRequest));
+            Future<Throwable> b = executor.submit(() -> attempt(second.registrationId(), secondRequest));
+            Throwable aError = a.get(30, TimeUnit.SECONDS);
+            Throwable bError = b.get(30, TimeUnit.SECONDS);
+            assertThat((aError == null) ^ (bError == null)).isTrue();
+            assertThat(aError == null ? bError : aError).isInstanceOfSatisfying(CustomException.class,
+                    exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.REGISTRATION_ALREADY_EXISTS));
+            assertThat(queryIntegerValue("select count(*) from registration where event_id = ? and name = ? and is_del = 0",
+                    eventId, "허용 최종 이름")).isEqualTo(1);
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(15, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    /** 같은 신청자의 다른 주문이 있어도 신원을 바꾸지 않는 수정(주소 등)은 막지 않는다. */
+    @Test
+    void duplicateAllowedSameIdentityOrdersCanEditAddress() {
+        RegistrationCreateResponse first = createPersonalRegistration(categoryA, "S", "1990-01-01");
+        RegistrationCreateResponse second = createPersonalRegistration(categoryA, "S", "1990-01-01");
+        jdbc.update("update registration set duplicate_allowed = 1, name = ? where id in (?, ?)",
+                "같은 신청자", first.registrationId(), second.registrationId());
+
+        commands.modifyPersonalRegistration(eventId, first.registrationId(),
+                request(first.registrationId(), categoryA, "S", "같은 신청자", "주소만 정정"));
+
+        assertThat(queryStringValue("select address from registration where id = ?", first.registrationId()))
+                .isEqualTo("주소만 정정");
+        assertThat(queryIntegerValue("select count(*) from registration where event_id = ? and name = ? and is_del = 0",
+                eventId, "같은 신청자")).isEqualTo(2);
+    }
+
     /** 동일 uniqueInfo의 삭제 이력을 여러 건 보존하면서 활성 신청 정정은 허용한다. */
     @Test
     void multipleDeletedHistoriesDoNotBlockActiveIdentity() {

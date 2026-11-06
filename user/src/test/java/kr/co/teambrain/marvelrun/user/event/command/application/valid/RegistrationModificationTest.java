@@ -55,6 +55,8 @@ class RegistrationModificationTest {
     private EventCategoryCommandRepository categories;
     private EventCategorySouvenirCommandRepository mappings;
     private RegistrationPolicyLoader loader;
+    private RegistrationItemCommandRepository items;
+    private RegistrationEntryCommandRepository entries;
 
     private Event event;
     private EventCategory category;
@@ -76,6 +78,8 @@ class RegistrationModificationTest {
         categories = mock(EventCategoryCommandRepository.class);
         mappings = mock(EventCategorySouvenirCommandRepository.class);
         loader = mock(RegistrationPolicyLoader.class);
+        items = mock(RegistrationItemCommandRepository.class);
+        entries = mock(RegistrationEntryCommandRepository.class);
 
         event = mock(Event.class);
         category = mock(EventCategory.class);
@@ -116,6 +120,7 @@ class RegistrationModificationTest {
                 mock(EventRegistrationPolicy.class);
 
         when(eventPolicy.getEvent()).thenReturn(event);
+        when(eventPolicy.isGuardianConsentRequired()).thenReturn(true);
         when(eventPolicy.getGuardianRequiredBirthFrom())
                 .thenReturn(LocalDate.of(2012, 11, 2));
         when(eventPolicy.getAddressRequired()).thenReturn(false);
@@ -150,7 +155,8 @@ class RegistrationModificationTest {
 
         personalCreate = new RegistrationApplyValidator(
                 registrations, events, categories, mappings,
-                loader, policyValidator, new RegistrationEntryValidator(policyValidator)
+                loader, policyValidator, new RegistrationEntryValidator(policyValidator),
+                items, entries
         );
 
         groupCreate = new OrgRegistrationApplyValidator(
@@ -160,7 +166,7 @@ class RegistrationModificationTest {
 
         personalModify = new RegistrationModificationCandidateValidator(
                 registrations, events, categories, mappings,
-                loader, policyValidator, new RegistrationUniqueInfoValidator(registrations)
+                loader, policyValidator, new RegistrationUniqueInfoValidator(registrations, events)
         );
 
         groupModify = new OrgRegistrationModificationCandidateValidator(
@@ -659,8 +665,60 @@ class RegistrationModificationTest {
                 NOW
         );
 
-        assertThat(created.entries()).isEmpty();
+        assertThat(created.items()).isEmpty();
         verify(categories, never()).findByEvent_IdAndParentCategoryIdOrderByOrderAscIdAsc(any(), any());
+    }
+
+    /**
+     * 상품 종목은 최상위 종목으로 신청할 수 없다. 상품은 구매 줄(items)로만 산다.
+     */
+    @Test
+    void personalCreationRejectsProductCategoryWithoutItems() {
+        when(category.getProductType()).thenReturn(kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType.SINGLE);
+
+        expectError(
+                ErrorCode.INVALID_REGISTRATION_ENTRIES,
+                () -> personalCreate.validate(EVENT_ID,
+                        creationRequest(personalRequest("1990-01-01", "M", null, false)), NOW)
+        );
+    }
+
+    /**
+     * 같은 신청자 주문 여러 건을 허용하지 않는 대회(오프라인 등)는 지금처럼 이미 신청한 대회로 거절한다.
+     */
+    @Test
+    void sameApplicantRejectedWhenDuplicatesNotAllowed() {
+        when(registrations.existsByEventIdAndUniqueInfo(EVENT_ID, "변경이름", PHONE, "1990-01-01")).thenReturn(true);
+        when(eventPolicy.isDuplicateRegistrationAllowed()).thenReturn(false);
+        RegistrationCreateRequest request = creationRequest(personalRequest("1990-01-01", "M", null, false));
+
+        expectError(ErrorCode.REGISTRATION_ALREADY_EXISTS, () -> personalCreate.validate(EVENT_ID, request, NOW));
+        expectError(ErrorCode.REGISTRATION_ALREADY_EXISTS, () -> personalCreate.validate(EVENT_ID, request, NOW, true));
+    }
+
+    /**
+     * 같은 신청자 주문 여러 건을 허용한 대회도 공개 신청의 두 번째 주문은 로그인 뒤 추가 주문하라고 거절한다.
+     * 로그인한 추가 주문(additionalOrder)만 통과하고, 그 값은 신청 행에 복사할 수 있게 넘긴다.
+     */
+    @Test
+    void sameApplicantNeedsLoginWhenDuplicatesAllowed() {
+        when(registrations.existsByEventIdAndUniqueInfo(EVENT_ID, "변경이름", PHONE, "1990-01-01")).thenReturn(true);
+        when(eventPolicy.isDuplicateRegistrationAllowed()).thenReturn(true);
+        RegistrationCreateRequest request = creationRequest(personalRequest("1990-01-01", "M", null, false));
+
+        expectError(ErrorCode.REGISTRATION_ADDITIONAL_ORDER_LOGIN_REQUIRED,
+                () -> personalCreate.validate(EVENT_ID, request, NOW));
+        assertThat(personalCreate.validate(EVENT_ID, request, NOW, true).duplicateAllowed()).isTrue();
+    }
+
+    /**
+     * 같은 신청자가 없으면 대회 정책을 따로 읽지 않는다.
+     */
+    @Test
+    void newApplicantDoesNotReadEventPolicyForDuplicates() {
+        personalCreate.validate(EVENT_ID, creationRequest(personalRequest("1990-01-01", "M", null, false)), NOW);
+
+        verify(loader, never()).loadEventPolicy(any());
     }
 
     /**
@@ -681,15 +739,116 @@ class RegistrationModificationTest {
         when(loader.loadCategoryPolicies(EVENT_ID, Set.of("avengers")))
                 .thenReturn(Map.of("avengers", singlePolicy));
         var request = personalRequest("1990-01-01", "M", null, false);
-        RegistrationCreateRequest packageRequest = new RegistrationCreateRequest(request.eventCategoryId(),
-                request.selectedSouvenirList(), "password", request.name(), request.phNum(), request.birth(),
-                request.gender(), "주소", null, null, null, null, null, true, false, false, null, "group", false,
-                null, List.of(new RegistrationEntryRequest("avengers", "받는사람", PHONE, "1991-02-03", GenderClass.F)));
+        RegistrationCreateRequest packageRequest = itemsRequest(request, List.of(new RegistrationItemRequest(
+                CATEGORY_ID, request.selectedSouvenirList(),
+                List.of(new RegistrationEntryRequest("avengers", "받는사람", PHONE, "1991-02-03", GenderClass.F)))));
 
         var created = personalCreate.validate(EVENT_ID, packageRequest, NOW);
 
-        assertThat(created.entries()).extracting(entry -> entry.eventCategory().getId() + ":" + entry.name())
-                .containsExactly("avengers:받는사람");
+        assertThat(created.eventCategory()).isSameAs(category);
+        assertThat(created.items()).singleElement().satisfies(item -> {
+            assertThat(item.product()).isSameAs(category);
+            assertThat(item.souvenirs()).containsExactly(new SouvenirJson("shirt", "M"));
+            assertThat(item.entries()).extracting(entry -> entry.eventCategory().getId() + ":" + entry.name())
+                    .containsExactly("avengers:받는사람");
+        });
+    }
+
+    /**
+     * 같은 패키지를 두 번 사면 줄이 두 개이고, 하위 종목·정책은 한 번만 읽는다.
+     */
+    @Test
+    void personalCreationOfSamePackageTwiceReadsComponentsOnce() {
+        when(category.getProductType()).thenReturn(kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType.PACKAGE);
+        EventCategory single = mock(EventCategory.class);
+        when(single.getId()).thenReturn("avengers");
+        when(single.getProductType()).thenReturn(kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType.SINGLE);
+        when(single.getParentCategoryId()).thenReturn(CATEGORY_ID);
+        when(categories.findByEvent_IdAndParentCategoryIdOrderByOrderAscIdAsc(EVENT_ID, CATEGORY_ID))
+                .thenReturn(List.of(single));
+        EventCategoryRegistrationPolicy singlePolicy = mock(EventCategoryRegistrationPolicy.class);
+        when(singlePolicy.getEventCategory()).thenReturn(single);
+        when(loader.loadCategoryPolicies(EVENT_ID, Set.of("avengers")))
+                .thenReturn(Map.of("avengers", singlePolicy));
+        var request = personalRequest("1990-01-01", "M", null, false);
+        RegistrationItemRequest item = new RegistrationItemRequest(CATEGORY_ID, request.selectedSouvenirList(),
+                List.of(new RegistrationEntryRequest("avengers", "받는사람", PHONE, "1991-02-03", GenderClass.F)));
+
+        var created = personalCreate.validate(EVENT_ID, itemsRequest(request, List.of(item, item)), NOW);
+
+        assertThat(created.items()).hasSize(2);
+        verify(categories, times(1)).findByEvent_IdAndParentCategoryIdOrderByOrderAscIdAsc(EVENT_ID, CATEGORY_ID);
+        verify(loader, times(1)).loadCategoryPolicies(EVENT_ID, Set.of("avengers"));
+    }
+
+    /**
+     * 한 신청에는 상품을 10개까지 담는다. 11개는 종목을 읽기 전에 거절한다.
+     */
+    @Test
+    void personalCreationRejectsMoreThanTenItems() {
+        var request = personalRequest("1990-01-01", "M", null, false);
+        RegistrationItemRequest item = new RegistrationItemRequest(CATEGORY_ID, request.selectedSouvenirList(), List.of());
+
+        expectError(ErrorCode.REGISTRATION_ITEM_LIMIT_EXCEEDED, () -> personalCreate.validate(EVENT_ID,
+                itemsRequest(request, java.util.Collections.nCopies(11, item)), NOW));
+        verify(categories, never()).findById(any());
+    }
+
+    /**
+     * 구매 줄에 상품 종류가 없는 일반 종목을 담으면 거절한다.
+     */
+    @Test
+    void personalCreationRejectsNonProductItem() {
+        var request = personalRequest("1990-01-01", "M", null, false);
+
+        expectError(ErrorCode.INVALID_REGISTRATION_ENTRIES, () -> personalCreate.validate(EVENT_ID,
+                itemsRequest(request, List.of(new RegistrationItemRequest(CATEGORY_ID, request.selectedSouvenirList(),
+                        List.of(new RegistrationEntryRequest(CATEGORY_ID, "받는사람", PHONE, "1991-02-03", GenderClass.F))))),
+                NOW));
+    }
+
+    /**
+     * 반환된 상품 신청의 재확보는 신청 행의 대표 상품이 아니라 저장된 구매 줄마다 기념품을,
+     * 참가 항목마다 보호자·자기 종목 출생일 정책을 다시 본다.
+     */
+    @Test
+    void reacquisitionOfProductRegistrationValidatesStoredItemsAndEntries() {
+        when(category.getProductType()).thenReturn(kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType.SINGLE);
+        Registration registration = existing("r1", null);
+        RegistrationItem first = RegistrationItem.builder().id("item-1").event(event).registration(registration)
+                .eventCategory(category).sortOrder(1).souvenirJson(souvenirs("M")).amount(new BigDecimal("40000")).build();
+        RegistrationItem second = RegistrationItem.builder().id("item-2").event(event).registration(registration)
+                .eventCategory(category).sortOrder(2).souvenirJson(souvenirs("M")).amount(new BigDecimal("40000")).build();
+        when(items.findAllByRegistrationIds(List.of("r1"))).thenReturn(List.of(first, second));
+        when(loader.loadCategoryPolicies(EVENT_ID, Set.of(CATEGORY_ID))).thenReturn(Map.of(CATEGORY_ID, categoryPolicy));
+        when(entries.findByRegistration_IdIn(List.of("r1"))).thenReturn(List.of(
+                entry(first, "1991-01-01"), entry(second, "1992-01-01")));
+
+        assertThatCode(() -> personalCreate.validateReacquisition(event, List.of(registration), NOW))
+                .doesNotThrowAnyException();
+
+        // 14세 미만 받는 사람이 있으면 신청자가 성인이어도 신청의 보호자 입력이 있어야 한다.
+        when(entries.findByRegistration_IdIn(List.of("r1"))).thenReturn(List.of(
+                entry(first, "1991-01-01"), entry(second, "2020-01-01")));
+        expectError(ErrorCode.GUARDIAN_NAME_REQUIRED,
+                () -> personalCreate.validateReacquisition(event, List.of(registration), NOW));
+
+        // 구매 줄이 없는 상품 신청은 대표 상품으로 대신 검증하지 않는다.
+        when(items.findAllByRegistrationIds(List.of("r1"))).thenReturn(List.of());
+        expectError(ErrorCode.REGISTRATION_POLICY_CONFIGURATION_ERROR,
+                () -> personalCreate.validateReacquisition(event, List.of(registration), NOW));
+    }
+
+    private RegistrationEntry entry(RegistrationItem item, String birth) {
+        return RegistrationEntry.create(item, new kr.co.teambrain.marvelrun.user.event.command.application.context
+                .RegistrationEntryDraft(category, "받는사람", PHONE, birth, GenderClass.F));
+    }
+
+    /** 구매 줄로 보내는 상품 신청. 최상위 종목·기념품·entries는 비운다. */
+    private RegistrationCreateRequest itemsRequest(RegistrationModificationRequest request, List<RegistrationItemRequest> items) {
+        return new RegistrationCreateRequest(null, null, "password", request.name(), request.phNum(), request.birth(),
+                request.gender(), "주소", null, null, null, null, null, true, false, false, null, "group", false,
+                null, null, items);
     }
 
     /**

@@ -134,16 +134,14 @@ public class CapacityHoldService {
                 new ArrayList<>(requests.size());
 
         for (CapacityHoldRequest request : requests) {
-            Registration registration =
-                    request.registration();
-
-            requirementInputs.add(
-                    new CapacityRequirementInput(
-                            registration.getEventCategory().getId(),
-                            request.child(),
-                            registration.getSouvenirJson()
-                    )
-            );
+            if (request.requirements().isEmpty()) {
+                throw new CustomException(
+                        ErrorCode.INVALID_RESERVATION_ARGUMENT,
+                        " 자원 확보 필요량 입력이 비어 있습니다."
+                                + " registrationId=" + request.registration().getId()
+                );
+            }
+            requirementInputs.addAll(request.requirements());
         }
 
         List<Map<String, Integer>> resolvedQuantities =
@@ -158,12 +156,26 @@ public class CapacityHoldService {
         Map<String, Integer> totalQuantities =
                 new TreeMap<>();
 
-        for (int index = 0; index < requests.size(); index++) {
-            Registration registration =
-                    requests.get(index).registration();
+        int resolvedIndex = 0;
 
+        for (CapacityHoldRequest request : requests) {
+            Registration registration =
+                    request.registration();
+
+            // 상품 신청은 구매 줄마다 계산한 수량을 정원 행별로 합쳐 예약 상세 한 줄로 저장한다.
             Map<String, Integer> quantities =
-                    resolvedQuantities.get(index);
+                    new TreeMap<>();
+
+            for (int count = 0; count < request.requirements().size(); count++) {
+                resolvedQuantities.get(resolvedIndex++).forEach(
+                        (capacityId, quantity) ->
+                                quantities.merge(
+                                        capacityId,
+                                        quantity,
+                                        Integer::sum
+                                )
+                );
+            }
 
             plans.add(
                     new HoldPlan(

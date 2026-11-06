@@ -57,10 +57,15 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
     @JoinColumn(name = "event_id", nullable = false)
     protected E event;
 
+    /**
+     * 상품 신청(구매 줄이 있는 신청)이면 첫 줄의 상품(대표 상품)이다.
+     * 상품 신청의 상품 판정·가격·정원은 이 값이 아니라 구매 줄(registration_item)을 읽는다.
+     */
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "event_category_id", nullable = false)
     protected EC eventCategory;
 
+    /** 상품 신청이면 첫 줄의 기념품 선택이다. 줄마다의 기념품은 구매 줄에 있다. */
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "souvenir_json", columnDefinition = "JSON")
     protected List<SouvenirJson> souvenirJson;
@@ -241,6 +246,22 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
 
     @Column(name = "active_unique_info", insertable = false, updatable = false)
     protected Boolean activeUniqueInfo;
+
+    /**
+     * 같은 신청자(이름·연락처·생년월일)의 주문 여러 건을 허용하는 대회에서 만든 신청이다. 생성 때 대회 정책에서 복사한다.
+     * true이면 DB 생성 컬럼 active_unique_info가 NULL이 되어 신청자 유니크 인덱스에서 빠진다.
+     */
+    @Builder.Default
+    @Column(name = "duplicate_allowed", nullable = false, updatable = false)
+    protected boolean duplicateAllowed = false;
+
+    /**
+     * 상품(단품·패키지) 신청인지 본다.
+     * 상품 신청의 종목·기념품은 첫 구매 줄의 대표값이므로, 가격·정원을 신청 행 종목 하나로 다시 계산하면 안 된다.
+     */
+    public boolean isProductPurchase() {
+        return eventCategory.getProductType() != null;
+    }
 
     // 약관 관련 컬럼 추가
 
