@@ -37,7 +37,7 @@ public class VirtualRosterQueryRepository {
      * 참가 항목이 없는 구매 줄도 한 행이며 이때 항목 값(entryCategoryName·bib·entryName)은 null이다.
      */
     public record PackingLine(String registrationId, String itemId, String productName, String productType,
-            String souvenirJson, String entryCategoryName, String bib, String entryName,
+            String souvenirJson, String entryCategoryId, String entryCategoryName, String bib, String entryName,
             String receiver, String phone, String address, String addressDetail) { }
 
     public Optional<EventInfo> findEvent(String eventId) {
@@ -64,7 +64,8 @@ public class VirtualRosterQueryRepository {
         return jdbc.query("""
                 SELECT r.id, i.id AS item_id, pc.name AS product_name, pc.product_type,
                        CASE WHEN i.id IS NULL THEN r.souvenir_json ELSE i.souvenir_json END AS souvenir_json,
-                       ec.name AS entry_category_name, e.bib_number, e.name AS entry_name,
+                       e.event_category_id AS entry_category_id, ec.name AS entry_category_name,
+                       e.bib_number, e.name AS entry_name,
                        r.name, r.ph_num, r.address, r.address_detail
                 FROM registration r
                 LEFT JOIN registration_item i ON i.registration_id = r.id
@@ -76,7 +77,8 @@ public class VirtualRosterQueryRepository {
                 """, range(eventId, from, to),
                 (rs, rowNum) -> new PackingLine(rs.getString("id"), rs.getString("item_id"),
                         rs.getString("product_name"), rs.getString("product_type"), rs.getString("souvenir_json"),
-                        rs.getString("entry_category_name"), rs.getString("bib_number"), rs.getString("entry_name"),
+                        rs.getString("entry_category_id"), rs.getString("entry_category_name"),
+                        rs.getString("bib_number"), rs.getString("entry_name"),
                         rs.getString("name"), rs.getString("ph_num"), rs.getString("address"), rs.getString("address_detail")));
     }
 

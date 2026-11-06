@@ -123,6 +123,8 @@ class VirtualRosterDatabaseTest {
         assertThat(rows).extracting(PackingLine::itemId).containsExactly(first, second, third, third, empty, null);
         assertThat(rows).extracting(PackingLine::entryName).containsExactly("첫째", "둘째", "패키지A", "패키지B", null, null);
         assertThat(rows).extracting(PackingLine::entryCategoryName).containsExactly("5km | A", "5km | A", "5km | A", "B", null, null);
+        // 행 기념품을 고를 때 쓰는 항목 종목 id다. 항목이 없는 행은 null이다.
+        assertThat(rows).extracting(PackingLine::entryCategoryId).containsExactly(catA, catA, catA, catB, null, null);
         assertThat(rows).extracting(PackingLine::productName).containsExactly("5km | A", "5km | A", "패키지", "패키지", "B", "5km | A");
         assertThat(rows.get(1).souvenirJson()).contains("s2");
         assertThat(rows.get(2).souvenirJson()).contains("s3");

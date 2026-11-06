@@ -51,7 +51,8 @@ public class VirtualRosterController {
 
     @Operation(summary = "패킹 업체용 명단 엑셀 다운로드",
             description = "deadline은 차수의 마감 시각(KST)입니다. 참가 항목 하나가 한 행이며 같은 신청 번호의 행이 한 상자입니다. "
-                    + "상품·종목·기념품은 그 항목이 속한 구매 줄 값이고 기념품은 구매 줄의 첫 행에만 적습니다. 부문·배번·이름은 참가 항목 값, "
+                    + "상품·종목은 그 항목이 속한 구매 줄 값입니다. 기념품은 구매 줄의 것을 하나씩 한 행에만, 그 기념품이 연결된 종목의 "
+                    + "첫 행(없으면 줄의 첫 행)에 적어 패키지 한 줄의 세 행에는 부문 키트가 하나씩 적힙니다. 부문·배번·이름은 참가 항목 값, "
                     + "받는 사람과 배송지는 신청 값입니다. 신청일시, 구매 줄 순서, 종목 순서입니다. " + RANGE)
     @GetMapping("/packing-list/excel/download")
     public ResponseEntity<Resource> downloadPackingList(@PathVariable String eventId,
