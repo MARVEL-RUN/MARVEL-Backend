@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import kr.co.teambrain.marvelrun.user.common.security.filter.PublicRegistrationAccess;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationAccessRequest;
 import kr.co.teambrain.marvelrun.user.event.query.dto.RegistrationQueryResponse;
 import kr.co.teambrain.marvelrun.user.event.query.service.RegistrationQueryService;
@@ -24,6 +25,7 @@ public class RegistrationQueryController {
     /** 민감한 인증 값은 POST 본문으로 받고 응답 캐시는 금지한다. */
     @Operation(summary = "개인 신청 내역 조회", description = "개인 본인확인 정보를 검증하고 해당 참가자의 신청 내역과 현재 선택 정보를 조회합니다. 결제·환불 상태, 결제 진행 안내 및 수정·결제·환불 가능 여부를 함께 제공합니다.")
     @ApiResponse(responseCode = "200", description = "본인확인된 개인 신청 내역과 결제·작업 가능 정보")
+    @PublicRegistrationAccess
     @PostMapping("/registrations/lookup")
     public ResponseEntity<List<RegistrationQueryResponse>> lookup(
             @PathVariable("eventId") String eventId, @Valid @RequestBody RegistrationAccessRequest access) {
