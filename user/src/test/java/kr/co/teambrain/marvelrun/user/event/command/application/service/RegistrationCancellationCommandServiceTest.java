@@ -4,6 +4,8 @@ import kr.co.teambrain.marvelrun.user.participantauth.command.application.servic
 import java.math.BigDecimal;
 import java.util.List;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.pg_cancel.PaymentCancelStatus;
+import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
+import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult.Refund;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationAccessRequest;
@@ -19,8 +21,9 @@ class RegistrationCancellationCommandServiceTest {
     private final RegistrationCancellationTransactionService transactions = mock(RegistrationCancellationTransactionService.class);
     private final ModificationRefundExecutor executor = mock(ModificationRefundExecutor.class);
     private final ModificationRefundResultReader reader = mock(ModificationRefundResultReader.class);
+    private final ParticipantOrderAccess orderAccess = mock(ParticipantOrderAccess.class);
     private final RegistrationCancellationCommandService service = new RegistrationCancellationCommandService(transactions, executor, reader,
-            mock(ParticipantOrderAccess.class));
+            orderAccess);
     private final RegistrationAccessRequest access = new RegistrationAccessRequest("참가자", "1990-01-01", "010-0000-0000", "Test1234!");
 
     /** 준비 서비스가 반환한 뒤 외부 실행과 최종 결과 조회를 순서대로 수행한다. */
@@ -57,6 +60,17 @@ class RegistrationCancellationCommandServiceTest {
                 .thenReturn(new RegistrationCancellationTransactionService.Prepared(prepared, true));
         assertThat(service.cancelPersonal("event", "registration", access)).isSameAs(prepared);
         verifyNoInteractions(executor, reader);
+    }
+
+    /** 로그인한 주문자의 취소는 남의 주문이면 잠금·환불까지 가지 않는다. */
+    @Test
+    void ownedCancellationRejectsOtherOrdererBeforeLocking() {
+        when(orderAccess.findOwned("registration", "other"))
+                .thenThrow(new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED));
+        assertThatThrownBy(() -> service.cancelOwnedPersonal("registration", "other"))
+                .isInstanceOfSatisfying(CustomException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.REGISTRATION_ACCESS_DENIED));
+        verifyNoInteractions(transactions, executor, reader);
     }
 
     /** 호출 순서 검증에 필요한 불변 환불 응답을 구성한다. */

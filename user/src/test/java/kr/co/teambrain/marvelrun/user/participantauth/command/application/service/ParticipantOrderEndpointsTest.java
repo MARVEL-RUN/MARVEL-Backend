@@ -17,13 +17,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 참가자 API 가운데 경로로 주문을 받는 메서드 목록을 고정한다.
- * 새로 더하면 이 목록이 깨진다. 그 서비스가 잠금 뒤 ParticipantOrderAccess.verifyOwned를 부르는지 보고,
+ * 새로 더하면 이 목록이 깨진다. 그 서비스가 잠금 뒤 다시 읽은 행으로 Registration.isOwnedBy를 보는지 확인하고,
  * 남의 주문 거절 테스트를 함께 더한 뒤 목록에 넣는다.
  */
 class ParticipantOrderEndpointsTest {
 
-    /** 각 서비스의 남의 주문 거절 테스트: PackageUpgradeCommandServiceTest, RegistrationEntryModificationServiceTest,
-     *  ParticipantOrderModificationServiceTest, ParticipantOrderAccessTest(조회·취소의 사전 확인). */
+    /** 각 서비스의 남의 주문 거절 테스트: ParticipantOrderQueryServiceTest(상세), ParticipantOrderModificationServiceTest(주소),
+     *  RegistrationEntryModificationServiceTest(받는 사람), RegistrationCancellationCommandServiceTest·
+     *  RegistrationCancellationTransactionServiceTest(취소), PaymentRetryPreparationServiceTest(재결제),
+     *  PackageUpgradeCommandServiceTest(상향). */
     private static final List<String> OWNED_ORDER_ENDPOINTS = List.of(
             "GET /v1/participant/registrations/{registrationId}",
             "PATCH /v1/participant/registrations/{registrationId}",

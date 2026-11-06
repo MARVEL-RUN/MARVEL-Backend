@@ -10,7 +10,6 @@ import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
 import kr.co.teambrain.marvelrun.user.event.command.application.context.RegistrationPolicyContext;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
-import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.RegistrationEntry;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.RegistrationItem;
@@ -75,7 +74,7 @@ class RegistrationEntryModificationServiceTest {
     void setUp() {
         lenient().when(time.currentDateTime()).thenReturn(NOW);
         lenient().when(entityManager.find(Registration.class, "r1", LockModeType.PESSIMISTIC_WRITE)).thenReturn(registration);
-        lenient().when(registration.getOrdererKey()).thenReturn("orderer");
+        lenient().when(registration.isOwnedBy("orderer")).thenReturn(true);
         lenient().when(registration.getEvent()).thenReturn(event);
         lenient().when(registration.isProductPurchase()).thenReturn(true);
         lenient().when(event.getId()).thenReturn("event-1");
@@ -152,9 +151,9 @@ class RegistrationEntryModificationServiceTest {
         when(registration.isSoftDeleted()).thenReturn(true);
         assertError(() -> service.modifyEntries("r1", "orderer", request(entry("e1"))), ErrorCode.REGISTRATION_ACCESS_DENIED);
 
-        // 단체 신청은 주문자 소유 확인에서 먼저 거절되어 삭제 여부를 보지 않는다.
-        lenient().when(registration.isSoftDeleted()).thenReturn(false);
-        when(registration.getOrganization()).thenReturn(mock(Organization.class));
+        // 단체 신청은 주문자 키가 같아도 주문자의 주문이 아니다(Registration.isOwnedBy).
+        when(registration.isSoftDeleted()).thenReturn(false);
+        when(registration.isOwnedBy("orderer")).thenReturn(false);
         assertError(() -> service.modifyEntries("r1", "orderer", request(entry("e1"))), ErrorCode.REGISTRATION_ACCESS_DENIED);
     }
 

@@ -17,7 +17,6 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -30,14 +29,14 @@ class ParticipantOrderAccessTest {
 
     @Test
     void 같은_주문자의_개인_주문만_통과한다() {
-        assertThatNoException().isThrownBy(() -> ParticipantOrderAccess.verifyOwned(order("r1", "orderer", false), "orderer"));
+        assertThat(order("r1", "orderer", false).isOwnedBy("orderer")).isTrue();
 
-        assertDenied(() -> ParticipantOrderAccess.verifyOwned(order("r1", "other", false), "orderer"));
-        assertDenied(() -> ParticipantOrderAccess.verifyOwned(order("r1", null, false), "orderer"));
-        assertDenied(() -> ParticipantOrderAccess.verifyOwned(order("r1", "orderer", false), null));
+        assertThat(order("r1", "other", false).isOwnedBy("orderer")).isFalse();
+        assertThat(order("r1", null, false).isOwnedBy("orderer")).isFalse();
+        assertThat(order("r1", "orderer", false).isOwnedBy(null)).isFalse();
         Registration organizationMember = Registration.builder().id("r1").ordererKey("orderer")
                 .organization(mock(Organization.class)).build();
-        assertDenied(() -> ParticipantOrderAccess.verifyOwned(organizationMember, "orderer"));
+        assertThat(organizationMember.isOwnedBy("orderer")).isFalse();
     }
 
     @Test
@@ -59,11 +58,11 @@ class ParticipantOrderAccessTest {
                 .thenReturn(List.of(order("canceled", "none", true)));
 
         assertThat(access.resolveMe("one")).isEqualTo("live");
-        for (String ordererKey : List.of("two", "none")) {
-            assertThatThrownBy(() -> access.resolveMe(ordererKey))
-                    .isInstanceOfSatisfying(CustomException.class, exception -> assertThat(exception.getErrorCode())
-                            .isEqualTo(ErrorCode.PARTICIPANT_ORDER_SELECTION_REQUIRED));
-        }
+        assertThatThrownBy(() -> access.resolveMe("two"))
+                .isInstanceOfSatisfying(CustomException.class, exception -> assertThat(exception.getErrorCode())
+                        .isEqualTo(ErrorCode.PARTICIPANT_ORDER_SELECTION_REQUIRED));
+        // 살아 있는 주문이 없으면 '여러 건' 안내가 아니라 이전처럼 접근 거부다.
+        assertDenied(() -> access.resolveMe("none"));
     }
 
     private static Registration order(String id, String ordererKey, boolean canceled) {

@@ -39,6 +39,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -82,8 +83,7 @@ class ParticipantOrderModificationServiceTest {
                 ErrorCode.REGISTRATION_ACCESS_DENIED);
         assertThat(registration.getAddress()).isNull();
 
-        when(eventPolicyRepository.findByEventId("event")).thenReturn(Optional.empty());
-        service.modifyAddress("r1", "orderer", new ParticipantAddressModifyRequest(" 서울 ", "1층"));
+        service.modifyAddress("r1", "orderer", new ParticipantAddressModifyRequest("서울", "1층"));
 
         assertThat(registration.getAddress()).isEqualTo("서울");
         assertThat(registration.getAddressDetail()).isEqualTo("1층");
@@ -91,15 +91,17 @@ class ParticipantOrderModificationServiceTest {
     }
 
     @Test
-    void 주소_필수_대회는_주소를_비울_수_없다() {
-        when(entityManager.find(Registration.class, "r1", LockModeType.PESSIMISTIC_WRITE))
-                .thenReturn(order("r1", false, "Test1234!"));
+    void 주소를_비우면_기존_주소_필수_검사를_탄다() {
+        Registration registration = order("r1", false, "Test1234!");
+        when(entityManager.find(Registration.class, "r1", LockModeType.PESSIMISTIC_WRITE)).thenReturn(registration);
         EventRegistrationPolicy policy = mock(EventRegistrationPolicy.class);
-        when(policy.getAddressRequired()).thenReturn(true);
         when(eventPolicyRepository.findByEventId("event")).thenReturn(Optional.of(policy));
+        doThrow(new CustomException(ErrorCode.REGISTRATION_ADDRESS_REQUIRED))
+                .when(policyValidator).validateAddress(policy, " ");
 
         assertError(() -> service.modifyAddress("r1", "orderer", new ParticipantAddressModifyRequest(" ", null)),
                 ErrorCode.REGISTRATION_ADDRESS_REQUIRED);
+        assertThat(registration.getAddressDetail()).isNull();
     }
 
     @Test
@@ -136,6 +138,31 @@ class ParticipantOrderModificationServiceTest {
     }
 
     @Test
+    void 신원이_그대로면_다른_주문자의_신원_사용을_세지_않는다() {
+        Registration live = order("r1", false, "Test1234!");
+        orders(live);
+
+        service.modifyOrderer("orderer", new ParticipantOrdererModifyRequest("홍길동", "01011112222", "1990-01-01", GenderClass.F));
+
+        assertThat(live.getGender()).isEqualTo(GenderClass.F);
+        verify(registrationRepository, never())
+                .countOtherOrdererActiveByIdentityForShare(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void 살아_있는_주문이_없으면_주문자_정보를_바꾸지_않는다() {
+        Registration canceled = order("r1", true, "Test1234!");
+        orders(canceled);
+
+        assertError(() -> service.modifyOrderer("orderer",
+                new ParticipantOrdererModifyRequest("김새이름", "01099998888", "1990/1/1", GenderClass.F)),
+                ErrorCode.REGISTRATION_ACCESS_DENIED);
+        assertThat(canceled.getName()).isEqualTo("홍길동");
+        assertThat(canceled.getBirth()).isEqualTo("1990-01-01");
+        verify(informationPolicyValidator, never()).validateStatus(any());
+    }
+
+    @Test
     void 일반_종목_주문의_생년월일은_일괄로_바꾸지_않는다() {
         Registration general = Registration.builder().id("r1").ordererKey("orderer").event(event)
                 .eventCategory(mock(EventCategory.class)).name("홍길동").phNum("01011112222").birth("1990-01-01")
@@ -158,9 +185,8 @@ class ParticipantOrderModificationServiceTest {
 
         assertThat(ENCODER.matches("New5678!", live.getPassword())).isTrue();
         assertThat(ENCODER.matches("New5678!", canceled.getPassword())).isTrue();
-        // 추가 주문과 같은 순서로 대회를 먼저 잠그고, 주문은 잠금 읽기로 다시 읽는다.
+        // 추가 주문과 같은 순서로 대회를 먼저 잠근다.
         verify(registrationCapacityService).lockEvent("event");
-        verify(entityManager).refresh(live, LockModeType.PESSIMISTIC_WRITE);
         verify(redisService).deleteParticipantRefreshToken("orderer");
     }
 
@@ -191,8 +217,20 @@ class ParticipantOrderModificationServiceTest {
         verify(redisService, never()).deleteParticipantRefreshToken(any());
     }
 
+    @Test
+    void 현재_비밀번호가_72바이트를_넘으면_앞부분이_같아도_거절한다() {
+        String password = "A1!" + "a".repeat(69);
+        Registration live = order("r1", false, password);
+        orders(live);
+
+        // BCrypt는 72바이트 뒤를 잘라 비교하므로, 기존 본인확인처럼 대조 전에 거절해야 한다.
+        assertError(() -> service.changePassword("orderer", new PersonalPasswordChangeRequest(password + "x", "New5678!")),
+                ErrorCode.REGISTRATION_ACCESS_DENIED);
+        assertThat(ENCODER.matches(password, live.getPassword())).isTrue();
+    }
+
     private void orders(Registration... orders) {
-        when(registrationRepository.findOrdererRegistrations("orderer")).thenReturn(List.of(orders));
+        when(registrationRepository.findEventIdByOrdererKey("orderer")).thenReturn(Optional.of("event"));
         when(registrationRepository.findOrdererRegistrationsForUpdate("orderer")).thenReturn(List.of(orders));
     }
 

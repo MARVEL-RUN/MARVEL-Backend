@@ -1,7 +1,5 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.LockModeType;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.RegistrationCapacityService;
@@ -22,6 +20,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -38,7 +37,6 @@ class ParticipantAdditionalOrderServiceTest {
     @Mock private RegistrationCommandRepository registrationRepository;
     @Mock private RegistrationCapacityService registrationCapacityService;
     @Mock private RegistrationCommandService registrationCommandService;
-    @Mock private EntityManager entityManager;
     @InjectMocks private ParticipantAdditionalOrderService service;
 
     @Test
@@ -47,15 +45,13 @@ class ParticipantAdditionalOrderServiceTest {
                 .event(Event.builder().id("event").build())
                 .name("홍길동").phNum("01011112222").birth("1990-01-01").gender(GenderClass.M)
                 .email("hong@example.com").password("$2a$hash").build();
-        when(registrationRepository.findOrdererRegistrations("orderer")).thenReturn(List.of(source));
+        when(registrationRepository.findEventIdByOrdererKey("orderer")).thenReturn(Optional.of("event"));
         when(registrationRepository.findOrdererRegistrationsForUpdate("orderer")).thenReturn(List.of(source));
 
         service.order("orderer", request());
 
         ArgumentCaptor<RegistrationCreateRequest> created = ArgumentCaptor.forClass(RegistrationCreateRequest.class);
         verify(registrationCapacityService).lockEvent("event");
-        // 대회 잠금 뒤 잠금 읽기로 최신 행을 본 다음 복사한다.
-        verify(entityManager).refresh(source, LockModeType.PESSIMISTIC_WRITE);
         verify(registrationCommandService).registerAdditional(eq("event"), created.capture(), eq("$2a$hash"), eq("orderer"));
         RegistrationCreateRequest request = created.getValue();
         assertThat(request.name()).isEqualTo("홍길동");
@@ -70,7 +66,7 @@ class ParticipantAdditionalOrderServiceTest {
 
     @Test
     void 주문자의_주문이_없으면_거절한다() {
-        when(registrationRepository.findOrdererRegistrations("orderer")).thenReturn(List.of());
+        when(registrationRepository.findEventIdByOrdererKey("orderer")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.order("orderer", request()))
                 .isInstanceOfSatisfying(CustomException.class, exception -> assertThat(exception.getErrorCode())
