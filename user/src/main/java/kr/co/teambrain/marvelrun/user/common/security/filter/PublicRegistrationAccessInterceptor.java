@@ -4,6 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.policy.EventRegistrationPolicy;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventRegistrationPolicyRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -33,13 +34,17 @@ public class PublicRegistrationAccessInterceptor implements HandlerInterceptor {
             return true;
         }
 
+        // 대회를 모르면 설정을 확인할 수 없으므로 통과시키지 않는다.
         String eventId = eventIdOf(request);
         if (eventId == null) {
-            return true;
+            throw new CustomException(ErrorCode.REGISTRATION_LOGIN_REQUIRED, " eventId 경로 변수 없음 handler=" + handlerMethod);
         }
 
         // 정책 행이 없으면 각 서비스가 내던 기존 오류 응답을 그대로 두기 위해 통과시킨다.
-        if (Boolean.FALSE.equals(policyRepository.findPublicRegistrationAccessEnabledByEventId(eventId).orElse(null))) {
+        boolean enabled = policyRepository.findByEventId(eventId)
+                .map(EventRegistrationPolicy::isPublicRegistrationAccessEnabled)
+                .orElse(true);
+        if (!enabled) {
             throw new CustomException(ErrorCode.REGISTRATION_LOGIN_REQUIRED, " eventId=" + eventId);
         }
         return true;

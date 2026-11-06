@@ -1,5 +1,7 @@
 package kr.co.teambrain.marvelrun.user.common.security.filter;
 
+import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
+import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.GlobalExceptionHandler;
 import kr.co.teambrain.marvelrun.user.common.security.config.WebMvcConfig;
 import kr.co.teambrain.marvelrun.user.discount.query.DiscountQueryController;
@@ -9,6 +11,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.controller.OrgRe
 import kr.co.teambrain.marvelrun.user.event.command.application.controller.RegistrationCancellationController;
 import kr.co.teambrain.marvelrun.user.event.command.application.controller.RegistrationCommandController;
 import kr.co.teambrain.marvelrun.user.event.command.application.controller.RegistrationModificationController;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.policy.EventRegistrationPolicy;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationAccessRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.OrgRegistrationCommandService;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.RegistrationCancellationCommandService;
@@ -49,6 +52,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -100,9 +104,12 @@ class PublicRegistrationAccessInterceptorTest {
 
     @BeforeEach
     void prepare() {
-        when(policies.findPublicRegistrationAccessEnabledByEventId(OPEN_EVENT)).thenReturn(Optional.of(true));
-        when(policies.findPublicRegistrationAccessEnabledByEventId(CLOSED_EVENT)).thenReturn(Optional.of(false));
-        when(policies.findPublicRegistrationAccessEnabledByEventId(MISSING_EVENT)).thenReturn(Optional.empty());
+        // thenReturn 인자 안에서 다른 mock을 스텁하면 미완료 스텁 오류가 나므로 정책을 먼저 만든다.
+        EventRegistrationPolicy openPolicy = policy(true);
+        EventRegistrationPolicy closedPolicy = policy(false);
+        when(policies.findByEventId(OPEN_EVENT)).thenReturn(Optional.of(openPolicy));
+        when(policies.findByEventId(CLOSED_EVENT)).thenReturn(Optional.of(closedPolicy));
+        when(policies.findByEventId(MISSING_EVENT)).thenReturn(Optional.empty());
 
         mvc = MockMvcBuilders.standaloneSetup(
                         new RegistrationQueryController(queries), new OrgRegistrationQueryController(queries),
@@ -152,7 +159,7 @@ class PublicRegistrationAccessInterceptorTest {
                             .contentType(MediaType.APPLICATION_JSON).content("{}"))
                     .andExpect(status().isBadRequest());
         }
-        verify(policies, never()).findPublicRegistrationAccessEnabledByEventId(any());
+        verify(policies, never()).findByEventId(any());
     }
 
     /** 신청 선택지와 할인 안내는 설정과 무관하다. */
@@ -162,23 +169,24 @@ class PublicRegistrationAccessInterceptorTest {
                 .andExpect(status().isOk());
         mvc.perform(get("/v1/public/events/" + CLOSED_EVENT + "/discount-options").param("linkCode", "code"))
                 .andExpect(status().isOk());
-        verify(policies, never()).findPublicRegistrationAccessEnabledByEventId(any());
+        verify(policies, never()).findByEventId(any());
     }
 
-    /** 표시가 붙은 API라도 경로 변수가 없으면 정책을 조회하지 않고 통과시킨다. */
+    /** 표시가 붙은 API에 경로 변수가 없으면 대회를 알 수 없으므로 정책을 조회하지 않고 거절한다. */
     @Test
-    void passesWithoutEventIdVariable() throws Exception {
+    void rejectsWithoutEventIdVariable() throws Exception {
         PublicRegistrationAccessInterceptor interceptor = new PublicRegistrationAccessInterceptor(policies);
         HandlerMethod guarded = new HandlerMethod(new RegistrationQueryController(queries),
                 RegistrationQueryController.class.getMethod("lookup", String.class, RegistrationAccessRequest.class));
-        assertThat(interceptor.preHandle(new MockHttpServletRequest(), new MockHttpServletResponse(), guarded))
-                .isTrue();
-        verify(policies, never()).findPublicRegistrationAccessEnabledByEventId(any());
+        assertThatThrownBy(() -> interceptor.preHandle(new MockHttpServletRequest(), new MockHttpServletResponse(), guarded))
+                .isInstanceOfSatisfying(CustomException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.REGISTRATION_LOGIN_REQUIRED));
+        verify(policies, never()).findByEventId(any());
     }
 
     /**
      * 표시는 7개 API에만 붙고, 모두 경로에 {eventId}가 있어야 한다.
-     * 경로 변수가 없으면 인터셉터가 검사 없이 통과시키므로 여기서 미리 막는다.
+     * 경로 변수가 없으면 그 API는 모든 요청이 거절되므로 여기서 미리 막는다.
      */
     @Test
     void guardedHandlersAreExactlyTheSevenEventScopedApis() throws Exception {
@@ -218,6 +226,12 @@ class PublicRegistrationAccessInterceptorTest {
         List<Object> registered() {
             return getInterceptors();
         }
+    }
+
+    private static EventRegistrationPolicy policy(boolean publicRegistrationAccessEnabled) {
+        EventRegistrationPolicy policy = mock(EventRegistrationPolicy.class);
+        when(policy.isPublicRegistrationAccessEnabled()).thenReturn(publicRegistrationAccessEnabled);
+        return policy;
     }
 
     private record Endpoint(HttpMethod method, String path) {

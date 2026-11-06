@@ -26,14 +26,4 @@ public interface EventRegistrationPolicyRepository
     Optional<EventRegistrationPolicy> findByEventId(
             @Param("eventId") String eventId
     );
-
-    /** 공개 조회·관리 허용 값만 읽는다. 정책 행이 없으면 비어 있다. */
-    @Query("""
-            select policy.publicRegistrationAccessEnabled
-            from EventRegistrationPolicy policy
-            where policy.event.id = :eventId
-            """)
-    Optional<Boolean> findPublicRegistrationAccessEnabledByEventId(
-            @Param("eventId") String eventId
-    );
 }
