@@ -23,4 +23,6 @@ public class NoticeDetailResponse {
     private String noticeCategoryId;
 
     private LocalDateTime createdAt;
+
+    private String eventId;
 }

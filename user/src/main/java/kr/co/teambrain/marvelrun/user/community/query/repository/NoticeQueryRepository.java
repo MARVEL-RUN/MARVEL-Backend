@@ -26,9 +26,11 @@ public interface NoticeQueryRepository
                         n.category.name,
                         n.createdAt,
                         n.admin.name,
-                        n.viewCount
+                        n.viewCount,
+                        e.id
                     )
                     FROM Notice n
+                    LEFT JOIN n.event e
                     WHERE
                         (
                             (:eventId IS NULL AND n.event IS NULL)
@@ -130,9 +132,11 @@ public interface NoticeQueryRepository
                 n.category.name,
                 n.createdAt,
                 n.admin.name,
-                n.viewCount
+                n.viewCount,
+                e.id
             )
             FROM Notice n
+            LEFT JOIN n.event e
             WHERE
                 (
                     (:eventId IS NULL AND n.event IS NULL)

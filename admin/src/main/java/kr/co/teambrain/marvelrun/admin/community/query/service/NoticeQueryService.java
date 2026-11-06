@@ -131,6 +131,7 @@ public class NoticeQueryService {
                 .author(notice.getAdmin().getId())
                 .content(notice.getContent())
                 .createdAt(notice.getCreatedAt())
+                .eventId(notice.getEvent() == null ? null : notice.getEvent().getId())
                 .build();
     }
 

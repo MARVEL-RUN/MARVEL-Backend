@@ -16,4 +16,5 @@ public class PinnedNoticeResponse {
     private LocalDateTime createdAt;
     private String author;
     private Long viewCount;
+    private String eventId;
 }

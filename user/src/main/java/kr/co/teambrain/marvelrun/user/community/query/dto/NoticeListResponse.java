@@ -20,15 +20,17 @@ public class NoticeListResponse {
     private LocalDateTime createdAt;
     private String author;
     private Long viewCount;
+    private String eventId;
 
     // JPQL 생성자용 (no는 서비스에서 나중에 세팅)
-    public NoticeListResponse(String id, String title, String category, LocalDateTime createdAt, String author, Long viewCount) {
+    public NoticeListResponse(String id, String title, String category, LocalDateTime createdAt, String author, Long viewCount, String eventId) {
         this.id = id;
         this.title = title;
         this.category = category;
         this.createdAt = createdAt;
         this.author = author;
         this.viewCount = viewCount;
+        this.eventId = eventId;
         this.no = 0L; // 기본값
     }
 }
