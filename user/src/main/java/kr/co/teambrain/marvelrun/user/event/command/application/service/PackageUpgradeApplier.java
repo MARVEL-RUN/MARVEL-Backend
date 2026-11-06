@@ -8,6 +8,7 @@ import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpose;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.upgrade.PackageUpgradeStatus;
 import kr.co.teambrain.marvelrun.common.json_object.PackageUpgradeEntry;
+import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.domain.Reservation;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.dto.CapacityRequirementDiff;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.CapacityModificationService;
@@ -116,9 +117,11 @@ public class PackageUpgradeApplier {
                 eventId, diff, PackageUpgradeCapacitySupport.heldQuantities(upgrade), now);
 
         // 패키지 가격(정가 − 단품 결제금액 = 차액)의 근거를 패키지 기준 가격 계산으로 남긴다. 구매 줄도 패키지로 바꾼다.
+        // 기념품은 정원을 옮긴 기준(패키지 종목에 연결된 것 전부)과 같은 목록을 줄과 신청에 저장한다.
         DiscountModels.PriceResult packagePrice = pricing.calculate(registration, packageCategory);
-        registration.applyPackageUpgrade(packageCategory);
-        item.applyPackageUpgrade(packageCategory, packagePrice.finalAmount());
+        List<SouvenirJson> souvenirs = capacitySupport.packageSouvenirs(item, packageCategory);
+        registration.applyPackageUpgrade(packageCategory, souvenirs);
+        item.applyPackageUpgrade(packageCategory, packagePrice.finalAmount(), souvenirs);
         historyRecorder.completeReservationModificationSnapshot(reservation);
         priceCalculations.recordRegistrationPriceCalculation(registration, packagePrice,
                 RegistrationPriceCalculationSnapshot.Reason.PACKAGE_UPGRADED);

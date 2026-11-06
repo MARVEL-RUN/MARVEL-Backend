@@ -2,11 +2,13 @@ package kr.co.teambrain.marvelrun.user.event.command.application.domain;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
+import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -56,17 +58,19 @@ class RegistrationPackageUpgradeTest {
         assertThat(registration.getStatus()).isEqualTo(RegistrationStatus.CONFIRMED);
     }
 
-    /** 승인 때 종목을 바꾸고 차액이 납부되면 기존 규칙대로 확정된다. */
+    /** 승인 때 종목·기념품을 바꾸고 차액이 납부되면 기존 규칙대로 확정된다. */
     @Test
     void applyThenPaymentConfirms() {
         EventCategory pkg = EventCategory.builder().id("package").build();
         Registration registration = confirmed(EventCategory.builder().id("single").build());
         registration.startPackageUpgrade(DIFF);
+        List<SouvenirJson> kits = List.of(new SouvenirJson("kit-a", "FREE"), new SouvenirJson("kit-b", "FREE"));
 
-        registration.applyPackageUpgrade(pkg);
+        registration.applyPackageUpgrade(pkg, kits);
         registration.applySuccessfulPayment(DIFF);
 
         assertThat(registration.getEventCategory()).isSameAs(pkg);
+        assertThat(registration.getSouvenirJson()).isEqualTo(kits);
         assertThat(registration.getPaidAmount()).isEqualByComparingTo("75000");
         assertThat(registration.getStatus()).isEqualTo(RegistrationStatus.CONFIRMED);
         assertThat(registration.reconcileModificationFinancialState(ReservationStatus.CONSUMED)).isZero();

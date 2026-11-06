@@ -48,9 +48,10 @@ public class RegistrationItem extends RegistrationItemBase<Event, Registration, 
                 .build();
     }
 
-    /** 단품 → 패키지 상향 승인 때 줄의 상품과 금액을 패키지로 바꾼다. 기념품은 그대로 둔다. */
-    public void applyPackageUpgrade(EventCategory packageCategory, BigDecimal packageAmount) {
+    /** 단품 → 패키지 상향 승인 때 줄의 상품·금액·기념품을 패키지로 바꾼다. 기념품은 패키지 종목에 연결된 것 전부다. */
+    public void applyPackageUpgrade(EventCategory packageCategory, BigDecimal packageAmount, List<SouvenirJson> souvenirs) {
         this.eventCategory = packageCategory;
         this.amount = packageAmount;
+        this.souvenirJson = List.copyOf(souvenirs);
     }
 }

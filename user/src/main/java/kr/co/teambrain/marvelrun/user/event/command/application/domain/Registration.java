@@ -541,13 +541,17 @@ public class Registration extends RegistrationBase<
         this.birth = birth;
     }
 
-    /** 상향 결제 승인 때 종목만 패키지로 바꾼다. 계약금액은 요청 때 이미 올렸다. */
-    public void applyPackageUpgrade(EventCategory packageCategory) {
-        if (softDeleted || packageCategory == null) {
+    /**
+     * 상향 결제 승인 때 종목과 기념품을 패키지로 바꾼다. 계약금액은 요청 때 이미 올렸다.
+     * 상향은 구매 줄이 하나뿐인 신청만 하므로 그 줄의 기념품이 곧 대표 줄 값이다.
+     */
+    public void applyPackageUpgrade(EventCategory packageCategory, List<SouvenirJson> souvenirs) {
+        if (softDeleted || packageCategory == null || souvenirs == null) {
             throw new CustomException(ErrorCode.PACKAGE_UPGRADE_STATE_CONFLICT,
                     " 상향을 적용할 수 없는 신청입니다. registrationId=" + getId());
         }
         this.eventCategory = packageCategory;
+        this.souvenirJson = List.copyOf(souvenirs);
     }
 
     /**
