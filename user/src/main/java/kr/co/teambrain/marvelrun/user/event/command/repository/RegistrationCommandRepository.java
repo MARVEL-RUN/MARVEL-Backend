@@ -44,25 +44,52 @@ public interface RegistrationCommandRepository extends JpaRepository<Registratio
                                                  @Param("organizationId") String organizationId);
 
     /**
-     * 참가자 로그인 후보. 같은 사람의 살아 있는 개인 신청은 중복 인덱스가 하나로 묶는다.
-     * 비밀번호는 호출부가 해시로 대조한다.
+     * 참가자 로그인 후보. 주문자 키가 있는 개인 주문만 본다(외부 결제·관리자 등록 신청 제외).
+     * 취소한 주문도 넣어 모두 취소한 주문자도 로그인해 환불 상태를 본다.
+     * 살아 있는 주문, 최근 신청 순으로 돌려준다. 비밀번호는 호출부가 해시로 대조한다.
+     * 공유 잠금(FOR SHARE)으로 읽는다. 비밀번호 일괄 변경은 이 행들을 쓰기 잠금하므로, 겹친 로그인은 끝날 때까지 변경을 기다리게 하거나
+     * 변경이 커밋된 새 해시를 본다. 옛 비밀번호로 확인한 로그인이 변경 뒤에 refresh를 저장하지 못한다.
      */
+    @Lock(LockModeType.PESSIMISTIC_READ)
     @Query("""
         select r from Registration r
         where r.event.id = :eventId
           and r.organization is null
+          and r.externalPayment = false
+          and r.ordererKey is not null
           and r.name = :name
           and r.phNum = :phNum
           and r.birth = :birth
-          and r.softDeleted = false
-        order by r.id
+        order by r.softDeleted asc, r.registrationDate desc, r.id
         """)
-    List<Registration> findActivePersonalByIdentity(
+    List<Registration> findParticipantLoginCandidates(
             @Param("eventId") String eventId,
             @Param("name") String name,
             @Param("phNum") String phNum,
             @Param("birth") String birth
     );
+
+    /** 주문자의 개인 주문 전부(취소 포함). 살아 있는 주문, 최근 신청 순이다. */
+    @Query("""
+        select r from Registration r
+        join fetch r.event
+        where r.ordererKey = :ordererKey
+          and r.organization is null
+          and r.externalPayment = false
+        order by r.softDeleted asc, r.registrationDate desc, r.id
+        """)
+    List<Registration> findOrdererRegistrations(@Param("ordererKey") String ordererKey);
+
+    /** 주문자의 개인 주문 전부를 id 순으로 잠근다. 대회 잠금 뒤에 부른다. */
+    @Query("""
+        select r from Registration r
+        where r.ordererKey = :ordererKey
+          and r.organization is null
+          and r.externalPayment = false
+        order by r.id
+        """)
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    List<Registration> findOrdererRegistrationsForUpdate(@Param("ordererKey") String ordererKey);
 
     @Query("""
         select case
@@ -177,6 +204,29 @@ public interface RegistrationCommandRepository extends JpaRepository<Registratio
     long countOtherActiveByEventIdAndUniqueInfoForShare(
             @Param("eventId") String eventId,
             @Param("registrationId") String registrationId,
+            @Param("name") String name,
+            @Param("phNum") String phNum,
+            @Param("birth") String birth
+    );
+
+    /**
+     * 주문자 정보 일괄 변경 때, 바꿀 신원을 다른 주문자(또는 주문자 키가 없는 신청)가 살아 있는 주문으로 쓰는지 센다.
+     * 대회 행 잠금 뒤 부른다. 같은 주문자의 주문끼리는 같은 신원이므로 세지 않는다.
+     */
+    @Query(value = """
+        select count(*)
+        from registration r
+        where r.event_id = :eventId
+          and (r.orderer_key is null or r.orderer_key <> :ordererKey)
+          and r.name = :name
+          and r.ph_num = :phNum
+          and r.birth = :birth
+          and r.is_del = 0
+        for share
+        """, nativeQuery = true)
+    long countOtherOrdererActiveByIdentityForShare(
+            @Param("eventId") String eventId,
+            @Param("ordererKey") String ordererKey,
             @Param("name") String name,
             @Param("phNum") String phNum,
             @Param("birth") String birth

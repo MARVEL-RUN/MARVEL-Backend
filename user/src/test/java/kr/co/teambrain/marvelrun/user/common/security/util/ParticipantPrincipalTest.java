@@ -18,22 +18,22 @@ class ParticipantPrincipalTest {
     }
 
     @Test
-    void 참가자면_신청_id를_돌려준다() {
-        authenticate("registration-1", "PARTICIPANT");
+    void 참가자면_주문자_키를_돌려준다() {
+        authenticate("orderer-1", "PARTICIPANT");
 
-        assertThat(ParticipantPrincipal.registrationId()).isEqualTo("registration-1");
+        assertThat(ParticipantPrincipal.ordererKey()).isEqualTo("orderer-1");
     }
 
     @Test
     void 관리자면_거부한다() {
         authenticate("admin-1", "ADMIN");
 
-        assertThatThrownBy(ParticipantPrincipal::registrationId).isInstanceOf(CustomException.class);
+        assertThatThrownBy(ParticipantPrincipal::ordererKey).isInstanceOf(CustomException.class);
     }
 
     @Test
     void 인증이_없으면_거부한다() {
-        assertThatThrownBy(ParticipantPrincipal::registrationId).isInstanceOf(CustomException.class);
+        assertThatThrownBy(ParticipantPrincipal::ordererKey).isInstanceOf(CustomException.class);
     }
 
     private static void authenticate(String id, String role) {
