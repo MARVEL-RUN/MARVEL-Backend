@@ -68,9 +68,9 @@ public class ParticipantOrderQueryService {
         LocalDateTime now = time.currentDateTime();
         // 주문자 키는 한 대회 안에서만 복사되므로 모든 주문의 대회가 같다.
         String eventId = members.getFirst().policyEvent().eventId();
-        List<RegistrationQueryResponse> orders = registrationQueries.assemblePersonalResponses(eventId, members, now);
         List<RegistrationActionPolicyInput> policies = actionPolicies.loadEnabledRegistrationActionPolicies(eventId,
-                List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND));
+                List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT));
+        List<RegistrationQueryResponse> orders = registrationQueries.assemblePersonalResponses(eventId, members, now, policies);
 
         List<String> ids = members.stream().map(RegistrationQueryData.Member::id).toList();
         Map<String, List<RegistrationItem>> itemsByRegistration = itemRepository.findAllByRegistrationIds(ids).stream()

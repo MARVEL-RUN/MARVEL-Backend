@@ -97,19 +97,21 @@ public class RegistrationQueryService {
         if (members.isEmpty()) {
             throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
         }
-        return assemblePersonalResponses(eventId, members, now);
+        return assemblePersonalResponses(eventId, members, now, actionPolicies.loadEnabledRegistrationActionPolicies(eventId,
+                List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT)));
     }
 
     /**
      * 본인확인(공개 조회) 또는 소유 확인(마이페이지)을 마친 개인 신청 행을 응답으로 조립한다.
      * 결제 안내·작업 가능 여부·진행 중 상향을 공개 조회와 같은 규칙으로 계산한다.
+     * policies는 MODIFY·REFUND·PAYMENT 정책이다. 마이페이지가 마감 시각 계산에도 쓰므로 호출부가 한 번 읽어 넘긴다.
      */
     List<RegistrationQueryResponse> assemblePersonalResponses(String eventId, List<RegistrationQueryData.Member> members,
-                                                              LocalDateTime now) {
+                                                              LocalDateTime now,
+                                                              List<RegistrationActionPolicyInput> policies) {
         if (members.isEmpty()) {
             return List.of();
         }
-        List<RegistrationActionPolicyInput> policies = actionPolicies.loadEnabledRegistrationActionPolicies(eventId, List.of(RegistrationActionType.MODIFY, RegistrationActionType.REFUND, RegistrationActionType.PAYMENT));
         Map<String, String> names = souvenirNames(eventId, members);
         Map<String, String> groupCodes = findStartGroupCodes(members);
         Map<String, RegistrationPriceCalculationResponse> calculations = findCurrentPriceCalculations(members);
