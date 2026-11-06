@@ -1,6 +1,5 @@
 package kr.co.teambrain.marvelrun.admin.event.query.repository;
 
-import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualRosterModels.Course;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -8,8 +7,6 @@ import org.springframework.stereotype.Repository;
 
 import java.sql.Types;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -34,27 +31,19 @@ public class VirtualRosterQueryRepository {
     /** 인쇄용 참가 항목 한 건이다. 종목명은 거리 접두어를 떼기 전 값이다. */
     public record PrintEntry(String bib, String name, String categoryName) { }
 
-    /** 패킹용 신청 한 건이다. */
-    public record PackingRegistration(String id, String categoryName, String productType, String receiver, String phone,
-            String address, String addressDetail, String souvenirJson) { }
-
-    /** 패킹용 참가 항목 한 건이다. */
-    public record PackingEntry(String registrationId, String categoryId, String bib, String name) { }
+    /**
+     * 패킹용 한 행이며 참가 항목 하나다. 상품·기념품은 그 항목이 속한 구매 줄 값이다.
+     * 구매 줄이 없는 신청은 itemId가 null이고 상품·기념품은 신청 행 값이다.
+     * 참가 항목이 없는 구매 줄도 한 행이며 이때 항목 값(entryCategoryName·bib·entryName)은 null이다.
+     */
+    public record PackingLine(String registrationId, String itemId, String productName, String productType,
+            String souvenirJson, String entryCategoryName, String bib, String entryName,
+            String receiver, String phone, String address, String addressDetail) { }
 
     public Optional<EventInfo> findEvent(String eventId) {
         return jdbc.query("SELECT name_kr, event_format FROM event WHERE id = :eventId",
                 new MapSqlParameterSource("eventId", eventId),
                 (rs, rowNum) -> new EventInfo(rs.getString("name_kr"), rs.getString("event_format"))).stream().findFirst();
-    }
-
-    /** 단품 종목(패키지 하위 포함)을 정렬 순서대로 읽는다. 패킹 명단의 배번·이름 열이 된다. */
-    public List<Course> findChildCourses(String eventId) {
-        return jdbc.query("""
-                SELECT id, name FROM event_category
-                WHERE event_id = :eventId AND (product_type = 'SINGLE' OR parent_category_id IS NOT NULL)
-                ORDER BY sort_order, id
-                """, new MapSqlParameterSource("eventId", eventId),
-                (rs, rowNum) -> new Course(rs.getString("id"), rs.getString("name")));
     }
 
     /** 참가 항목 하나가 한 행이다. 배번 길이, 배번 순이고 배번이 없는 항목은 끝에 둔다. */
@@ -70,29 +59,25 @@ public class VirtualRosterQueryRepository {
                 (rs, rowNum) -> new PrintEntry(rs.getString("bib_number"), rs.getString("name"), rs.getString("category_name")));
     }
 
-    /** 신청 하나가 한 행이다. 신청일시, 신청 ID 순이다. */
-    public List<PackingRegistration> findPackingRegistrations(String eventId, LocalDateTime from, LocalDateTime to) {
+    /** 참가 항목 하나가 한 행이다. 신청일시, 신청 ID, 구매 줄 순서, 종목 순서, 항목 ID 순이다. */
+    public List<PackingLine> findPackingLines(String eventId, LocalDateTime from, LocalDateTime to) {
         return jdbc.query("""
-                SELECT r.id, c.name AS category_name, c.product_type, r.name, r.ph_num, r.address, r.address_detail, r.souvenir_json
+                SELECT r.id, i.id AS item_id, pc.name AS product_name, pc.product_type,
+                       CASE WHEN i.id IS NULL THEN r.souvenir_json ELSE i.souvenir_json END AS souvenir_json,
+                       ec.name AS entry_category_name, e.bib_number, e.name AS entry_name,
+                       r.name, r.ph_num, r.address, r.address_detail
                 FROM registration r
-                JOIN event_category c ON c.id = r.event_category_id
+                LEFT JOIN registration_item i ON i.registration_id = r.id
+                JOIN event_category pc ON pc.id = COALESCE(i.event_category_id, r.event_category_id)
+                LEFT JOIN registration_entry e ON e.registration_item_id = i.id
+                LEFT JOIN event_category ec ON ec.id = e.event_category_id
                 """ + ROUND_FILTER + """
-                ORDER BY r.registration_date, r.id
+                ORDER BY r.registration_date, r.id, i.sort_order, ec.sort_order, e.id
                 """, range(eventId, from, to),
-                (rs, rowNum) -> new PackingRegistration(rs.getString("id"), rs.getString("category_name"),
-                        rs.getString("product_type"), rs.getString("name"), rs.getString("ph_num"),
-                        rs.getString("address"), rs.getString("address_detail"), rs.getString("souvenir_json")));
-    }
-
-    /** 신청 ID 묶음의 참가 항목을 읽는다. */
-    public List<PackingEntry> findPackingEntries(Collection<String> registrationIds) {
-        if (registrationIds.isEmpty()) { return new ArrayList<>(); }
-        return jdbc.query("""
-                SELECT registration_id, event_category_id, bib_number, name
-                FROM registration_entry WHERE registration_id IN (:ids)
-                """, new MapSqlParameterSource("ids", registrationIds),
-                (rs, rowNum) -> new PackingEntry(rs.getString("registration_id"), rs.getString("event_category_id"),
-                        rs.getString("bib_number"), rs.getString("name")));
+                (rs, rowNum) -> new PackingLine(rs.getString("id"), rs.getString("item_id"),
+                        rs.getString("product_name"), rs.getString("product_type"), rs.getString("souvenir_json"),
+                        rs.getString("entry_category_name"), rs.getString("bib_number"), rs.getString("entry_name"),
+                        rs.getString("name"), rs.getString("ph_num"), rs.getString("address"), rs.getString("address_detail")));
     }
 
     /** null 시각도 IS NULL 비교가 되도록 자료형을 함께 넘긴다. */

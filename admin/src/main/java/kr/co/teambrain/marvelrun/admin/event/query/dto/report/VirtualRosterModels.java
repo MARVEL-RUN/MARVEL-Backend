@@ -1,7 +1,6 @@
 package kr.co.teambrain.marvelrun.admin.event.query.dto.report;
 
 import java.util.List;
-import java.util.Map;
 import java.util.regex.Pattern;
 
 /** 버추얼런 인쇄·패킹 명단이 함께 쓰는 행 모델과 문자열 규칙이다. */
@@ -16,15 +15,12 @@ public final class VirtualRosterModels {
     /** 인쇄 업체용 한 행이며 참가 항목 하나다. 부문은 거리 접두어를 뗀 종목명이다. */
     public record PrintRow(String bib, String name, String categoryName, String roundLabel) { }
 
-    /** 한 신청의 한 하위 종목 참가 항목이다. */
-    public record EntryCell(String bib, String name) { }
-
-    /** 하위 종목 열 하나다. 열 순서는 종목 정렬 순서다. */
-    public record Course(String categoryId, String name) { }
-
-    /** 패킹 업체용 한 행이며 신청 하나(상자 하나)다. entries의 키는 하위 종목 id다. */
+    /**
+     * 패킹 업체용 한 행이며 참가 항목 하나다. 같은 신청 번호의 행이 한 상자다.
+     * 상품·종목은 구매 줄 값, 부문은 거리 접두어를 뗀 항목 종목명이다. 기념품은 구매 줄의 첫 행에만 적는다.
+     */
     public record PackingRow(String registrationId, String roundLabel, String productLabel, String categoryName,
-            Map<String, EntryCell> entries, String souvenirs, String receiver, String phone,
+            String division, String bib, String name, String souvenirs, String receiver, String phone,
             String zipcode, String address, String addressDetail) { }
 
     /** 주소를 "주소"와 "우편번호"로 나눈 결과다. */

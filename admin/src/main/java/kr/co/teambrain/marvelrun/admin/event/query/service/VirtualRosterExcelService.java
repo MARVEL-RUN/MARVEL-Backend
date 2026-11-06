@@ -11,15 +11,12 @@ import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualPackingList
 import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualPrintListExcelWriter;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualRosterModels;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualRosterModels.AddressParts;
-import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualRosterModels.Course;
-import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualRosterModels.EntryCell;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualRosterModels.PackingRow;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualRosterModels.PrintRow;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationDeliveryQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.VirtualRosterQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.VirtualRosterQueryRepository.EventInfo;
-import kr.co.teambrain.marvelrun.admin.event.query.repository.VirtualRosterQueryRepository.PackingEntry;
-import kr.co.teambrain.marvelrun.admin.event.query.repository.VirtualRosterQueryRepository.PackingRegistration;
+import kr.co.teambrain.marvelrun.admin.event.query.repository.VirtualRosterQueryRepository.PackingLine;
 import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationActionPolicyReader;
 import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationReservationHistoryResolver;
 import kr.co.teambrain.marvelrun.admin.event.query.support.TemporaryExcelResource;
@@ -41,7 +38,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -56,7 +52,6 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class VirtualRosterExcelService {
-    private static final int CHUNK_SIZE = 1000;
     private static final String FREE_SIZE = "FREE";
 
     private final VirtualRosterQueryRepository repository;
@@ -83,7 +78,7 @@ public class VirtualRosterExcelService {
         return createFile("marvelrun-print-", filename(event, "인쇄명단", round, now), output -> printWriter.write(output, rows));
     }
 
-    /** 패킹 업체용 명단이다. 신청 하나(상자 하나)가 한 행이다. */
+    /** 패킹 업체용 명단이다. 참가 항목 하나가 한 행이며 같은 신청 번호의 행이 한 상자다. */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ, propagation = Propagation.REQUIRES_NEW)
     public TemporaryExcelResource createPackingList(String eventId, LocalDateTime deadline) {
         LocalDateTime now = timeProvider.currentDateTime();
@@ -91,47 +86,52 @@ public class VirtualRosterExcelService {
         List<Round> rounds = loadRounds(eventId);
         Round round = VirtualRounds.requireByDeadline(rounds, deadline);
         RosterRange range = VirtualRounds.rosterRange(rounds, round);
-        List<Course> courses = repository.findChildCourses(eventId);
-        List<PackingRegistration> registrations = repository.findPackingRegistrations(eventId, range.from(), range.to());
-        List<PackingRow> rows = buildPackingRows(eventId, round.number() + "차", registrations);
+        List<PackingLine> lines = repository.findPackingLines(eventId, range.from(), range.to());
+        List<PackingRow> rows = buildPackingRows(eventId, round.number() + "차", lines);
         return createFile("marvelrun-packing-", filename(event, "패킹명단", round, now),
-                output -> packingWriter.write(output, courses, rows));
+                output -> packingWriter.write(output, rows));
     }
 
-    /** 신청 묶음마다 참가 항목과 기념품 이름을 한 번에 읽어 행으로 만든다. */
-    private List<PackingRow> buildPackingRows(String eventId, String roundLabel, List<PackingRegistration> registrations) {
-        List<PackingRow> rows = new ArrayList<>();
-        for (int from = 0; from < registrations.size(); from += CHUNK_SIZE) {
-            List<PackingRegistration> chunk = registrations.subList(from, Math.min(from + CHUNK_SIZE, registrations.size()));
-            Map<String, Map<String, EntryCell>> entries = new HashMap<>();
-            for (PackingEntry entry : repository.findPackingEntries(chunk.stream().map(PackingRegistration::id).toList())) {
-                entries.computeIfAbsent(entry.registrationId(), key -> new LinkedHashMap<>())
-                        .put(entry.categoryId(), new EntryCell(entry.bib() == null ? "" : entry.bib(), entry.name()));
+    /**
+     * 참가 항목 행을 엑셀 행으로 바꾼다. 기념품은 구매 줄(구매 줄이 없으면 신청)의 첫 행에만 적어
+     * 패키지 하나의 키트가 여러 개로 읽히지 않게 한다. 기념품 이름은 한 번에 읽는다.
+     */
+    private List<PackingRow> buildPackingRows(String eventId, String roundLabel, List<PackingLine> lines) {
+        Map<String, List<SouvenirJson>> souvenirs = new HashMap<>();
+        Set<String> souvenirIds = new HashSet<>();
+        for (PackingLine line : lines) {
+            String key = souvenirKey(line);
+            if (souvenirs.containsKey(key)) { continue; }
+            List<SouvenirJson> values;
+            try {
+                values = resolver.readSouvenirs(line.souvenirJson());
+            } catch (JsonProcessingException exception) {
+                values = null;
             }
-            Map<String, List<SouvenirJson>> souvenirs = new HashMap<>();
-            Set<String> souvenirIds = new HashSet<>();
-            for (PackingRegistration registration : chunk) {
-                List<SouvenirJson> values;
-                try {
-                    values = resolver.readSouvenirs(registration.souvenirJson());
-                } catch (JsonProcessingException exception) {
-                    values = null;
-                }
-                souvenirs.put(registration.id(), values);
-                if (values != null) {
-                    values.stream().filter(Objects::nonNull).map(SouvenirJson::souvenirId).filter(Objects::nonNull).forEach(souvenirIds::add);
-                }
-            }
-            Map<String, String> names = deliveryRepository.findSouvenirNames(eventId, souvenirIds);
-            for (PackingRegistration registration : chunk) {
-                AddressParts address = VirtualRosterModels.splitAddress(registration.address());
-                rows.add(new PackingRow(registration.id(), roundLabel, productLabel(registration.productType()),
-                        registration.categoryName(), entries.getOrDefault(registration.id(), Map.of()),
-                        souvenirText(souvenirs.get(registration.id()), names), registration.receiver(), registration.phone(),
-                        address.zipcode(), address.address(), registration.addressDetail() == null ? "" : registration.addressDetail()));
+            souvenirs.put(key, values);
+            if (values != null) {
+                values.stream().filter(Objects::nonNull).map(SouvenirJson::souvenirId).filter(Objects::nonNull).forEach(souvenirIds::add);
             }
         }
+        Map<String, String> names = deliveryRepository.findSouvenirNames(eventId, souvenirIds);
+        List<PackingRow> rows = new ArrayList<>(lines.size());
+        Set<String> written = new HashSet<>();
+        for (PackingLine line : lines) {
+            String key = souvenirKey(line);
+            String souvenir = written.add(key) ? souvenirText(souvenirs.get(key), names) : "";
+            AddressParts address = VirtualRosterModels.splitAddress(line.address());
+            rows.add(new PackingRow(line.registrationId(), roundLabel, productLabel(line.productType()), line.productName(),
+                    line.entryCategoryName() == null ? "" : VirtualRosterModels.stripDistance(line.entryCategoryName()),
+                    line.bib() == null ? "" : line.bib(), line.entryName() == null ? "" : line.entryName(),
+                    souvenir, line.receiver(), line.phone(), address.zipcode(), address.address(),
+                    line.addressDetail() == null ? "" : line.addressDetail()));
+        }
         return rows;
+    }
+
+    /** 기념품을 묶는 단위다. 구매 줄이 있으면 줄, 없으면 신청이다. */
+    private String souvenirKey(PackingLine line) {
+        return line.itemId() == null ? "registration:" + line.registrationId() : "item:" + line.itemId();
     }
 
     /** "이름" 또는 "이름(사이즈)"를 ", "로 잇는다. FREE 사이즈는 쓰지 않고, JSON을 못 읽으면 확인 문구를 쓴다. */
