@@ -27,4 +27,6 @@ public class NoticeDetailResponse {
     private LocalDateTime createdAt;
 
     private List<String> attachmentUrls;
+
+    private String eventId;
 }
