@@ -207,18 +207,27 @@ public class RegistrationDailyReportQueryRepository {
             LocalDateTime endExclusive
     ) {
 
+        /**
+         * 참가 항목마다 한 행이다. 항목이 없는 신청은 신청 한 행이며 종목·생년월일은 신청 값을 쓴다.
+         * 참가 항목이 없는 패키지 신청은 열이 없는 종목이라 보고서에서 뺀다.
+         */
         String sql = FINANCIAL_CTE + """
             SELECT
                 resolved.status,
-                resolved.birth,
+                COALESCE(entry.birth, resolved.birth) AS birth,
                 category.name AS course_name,
                 resolved.paid_amount,
                 resolved.registration_date,
                 resolved.first_paid_at
             FROM resolved_registration resolved
+            LEFT JOIN registration_entry entry
+                ON entry.registration_id = resolved.id
             INNER JOIN event_category category
-                ON category.id = resolved.event_category_id
-            ORDER BY resolved.registration_date, resolved.id
+                ON category.id = COALESCE(entry.event_category_id, resolved.event_category_id)
+            WHERE entry.id IS NOT NULL
+               OR category.product_type IS NULL
+               OR category.product_type <> 'PACKAGE'
+            ORDER BY resolved.registration_date, resolved.id, entry.id
             """;
 
         MapSqlParameterSource parameters =

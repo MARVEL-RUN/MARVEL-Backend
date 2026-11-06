@@ -13,6 +13,7 @@ import kr.co.teambrain.marvelrun.common.inheritance_enum.EventFormat;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 
 public interface RegistrationQueryRepository extends JpaRepository<Registration, String>, JpaSpecificationExecutor<Registration> {
@@ -27,23 +28,29 @@ public interface RegistrationQueryRepository extends JpaRepository<Registration,
     @EntityGraph(attributePaths = {"eventCategory"})
     List<Registration> findByOrganizationIdAndSoftDeletedFalse(String organizationId);
 
+    /** 버추얼 목록·엑셀의 행이 가리키는 신청을 한 번에 읽는다. */
+    @EntityGraph(attributePaths = {"event", "user", "eventCategory", "organization"})
+    List<Registration> findByIdIn(Collection<String> ids);
+
     // 기존 코드 하단에 추가
 
     /**
      * 신청자별 완료 결제수단을 개인 직접 귀속 또는 PaymentAllocation으로 조회한다.
      * 단체 주문은 registration이 없으므로 구성원별 귀속 원장을 확인한다.
-     * 외부 조회는 Registration 한 행을 유지하여 복수 결제/추가 결제에도 중복 집계하지 않는다.
+     * 결제 조인은 신청마다 한 번만 하므로 복수 결제/추가 결제에도 중복 집계하지 않는다.
+     * 참가 항목(RegistrationEntry)마다 한 행이며 항목이 없으면 신청 한 행이다. 성별·생년월일·종목은 항목 값을 쓰고, 결제 값은 주문 값이 항목 수만큼 되풀이된다.
+     * 참가 항목이 없는 패키지 신청은 뺀다. 패키지 종목 열이 생기지 않게 일일 보고서(findReportRows)와 같은 규칙을 쓴다.
      * 귀속 없는 기존 단체원은 양수 계약액 완납·CONFIRMED·단체 완료 주문 1건일 때만 보완한다.
      * 귀속이 있거나 완료 주문이 여러 건이면 단체 결제수단을 추정하지 않는다.
      * 이 보완은 통계 조회 전용이며 금융 원장을 생성하거나 수정하지 않는다.
      */
     @Query("""
         select new kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationStatDto(
-            r.status, 
-            o.id, 
-            r.gender, 
-            r.birth,
-            c.name, 
+            r.status,
+            o.id,
+            coalesce(e.gender, r.gender),
+            coalesce(e.birth, r.birth),
+            coalesce(ec.name, c.name),
             r.contractAmount,
             r.paidAmount,
             coalesce((select p.paymentMethod
@@ -85,8 +92,11 @@ public interface RegistrationQueryRepository extends JpaRepository<Registration,
         from Registration r
         join r.eventCategory c
         left join r.organization o
+        left join RegistrationEntry e on e.registration = r
+        left join e.eventCategory ec
         where r.event.id = :eventId
           and r.softDeleted = false
+          and (e.id is not null or c.productType is null or c.productType <> 'PACKAGE')
         """)
     List<RegistrationStatDto> findStatsByEventId(@Param("eventId") String eventId);
 
