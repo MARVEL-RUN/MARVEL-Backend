@@ -249,7 +249,7 @@ class MultiProductRegistrationDatabaseTest {
         EventCategory packageCategory = entityManager.find(EventCategory.class, "vr-package");
 
         assertThat(upgradeSupport.packageSouvenirs(item, packageCategory)).isEqualTo(PACKAGE_KITS);
-        CapacityRequirementDiff diff = upgradeSupport.packageDiff(item, packageCategory, 3, reservation);
+        CapacityRequirementDiff diff = upgradeSupport.packageDiff(List.of(item), item, packageCategory, 3, reservation);
 
         Map<String, Integer> increases = new HashMap<>();
         Map<String, Integer> decreases = new HashMap<>();

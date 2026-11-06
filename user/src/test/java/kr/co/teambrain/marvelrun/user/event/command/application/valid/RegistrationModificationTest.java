@@ -819,7 +819,7 @@ class RegistrationModificationTest {
                 .eventCategory(category).sortOrder(1).souvenirJson(souvenirs("M")).amount(new BigDecimal("40000")).build();
         RegistrationItem second = RegistrationItem.builder().id("item-2").event(event).registration(registration)
                 .eventCategory(category).sortOrder(2).souvenirJson(souvenirs("M")).amount(new BigDecimal("40000")).build();
-        when(items.findAllByRegistrationIds(List.of("r1"))).thenReturn(List.of(first, second));
+        when(items.findActiveByRegistrationIds(List.of("r1"))).thenReturn(List.of(first, second));
         when(loader.loadCategoryPolicies(EVENT_ID, Set.of(CATEGORY_ID))).thenReturn(Map.of(CATEGORY_ID, categoryPolicy));
         when(entries.findByRegistration_IdIn(List.of("r1"))).thenReturn(List.of(
                 entry(first, "1991-01-01"), entry(second, "1992-01-01")));
@@ -834,7 +834,7 @@ class RegistrationModificationTest {
                 () -> personalCreate.validateReacquisition(event, List.of(registration), NOW));
 
         // 구매 줄이 없는 상품 신청은 대표 상품으로 대신 검증하지 않는다.
-        when(items.findAllByRegistrationIds(List.of("r1"))).thenReturn(List.of());
+        when(items.findActiveByRegistrationIds(List.of("r1"))).thenReturn(List.of());
         expectError(ErrorCode.REGISTRATION_POLICY_CONFIGURATION_ERROR,
                 () -> personalCreate.validateReacquisition(event, List.of(registration), NOW));
     }

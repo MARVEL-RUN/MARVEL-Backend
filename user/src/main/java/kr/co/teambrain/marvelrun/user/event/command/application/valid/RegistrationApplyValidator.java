@@ -718,7 +718,7 @@ public class RegistrationApplyValidator extends AbstractRegistrationApplyValidat
                 new LinkedHashMap<>();
 
         for (RegistrationItem item :
-                registrationItemCommandRepository.findAllByRegistrationIds(productRegistrationIds)) {
+                registrationItemCommandRepository.findActiveByRegistrationIds(productRegistrationIds)) {
             result.computeIfAbsent(
                     item.getRegistration().getId(),
                     ignored -> new ArrayList<>()

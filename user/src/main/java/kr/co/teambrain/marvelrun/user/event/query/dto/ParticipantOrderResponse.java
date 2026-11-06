@@ -32,7 +32,9 @@ public record ParticipantOrderResponse(
             ProductType productType,
             BigDecimal amount,
             List<SouvenirJson> selectedSouvenirList,
-            List<Entry> entries
+            List<Entry> entries,
+            @Schema(description = "상품 하나 취소(부분 취소) 시각. null이면 살아 있는 상품이다. 취소한 상품도 목록에 남는다.")
+            LocalDateTime canceledAt
     ) {
     }
 

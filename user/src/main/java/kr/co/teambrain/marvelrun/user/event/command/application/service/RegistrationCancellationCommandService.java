@@ -35,6 +35,13 @@ public class RegistrationCancellationCommandService {
         return finish(eventId, null, transactions.cancelOwnedPersonal(eventId, registrationId, ordererKey));
     }
 
+    /** 로그인한 주문자의 상품(구매 줄) 하나를 취소하고 그 금액을 환불한다. 마지막 줄이면 주문 전체 취소와 같다. */
+    public RegistrationModificationSettlementResult cancelOwnedItem(String registrationId, String itemId, String ordererKey) {
+        requireNoTransaction();
+        String eventId = orderAccess.findOwned(registrationId, ordererKey).getEvent().getId();
+        return finish(eventId, null, transactions.cancelOwnedItem(eventId, registrationId, itemId, ordererKey));
+    }
+
     /** DB가 확정한 단체 전체 구성원을 취소하고 원결제별 환불 결과를 반환한다. */
     public RegistrationModificationSettlementResult cancelOrganization(String eventId, String organizationId,
             OrganizationAccessRequest access) {

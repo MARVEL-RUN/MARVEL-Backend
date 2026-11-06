@@ -123,6 +123,9 @@ final class CapacityMvpFixtureCleaner {
                 // 계산 기록의 상호 FK를 해제한 뒤 테스트 대회 데이터만 정리한다.
                 new Deletion("registration_price_calculation", "UPDATE registration SET current_price_calculation_id=NULL WHERE event_id=:eventId"),
                 new Deletion("registration_price_calculation", "DELETE c FROM registration_price_calculation c JOIN registration r ON r.id=c.registration_id WHERE r.event_id=:eventId"),
+                // 상품 신청의 참가 항목·구매 줄(상품 줄을 만드는 테스트만 행이 있다)
+                new Deletion("registration_entry", "DELETE FROM registration_entry WHERE event_id = :eventId"),
+                new Deletion("registration_item", "DELETE FROM registration_item WHERE event_id = :eventId"),
                 new Deletion("registration",
                         """
                         DELETE FROM registration WHERE event_id = :eventId

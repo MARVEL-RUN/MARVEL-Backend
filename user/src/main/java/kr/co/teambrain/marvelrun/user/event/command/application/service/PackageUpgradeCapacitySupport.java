@@ -12,7 +12,7 @@ import kr.co.teambrain.marvelrun.user.capacity.command.application.domain.Capaci
 import kr.co.teambrain.marvelrun.user.capacity.command.application.domain.Reservation;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.dto.CapacityRequirementDiff;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.dto.CapacityRequirementInput;
-import kr.co.teambrain.marvelrun.user.capacity.command.application.service.CapacityRequirementResolver;
+import kr.co.teambrain.marvelrun.user.capacity.command.application.service.RegistrationItemCapacityRequirements;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationCapacityDiffService;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationHistoryRecorder;
 import kr.co.teambrain.marvelrun.user.capacity.command.repository.CapacityCommandRepository;
@@ -59,7 +59,7 @@ public class PackageUpgradeCapacitySupport {
 
     private final EntityManager entityManager;
     private final ReservationCommandRepository reservationRepository;
-    private final CapacityRequirementResolver requirementResolver;
+    private final RegistrationItemCapacityRequirements itemRequirements;
     private final ReservationCapacityDiffService diffService;
     private final CapacityCommandRepository capacityRepository;
     private final PackageUpgradeCommandRepository upgradeRepository;
@@ -80,28 +80,43 @@ public class PackageUpgradeCapacitySupport {
     }
 
     /**
-     * 신청의 단품 줄 하나를 패키지로 바꿨을 때 필요한 정원과 지금 예약 상세의 차이.
-     * 상향은 구매 줄이 하나뿐인 단품 신청만 하므로 그 줄의 패키지 구성이 신청 전체의 필요량이다.
-     * 기념품은 패키지 종목에 연결된 것 전부(packageSouvenirs)라서 단품에 없던 부문 키트가 늘어나는 행이 된다.
+     * 살아 있는 구매 줄 가운데 단품 줄 하나(source)를 패키지로 바꿨을 때 필요한 정원과 지금 예약 상세의 차이.
+     * 다른 줄은 지금 구성 그대로 계산하므로 차이는 그 줄 몫만 난다(세트·다른 종목 +1, 원래 단품 −1, 전체 정원 +늘어난 사람 수).
+     * 그 줄의 기념품은 패키지 종목에 연결된 것 전부(packageSouvenirs)라서 단품에 없던 부문 키트가 늘어나는 행이 된다.
      *
-     * @param participants 상향 뒤 참가 항목 수(패키지 하위 종목 수). 전체 정원을 이만큼 쓴다.
+     * @param participants 상향 뒤 그 줄의 참가 항목 수(패키지 하위 종목 수). 전체 정원을 이만큼 쓴다.
      */
     public CapacityRequirementDiff packageDiff(
-            RegistrationItem item,
+            List<RegistrationItem> activeItems,
+            RegistrationItem source,
             EventCategory packageCategory,
             int participants,
             Reservation reservation
     ) {
-        Registration registration = item.getRegistration();
+        Registration registration = source.getRegistration();
         String eventId = registration.getEvent().getId();
-        // 상품은 어린이 정원을 쓰지 않는다(신청 때 상품 줄 확보와 같은 규칙).
-        CapacityRequirementInput input = new CapacityRequirementInput(
-                packageCategory.getId(),
-                false,
-                packageSouvenirs(item, packageCategory),
-                participants
-        );
-        Map<String, Integer> requirements = requirementResolver.resolveAll(eventId, List.of(input)).get(0);
+        Map<String, Integer> participantsByItem = itemRequirements.participantsByItem(registration.getId());
+        List<CapacityRequirementInput> inputs = new ArrayList<>(activeItems.size());
+        boolean found = false;
+        for (RegistrationItem item : activeItems) {
+            if (item.getId().equals(source.getId())) {
+                found = true;
+                // 상품은 어린이 정원을 쓰지 않는다(신청 때 상품 줄 확보와 같은 규칙).
+                inputs.add(new CapacityRequirementInput(
+                        packageCategory.getId(),
+                        false,
+                        packageSouvenirs(item, packageCategory),
+                        participants
+                ));
+            } else {
+                inputs.addAll(RegistrationItemCapacityRequirements.inputs(List.of(item), participantsByItem));
+            }
+        }
+        if (!found) {
+            throw new CustomException(ErrorCode.PACKAGE_UPGRADE_STATE_CONFLICT,
+                    " 상향할 구매 줄이 살아 있는 줄에 없습니다. itemId=" + source.getId());
+        }
+        Map<String, Integer> requirements = itemRequirements.resolveMerged(eventId, inputs);
         return diffService.compareAll(List.of(reservation), Map.of(reservation.getId(), requirements)).get(0);
     }
 

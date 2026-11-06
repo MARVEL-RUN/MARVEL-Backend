@@ -155,7 +155,7 @@ class PackageUpgradeCommandServiceTest {
     }
 
     /**
-     * 차액은 패키지 가격 계산 결과에서 지금 계약금액을 뺀 값이다.
+     * 차액은 패키지 가격 계산 결과에서 그 단품 줄 금액을 뺀 값이다.
      * held를 잡은 뒤 이력과 함께 계약금액을 올리고, 패키지 이름의 주문을 같은 기준 시각으로 준비한다.
      */
     @Test
@@ -171,11 +171,11 @@ class PackageUpgradeCommandServiceTest {
                 .thenReturn(List.of(new RegistrationEntryDraft(xmen, "받는사람", "010-1111-2222", "1990-01-01", GenderClass.F)));
         when(pricing.calculate(registration, pkg)).thenReturn(price(PACKAGE_PRICE));
         CapacityRequirementDiff diff = new CapacityRequirementDiff("reservation", ReservationStatus.CONSUMED, 1L, List.of());
-        RegistrationItem item = RegistrationItem.create(registration, 1, avengers, List.of(), SINGLE_PRICE);
-        when(itemRepository.findByRegistration_IdOrderBySortOrderAsc("registration")).thenReturn(List.of(item));
+        RegistrationItem item = item(registration, "item-1", 1, avengers, SINGLE_PRICE);
+        when(itemRepository.findActiveByRegistrationId("registration")).thenReturn(List.of(item));
         when(capacitySupport.lockConsumedReservation(registration)).thenReturn(reservation);
         // 상향 뒤 사람 수(하위 종목 수)만큼 전체 정원을 쓰도록 단품 줄과 하위 종목 수를 넘긴다.
-        when(capacitySupport.packageDiff(item, pkg, 2, reservation)).thenReturn(diff);
+        when(capacitySupport.packageDiff(List.of(item), item, pkg, 2, reservation)).thenReturn(diff);
         when(capacitySupport.holdIncreases("event", diff, NOW))
                 .thenReturn(List.of(new PackageUpgradeHeldCapacity("cap-package", 1)));
         runAmountChange();
@@ -196,24 +196,109 @@ class PackageUpgradeCommandServiceTest {
         verify(upgradeRepository).save(saved.capture());
         assertThat(saved.getValue().getAmount()).isEqualByComparingTo(DIFF);
         assertThat(saved.getValue().getPaymentId()).isEqualTo("payment-1");
+        assertThat(saved.getValue().getSourceItemId()).isEqualTo("item-1");
         assertThat(response.paymentId()).isEqualTo("payment-1");
     }
 
-    /** 구매 줄이 여럿인 신청은 정원·주문을 만들기 전에 새 오류로 거절한다. 줄 단위 상향은 아직 없다. */
+    /**
+     * 단품 + 패키지를 산 주문(이전 세션에서 PACKAGE_UPGRADE_MULTI_ITEM_NOT_ALLOWED로 막히던 주문)은
+     * 본문에 itemId가 없어도 단품 줄이 하나라 그 줄로 상향한다. 차액은 계약금액이 아니라 그 줄 금액 기준이다.
+     */
     @Test
-    void rejectsMultiItemRegistrationBeforeHolding() {
+    void requestsUpgradeForSingleLineInMixedOrder() {
+        Registration registration = Registration.builder().id("registration").ordererKey("orderer").event(event)
+                .eventCategory(avengers).status(RegistrationStatus.CONFIRMED)
+                .contractAmount(new BigDecimal("115000")).paidAmount(new BigDecimal("115000")).build();
+        locked(registration);
+        when(upgradeRepository.findByRegistrationForUpdate("registration", PackageUpgradeStatus.PENDING))
+                .thenReturn(Optional.empty());
+        RegistrationItem single = item(registration, "item-1", 1, avengers, SINGLE_PRICE);
+        RegistrationItem packaged = item(registration, "item-2", 2, pkg, PACKAGE_PRICE);
+        List<RegistrationItem> active = List.of(single, packaged);
+        when(itemRepository.findActiveByRegistrationId("registration")).thenReturn(active);
+        when(categoryRepository.findById("package")).thenReturn(Optional.of(pkg));
+        when(categoryRepository.findByEvent_IdAndParentCategoryIdOrderByOrderAscIdAsc("event", "package"))
+                .thenReturn(List.of(avengers, xmen));
+        when(entryValidator.validateUpgrade(any(), any(), eq(avengers), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(List.of(new RegistrationEntryDraft(xmen, "받는사람", "010-1111-2222", "1990-01-01", GenderClass.F)));
+        when(pricing.calculate(registration, pkg)).thenReturn(price(PACKAGE_PRICE));
+        CapacityRequirementDiff diff = new CapacityRequirementDiff("reservation", ReservationStatus.CONSUMED, 1L, List.of());
+        when(capacitySupport.lockConsumedReservation(registration)).thenReturn(reservation);
+        when(capacitySupport.packageDiff(active, single, pkg, 2, reservation)).thenReturn(diff);
+        when(capacitySupport.holdIncreases("event", diff, NOW))
+                .thenReturn(List.of(new PackageUpgradeHeldCapacity("cap-package", 1)));
+        runAmountChange();
+        when(upgradeRepository.save(any(PackageUpgrade.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(additionalPayments.prepareLockedPackageUpgrade(List.of(), registration, pkg, NOW))
+                .thenReturn(new Order("payment-1", "order-1", "대회 - 패키지", DIFF));
+
+        service.request("registration", "orderer", request());
+
+        ArgumentCaptor<PackageUpgrade> saved = ArgumentCaptor.forClass(PackageUpgrade.class);
+        verify(upgradeRepository).save(saved.capture());
+        assertThat(saved.getValue().getAmount()).isEqualByComparingTo(DIFF);
+        assertThat(saved.getValue().getSourceItemId()).isEqualTo("item-1");
+        assertThat(registration.getContractAmount()).isEqualByComparingTo("150000");
+    }
+
+    /** 잠금 전 읽기 시점의 줄 목록에는 살아 있어도, 잠가 다시 읽은 줄이 취소됐으면 정원·주문을 만들기 전에 거절한다. */
+    @Test
+    void rejectsLineCanceledAfterSnapshot() {
         Registration registration = confirmed();
         locked(registration);
         when(upgradeRepository.findByRegistrationForUpdate("registration", PackageUpgradeStatus.PENDING))
                 .thenReturn(Optional.empty());
-        when(itemRepository.findByRegistration_IdOrderBySortOrderAsc("registration")).thenReturn(List.of(
-                RegistrationItem.create(registration, 1, avengers, List.of(), SINGLE_PRICE),
-                RegistrationItem.create(registration, 2, avengers, List.of(), SINGLE_PRICE)));
+        RegistrationItem item = item(registration, "item-1", 1, avengers, SINGLE_PRICE);
+        when(itemRepository.findActiveByRegistrationId("registration")).thenReturn(List.of(item));
+        doAnswer(invocation -> {
+            item.cancel(NOW.minusMinutes(1));
+            return null;
+        }).when(entityManager).refresh(eq(item), eq(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE));
+        lenient().doNothing().when(entityManager).refresh(eq(registration), any(jakarta.persistence.LockModeType.class));
 
         assertThatThrownBy(() -> service.request("registration", "orderer", request()))
                 .isInstanceOf(CustomException.class)
                 .extracting(e -> ((CustomException) e).getErrorCode())
-                .isEqualTo(ErrorCode.PACKAGE_UPGRADE_MULTI_ITEM_NOT_ALLOWED);
+                .isEqualTo(ErrorCode.PACKAGE_UPGRADE_NOT_ALLOWED);
+        verifyNoInteractions(capacitySupport, additionalPayments, pricing);
+    }
+
+    /** 단품 줄이 둘 이상인데 itemId가 없으면 어느 줄인지 정할 수 없어 정원·주문을 만들기 전에 거절한다. */
+    @Test
+    void requiresItemIdWhenSeveralSingleLines() {
+        Registration registration = confirmed();
+        locked(registration);
+        when(upgradeRepository.findByRegistrationForUpdate("registration", PackageUpgradeStatus.PENDING))
+                .thenReturn(Optional.empty());
+        when(itemRepository.findActiveByRegistrationId("registration")).thenReturn(List.of(
+                item(registration, "item-1", 1, avengers, SINGLE_PRICE),
+                item(registration, "item-2", 2, xmen, SINGLE_PRICE)));
+
+        assertThatThrownBy(() -> service.request("registration", "orderer", request()))
+                .isInstanceOf(CustomException.class)
+                .extracting(e -> ((CustomException) e).getErrorCode())
+                .isEqualTo(ErrorCode.PACKAGE_UPGRADE_ITEM_REQUIRED);
+        verifyNoInteractions(capacitySupport, additionalPayments, pricing);
+    }
+
+    /** 패키지 줄·없는 줄(다른 주문이나 취소한 줄)을 고르면 정원·주문을 만들기 전에 거절한다. */
+    @Test
+    void rejectsPackageOrUnknownLine() {
+        Registration registration = confirmed();
+        locked(registration);
+        when(upgradeRepository.findByRegistrationForUpdate("registration", PackageUpgradeStatus.PENDING))
+                .thenReturn(Optional.empty());
+        when(itemRepository.findActiveByRegistrationId("registration")).thenReturn(List.of(
+                item(registration, "item-1", 1, avengers, SINGLE_PRICE),
+                item(registration, "item-2", 2, pkg, PACKAGE_PRICE)));
+
+        for (String itemId : List.of("item-2", "other-order-item")) {
+            assertThatThrownBy(() -> service.request("registration", "orderer",
+                    new PackageUpgradeRequest(itemId, List.of())))
+                    .isInstanceOf(CustomException.class)
+                    .extracting(e -> ((CustomException) e).getErrorCode())
+                    .isEqualTo(ErrorCode.PACKAGE_UPGRADE_NOT_ALLOWED);
+        }
         verifyNoInteractions(capacitySupport, additionalPayments, pricing);
     }
 
@@ -282,13 +367,18 @@ class PackageUpgradeCommandServiceTest {
     }
 
     private PackageUpgrade pendingUpgrade(Registration registration) {
-        return PackageUpgrade.create(registration, pkg, DIFF,
+        return PackageUpgrade.create(registration, item(registration, "item-1", 1, avengers, SINGLE_PRICE), pkg, DIFF,
                 List.of(new PackageUpgradeEntry("xmen", "받는사람", "010-1111-2222", "1990-01-01", GenderClass.F)),
                 List.of(new PackageUpgradeHeldCapacity("cap-package", 1)));
     }
 
     private static PackageUpgradeRequest request() {
-        return new PackageUpgradeRequest(List.of());
+        return new PackageUpgradeRequest(null, List.of());
+    }
+
+    private RegistrationItem item(Registration registration, String id, int sortOrder, EventCategory product, BigDecimal amount) {
+        return RegistrationItem.builder().id(id).event(event).registration(registration).eventCategory(product)
+                .sortOrder(sortOrder).souvenirJson(List.of()).amount(amount).build();
     }
 
     private static DiscountModels.PriceResult price(BigDecimal amount) {

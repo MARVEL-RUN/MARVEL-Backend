@@ -51,6 +51,16 @@ public class ParticipantOrderCommandController {
         return ResponseEntity.ok(cancellations.cancelOwnedPersonal(registrationId, ParticipantPrincipal.ordererKey()));
     }
 
+    @Operation(summary = "상품 하나 취소", description = "주문 안 상품(구매 줄) 하나를 취소하고 그 금액만 환불합니다. 결제를 마친 주문만 됩니다. "
+            + "패키지는 하위 종목까지 통째로 취소합니다. 남은 마지막 상품이면 주문 전체 취소와 같습니다. "
+            + "itemId는 주문 조회의 items[].itemId입니다. 진행 중 상향이 있으면 PACKAGE_UPGRADE_IN_PROGRESS, "
+            + "미결제 주문은 REGISTRATION_ITEM_CANCEL_NOT_ALLOWED, 이미 취소한 상품은 REGISTRATION_ITEM_ALREADY_CANCELED.")
+    @PostMapping("/{registrationId}/items/{itemId}/cancellation")
+    public ResponseEntity<RegistrationModificationSettlementResult> cancelItem(@PathVariable("registrationId") String registrationId,
+                                                                               @PathVariable("itemId") String itemId) {
+        return ResponseEntity.ok(cancellations.cancelOwnedItem(registrationId, itemId, ParticipantPrincipal.ordererKey()));
+    }
+
     @Operation(summary = "결제 재시도", description = "실패·무효가 된 주문의 결제창 정보를 다시 만듭니다. 진행 중 상향이 있으면 상향 결제(.../upgrade/payment)로 해야 합니다.")
     @PostMapping("/{registrationId}/payments/{paymentId}/retry")
     public ResponseEntity<Order> retry(@PathVariable("registrationId") String registrationId,

@@ -45,7 +45,7 @@ class PaymentOrderNameTest {
     @Test
     void multiItemOrderNameCountsRest() {
         Registration registration = registration(avengers);
-        when(items.findByRegistration_IdOrderBySortOrderAsc("r")).thenReturn(List.of(
+        when(items.findActiveByRegistrationId("r")).thenReturn(List.of(
                 item(registration, 1, avengers), item(registration, 2, avengers), item(registration, 3, pack)));
 
         assertThat(creator.createInitialPayment(registration, "c").getOrderName())
@@ -56,7 +56,7 @@ class PaymentOrderNameTest {
     @Test
     void singleItemOrderNameIsProductName() {
         Registration registration = registration(pack);
-        when(items.findByRegistration_IdOrderBySortOrderAsc("r")).thenReturn(List.of(item(registration, 1, pack)));
+        when(items.findActiveByRegistrationId("r")).thenReturn(List.of(item(registration, 1, pack)));
 
         assertThat(creator.createInitialPayment(registration, "c").getOrderName()).isEqualTo("마블런 - 5km | 3종 패키지");
     }

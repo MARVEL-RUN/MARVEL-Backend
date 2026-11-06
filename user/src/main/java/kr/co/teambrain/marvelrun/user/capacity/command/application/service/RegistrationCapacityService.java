@@ -346,7 +346,7 @@ public class RegistrationCapacityService {
 
         if (!productRegistrationIds.isEmpty()) {
             for (RegistrationItem item :
-                    registrationItemRepository.findAllByRegistrationIds(productRegistrationIds)) {
+                    registrationItemRepository.findActiveByRegistrationIds(productRegistrationIds)) {
                 itemsByRegistration.computeIfAbsent(
                         item.getRegistration().getId(),
                         ignored -> new ArrayList<>()
@@ -397,12 +397,7 @@ public class RegistrationCapacityService {
                 }
 
                 requirements.add(
-                        new CapacityRequirementInput(
-                                item.getEventCategory().getId(),
-                                false,
-                                item.getSouvenirJson() == null ? List.of() : item.getSouvenirJson(),
-                                participants.intValue()
-                        )
+                        RegistrationItemCapacityRequirements.input(item, participants.intValue())
                 );
             }
 

@@ -9,6 +9,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.RegistrationEntry;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.RegistrationItem;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.policy.EventRegistrationPolicy;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationAccessRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationModificationRequest;
@@ -116,7 +117,7 @@ class RegistrationProductModificationServiceTest {
     @Test
     void applicantBirthChangeDoesNotTouchEntries() {
         guardianPolicy();
-        RegistrationEntry entry = RegistrationEntry.builder().event(event).eventCategory(single)
+        RegistrationEntry entry = RegistrationEntry.builder().event(event).registrationItem(RegistrationItem.builder().id("i1").build()).eventCategory(single)
                 .name("아이").phNum("010-0000-0000").birth("2001-01-01").gender(GenderClass.M).bibNumber("10001").build();
         when(entries.findByRegistration_Id("r1")).thenReturn(List.of(entry));
         Registration registration = registration(single);
@@ -136,7 +137,7 @@ class RegistrationProductModificationServiceTest {
     @Test
     void guardianRecheckCoversEntries() {
         guardianPolicy();
-        RegistrationEntry child = RegistrationEntry.builder().event(event).eventCategory(single)
+        RegistrationEntry child = RegistrationEntry.builder().event(event).registrationItem(RegistrationItem.builder().id("i1").build()).eventCategory(single)
                 .name("아이").phNum("010-0000-0000").birth("2016-01-01").gender(GenderClass.M).build();
         when(entries.findByRegistration_Id("r1")).thenReturn(List.of(child));
         Registration registration = Registration.builder().id("r1").event(event).eventCategory(single)

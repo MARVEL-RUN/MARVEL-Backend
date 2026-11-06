@@ -11,12 +11,17 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyService;
 import kr.co.teambrain.marvelrun.user.event.policy.RegistrationActionPolicyModels.*;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.capacity.ReservationStatus;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.domain.Reservation;
+import kr.co.teambrain.marvelrun.user.capacity.command.application.service.CapacityModificationService;
+import kr.co.teambrain.marvelrun.user.capacity.command.application.service.RegistrationItemCapacityRequirements;
+import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationCapacityDiffService;
+import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationHistoryRecorder;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationRemovalService;
 import kr.co.teambrain.marvelrun.user.capacity.command.repository.ReservationCommandRepository;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
@@ -26,6 +31,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.PaymentCancel;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.RegistrationItem;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult.Member;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult.Refund;
@@ -34,6 +40,7 @@ import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.Regi
 import kr.co.teambrain.marvelrun.user.event.command.application.support.OrganizationLockSupport;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationAccessVerifier;
 import kr.co.teambrain.marvelrun.user.event.command.repository.EventCommandRepository;
+import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationItemCommandRepository;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.Payment;
 import kr.co.teambrain.marvelrun.user.payment.command.application.domain.repository.PaymentCancelCommandRepository;
 import lombok.RequiredArgsConstructor;
@@ -56,6 +63,11 @@ public class RegistrationCancellationTransactionService {
     private final ServerTimeProvider time;
     private final RegistrationActionPolicyService actionPolicies;
     private final PackageUpgradeCapacitySupport packageUpgrades;
+    private final RegistrationItemCommandRepository items;
+    private final RegistrationItemCapacityRequirements itemRequirements;
+    private final ReservationCapacityDiffService diffService;
+    private final CapacityModificationService capacityModification;
+    private final ReservationHistoryRecorder historyRecorder;
 
     /** 개인 신청을 현재 정보로 인증하며 단체 구성원의 개인 취소 진입을 차단한다. */
     @Transactional
@@ -86,6 +98,75 @@ public class RegistrationCancellationTransactionService {
         }
         verify.accept(registration);
         return prepareRegistrationCancellation(event, null, List.of(registration), payments);
+    }
+
+    /**
+     * 로그인한 주문자의 구매 줄 하나를 부분 취소한다. 결제를 마친 주문만 된다.
+     * 남은 마지막 줄이면 주문 전체 취소로 넘긴다. 패키지 줄은 하위 종목까지 통째로 취소한다.
+     *
+     * 잠금 순서는 전체 취소와 같다(대회 → 결제 → 신청 → 예약 → 정원 ID 순).
+     * 남는 줄로 필요한 정원을 다시 구해 차이만 돌려주고, 계약금액에서 줄 금액을 뺀 뒤 초과 납부액을 가격 조정 환불로 준비한다.
+     */
+    @Transactional
+    public Prepared cancelOwnedItem(String eventId, String registrationId, String itemId, String ordererKey) {
+        Event event = lockEvent(eventId);
+        List<Payment> payments = paymentGuard.lockPersonal(eventId, registrationId);
+        Registration registration = entityManager.find(Registration.class, registrationId);
+        if (registration == null) { throw new CustomException(ErrorCode.REGISTRATION_NOT_FOUND); }
+        entityManager.refresh(registration, LockModeType.PESSIMISTIC_WRITE);
+        if (registration.getOrganization() != null || !eventId.equals(registration.getEvent().getId())
+                || !registration.isOwnedBy(ordererKey)) {
+            throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
+        }
+        registration.validateOnlineRegistrationProcessingAllowed();
+
+        // 줄은 신청 잠금 뒤에 읽는다. 줄을 바꾸는 경로(취소·상향 승인)는 모두 이 신청 행을 먼저 잠근다.
+        RegistrationItem item = items.findById(itemId)
+                .filter(found -> found.getRegistration().getId().equals(registrationId))
+                .orElseThrow(() -> new CustomException(ErrorCode.REGISTRATION_ITEM_NOT_FOUND,
+                        " registrationId=" + registrationId + ", itemId=" + itemId));
+        if (item.isCanceled() || registration.isSoftDeleted()) {
+            throw new CustomException(ErrorCode.REGISTRATION_ITEM_ALREADY_CANCELED, " itemId=" + itemId);
+        }
+        List<RegistrationItem> active = items.findActiveByRegistrationId(registrationId);
+        if (active.stream().noneMatch(found -> found.getId().equals(itemId))) {
+            throw new CustomException(ErrorCode.REGISTRATION_ITEM_NOT_FOUND, " 살아 있는 줄이 아님 itemId=" + itemId);
+        }
+        if (active.size() == 1) {
+            return prepareRegistrationCancellation(event, null, List.of(registration), payments);
+        }
+
+        // 상향 대기 중이면 계약금액에 상향 차액이 들어 있고 잡아 둔 정원도 있다. 상향을 먼저 끝내거나 취소해야 한다.
+        paymentGuard.rejectPendingPackageUpgrade(registrationId, ErrorCode.PACKAGE_UPGRADE_IN_PROGRESS);
+        if (registration.getStatus() != RegistrationStatus.CONFIRMED || registration.getContractAmount() == null
+                || registration.getPaidAmount() == null
+                || registration.getContractAmount().compareTo(registration.getPaidAmount()) != 0
+                || registration.getPaidAmount().signum() <= 0) {
+            throw new CustomException(ErrorCode.REGISTRATION_ITEM_CANCEL_NOT_ALLOWED,
+                    " status=" + registration.getStatus() + ", registrationId=" + registrationId);
+        }
+        LocalDateTime now = time.currentDateTime();
+        List<RegistrationActionPolicyInput> policies = actionPolicies.loadEnabledRegistrationActionPolicies(event.getId(), RegistrationActionType.REFUND);
+        actionPolicies.validateRegistrationActionPolicy(event, registration, Action.REFUND, now, policies);
+        // 승인 중·결과 미확인 결제나 진행 중 환불이 있으면 막고, 쓰지 않을 READY 주문은 무효로 한다.
+        paymentGuard.prepareLockedPayments(payments);
+
+        Reservation reservation = packageUpgrades.lockConsumedReservation(registration);
+        List<RegistrationItem> remaining = active.stream().filter(found -> !found.getId().equals(itemId)).toList();
+        Map<String, Integer> requirements = itemRequirements.resolveMerged(eventId,
+                RegistrationItemCapacityRequirements.inputs(remaining, itemRequirements.participantsByItem(registrationId)));
+        capacityModification.moveReservationCapacities(eventId,
+                diffService.compareAll(List.of(reservation), Map.of(reservation.getId(), requirements)), now);
+
+        item.cancel(now);
+        RegistrationItem representative = remaining.getFirst();
+        registration.applyItemCancellation(item.getAmount(), representative.getEventCategory(),
+                representative.getSouvenirJson());
+        historyRecorder.completeReservationModificationSnapshot(reservation);
+        RegistrationModificationSettlementResult settled = settlement.settleRegistrationModification(
+                event.getId(), null, List.of(registrationId), now, policies);
+        entityManager.flush();
+        return new Prepared(snapshot(List.of(registration), payments, settled.refunds()), true);
     }
 
     /** 단체 인증 후 DB의 현재 구성원을 잠금 조회한다. 프론트의 명단·환불액을 받지 않는다. */

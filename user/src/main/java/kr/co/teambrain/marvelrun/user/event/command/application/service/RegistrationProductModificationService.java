@@ -101,6 +101,10 @@ public class RegistrationProductModificationService {
         registrationPolicyValidator.validateParticipant(current.getEvent(), policy,
                 new RegistrationPolicyInput(request.birth(), guardianName, request.guardianConsent()), applicationDate);
         for (RegistrationEntry entry : registrationEntryCommandRepository.findByRegistration_Id(current.getId())) {
+            // 부분 취소한 상품의 받는 사람은 더 참가하지 않으므로 보호자 기준을 보지 않는다.
+            if (entry.getRegistrationItem().isCanceled()) {
+                continue;
+            }
             registrationPolicyValidator.validateParticipant(current.getEvent(), policy,
                     new RegistrationPolicyInput(entry.getBirth(), guardianName, request.guardianConsent()),
                     applicationDate);
