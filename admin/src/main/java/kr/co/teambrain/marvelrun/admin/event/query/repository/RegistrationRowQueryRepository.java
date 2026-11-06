@@ -30,10 +30,10 @@ public class RegistrationRowQueryRepository {
                    e.bib_number
             """;
 
-    /** 구매 줄(없으면 신청 값), 참가 항목(없을 수 있음), 참가 항목의 종목, 주문자 단체를 잇는다. */
+    /** 구매 줄(없으면 신청 값), 참가 항목(없을 수 있음), 참가 항목의 종목, 주문자 단체를 잇는다. 부분 취소한 구매 줄은 뺀다. */
     private static final String FROM = """
             FROM registration r
-            LEFT JOIN registration_item i ON i.registration_id = r.id
+            LEFT JOIN registration_item i ON i.registration_id = r.id AND i.canceled_at IS NULL
             JOIN event_category pc ON pc.id = COALESCE(i.event_category_id, r.event_category_id)
             LEFT JOIN registration_entry e ON e.registration_item_id = i.id
             LEFT JOIN event_category ec ON ec.id = e.event_category_id

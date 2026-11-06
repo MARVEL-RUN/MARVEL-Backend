@@ -179,6 +179,26 @@ class BibIssueDatabaseTest {
         assertThat(response.registrationsWithoutEntriesCount()).isEqualTo(1);
     }
 
+    /** 부분 취소한 줄의 항목은 배번을 받지 않고, 취소한 빈 줄은 "항목이 없는 줄"로 세지 않는다. */
+    @Test
+    void skipsCanceledLines() {
+        Registration order = registration(catA, RegistrationStatus.CONFIRMED, false, false, DEADLINE.minusHours(3));
+        em.flush();
+        String canceledItem = item(order.getId());
+        String liveItem = addItem(order.getId(), catA, 2);
+        String emptyCanceledItem = addItem(order.getId(), catB, 3);
+        String canceledEntry = entryInItem(order, canceledItem, catA, "00000000-0000-0000-0000-000000000000");
+        String liveEntry = entryInItem(order, liveItem, catA, "ffffffff-0000-0000-0000-000000000000");
+        jdbc.update("update registration_item set canceled_at = ? where id in (?, ?)", NOW.minusDays(1), canceledItem, emptyCanceledItem);
+
+        BibIssueResponse response = service.issue(eventId, new BibIssueRequest(DEADLINE));
+
+        assertThat(bib(liveEntry)).isEqualTo("10001");
+        assertThat(bib(canceledEntry)).isNull();
+        assertThat(response.issuedCount()).isEqualTo(1);
+        assertThat(response.registrationsWithoutEntriesCount()).isZero();
+    }
+
     /** 빈 구매 줄이 여럿인 신청도 한 번만 센다. 구매 줄이 없고 대표 종목이 상품이 아닌 신청은 세지 않는다. */
     @Test
     void countsRegistrationWithEmptyItemsOnceAndSkipsNonProduct() {

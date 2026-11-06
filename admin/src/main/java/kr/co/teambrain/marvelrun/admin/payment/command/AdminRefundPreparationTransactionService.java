@@ -7,6 +7,8 @@ import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
 import kr.co.teambrain.marvelrun.admin.discount.service.DiscountPolicyResolver;
 import kr.co.teambrain.marvelrun.admin.discount.service.OrganizationDiscountGuard;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationCommandRepository;
+import kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationEntryCommandRepository;
+import kr.co.teambrain.marvelrun.admin.event.command.repository.RegistrationItemCommandRepository;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -56,6 +58,8 @@ public class AdminRefundPreparationTransactionService {
     private final PaymentCancelAllocationCreator allocationCreator;
     private final AdminRefundTime time;
     private final Validator validator;
+    private final RegistrationItemCommandRepository items;
+    private final RegistrationEntryCommandRepository entries;
 
     /** 결제액 환불은 참가 취소를 동반한다. 단체 일부도 선택한 인원만 취소한다. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -276,6 +280,122 @@ public class AdminRefundPreparationTransactionService {
 
         // 계산 기록 연결을 마친 뒤 기존 환불 시도와 금융 로그를 준비한다.
         String correlationId = UUID.randomUUID().toString();
+        List<AdminRefundPrepared.Refund> refunds = saveRefunds(plans, command, now, correlationId,
+                targets == null ? "PAYMENT_REFUND" : "PAYMENT_PARTIAL_REFUND", removed,
+                targets == null ? Map.of() : Map.of("requestedChanges", targets));
+        store.flush();
+        AdminRefundPrepared prepared = new AdminRefundPrepared(command.requestId(), correlationId, eventId, organizationId, now, members, refunds);
+        // 추가 결제/동일 금액 변경은 금융 시도가 없으므로 업무 변경과 같은 Tx에 배치 증거를 남긴다.
+        if (targets != null) { store.recordAdjustmentPrepared(command, prepared); }
+        return prepared;
+    }
+
+    /**
+     * 관리자가 개인 주문의 구매 줄 하나를 부분 취소한다. 결제를 마친 주문(CONFIRMED, 완납)만 된다.
+     * 남은 줄로 필요한 정원을 다시 구해 차이만 돌려주고, 계약금액에서 줄 금액을 뺀 초과 납부액을 가격 조정 환불로 준비한다.
+     * 대표 줄이 바뀌면 신청 종목·기념품을 남은 첫 줄로 옮긴다. 차수 마감(REFUND 정책)은 기존 관리자 환불처럼 보지 않는다.
+     * 남은 마지막 줄은 이 메서드가 받지 않는다. 진입 서비스가 주문 전체 환불(prepareFull)로 보낸다.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public AdminRefundPrepared prepareItemCancellation(String eventId, String registrationId, String itemId,
+            AdminRefundCommandContext command) {
+        Objects.requireNonNull(command, "관리자 추적정보");
+        // 진행 중 결제·환불·상향 대기를 거절하고 결제 완료(CONFIRMED·완납) 개인 주문인지 잠근 행으로 본다.
+        AdminRefundLockedScope scope = access.lock(eventId, null, List.of(registrationId));
+        LocalDateTime now = time.now();
+        Registration registration = store.current(Registration.class, registrationId);
+        if (registration.isExternalPayment()) {
+            throw new CustomException(ErrorCode.EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED);
+        }
+        if (command.expectedRegistrationVersion() != null
+                && !Objects.equals(registration.getVersion(), command.expectedRegistrationVersion())) {
+            throw new CustomException(ErrorCode.CONCURRENT_MODIFICATION);
+        }
+        RegistrationItem item = items.findById(itemId)
+                .filter(found -> found.getRegistration().getId().equals(registrationId))
+                .orElseThrow(() -> new CustomException(ErrorCode.REGISTRATION_ITEM_NOT_FOUND,
+                        " registrationId=" + registrationId + ", itemId=" + itemId));
+        if (item.isCanceled()) {
+            throw new CustomException(ErrorCode.REGISTRATION_ITEM_ALREADY_CANCELED, " itemId=" + itemId);
+        }
+        List<RegistrationItem> active = items.findActiveByRegistrationId(registrationId);
+        // 진입 서비스가 잠금 없이 센 줄 수와 달라졌으면(그사이 다른 줄 취소) 전체 환불 여부를 다시 정해야 한다.
+        if (active.size() < 2 || active.stream().noneMatch(found -> found.getId().equals(itemId))) {
+            throw new CustomException(ErrorCode.CONCURRENT_MODIFICATION, " activeItemCount=" + active.size());
+        }
+        List<Reservation> reservations = store.reservations(List.of(registrationId));
+        if (reservations.size() != 1 || reservations.getFirst().getStatus() != ReservationStatus.CONSUMED) { throw invalid(); }
+        Reservation reservation = reservations.getFirst();
+
+        List<RegistrationItem> remaining = active.stream().filter(found -> !found.getId().equals(itemId)).toList();
+        BigDecimal contractAmount = registration.getContractAmount().subtract(item.getAmount());
+        if (contractAmount.signum() < 0 || item.getAmount().signum() <= 0) { throw invalid(); }
+
+        // 비영속 후보로 원귀속을 먼저 검증하여 실제 변경 전 불일치를 차단한다.
+        List<Registration> projected = List.of(Registration.builder().id(registrationId).contractAmount(contractAmount)
+                .paidAmount(registration.getPaidAmount()).softDeleted(false)
+                .status(RegistrationStatus.PARTIAL_REFUND_REQUIRED).build());
+        List<RefundPaymentLedger> ledgers = store.ledgers(scope);
+        for (RefundPaymentLedger ledger : ledgers) {
+            for (PaymentAllocation allocation : ledger.allocations()) {
+                if (allocation.getRegistration() == null || !registrationId.equals(allocation.getRegistration().getId())) {
+                    throw invalid();
+                }
+            }
+        }
+        List<RefundPreparationPlan> plans = planner.plan(projected, ledgers);
+        if (plans.isEmpty()) { throw invalid(); }
+
+        Map<String, Integer> participants = new HashMap<>();
+        for (RegistrationEntry entry : entries.findByRegistration_Id(registrationId)) {
+            participants.merge(entry.getRegistrationItem().getId(), 1, Integer::sum);
+        }
+        List<CapacityRequirementInput> inputs = new ArrayList<>();
+        for (RegistrationItem line : remaining) {
+            Integer count = participants.get(line.getId());
+            if (count == null) {
+                throw new CustomException(ErrorCode.CAPACITY_CONFIGURATION_ERROR, " 구매 줄에 참가 항목이 없습니다. itemId=" + line.getId());
+            }
+            // 상품은 어린이 정원을 쓰지 않는다. 전체 정원은 줄의 참가 항목 수만큼(사용자 앱 신청과 같은 규칙).
+            inputs.add(new CapacityRequirementInput(line.getEventCategory().getId(), false,
+                    line.getSouvenirJson() == null ? List.of() : line.getSouvenirJson(), count));
+        }
+        Map<String, Integer> needed = new TreeMap<>();
+        for (Map<String, Integer> quantities : requirements.resolveAll(eventId, inputs)) {
+            quantities.forEach((capacityId, quantity) -> needed.merge(capacityId, quantity, Integer::sum));
+        }
+        movement.moveAllForAdminAdjustment(eventId,
+                diffs.compareAll(List.of(reservation), Map.of(reservation.getId(), needed)), now);
+        for (RefundPaymentLedger ledger : ledgers) {
+            if (ledger.payment().getProcessStatus() == PaymentProcessStatus.READY) {
+                ledger.payment().invalidateForRegistrationModification();
+            }
+        }
+
+        BigDecimal previous = registration.getContractAmount();
+        item.cancel(now);
+        RegistrationItem representative = remaining.getFirst();
+        registration.applyAdminRefundCandidate(representative.getEventCategory(),
+                representative.getSouvenirJson() == null ? List.of() : representative.getSouvenirJson(), contractAmount);
+        // 남은 계약금액의 근거가 아니므로 현재 가격 계산 참조를 끊는다(사용자 앱 부분 취소와 같다). 이전 기록 행은 남는다.
+        registration.assignCurrentPriceCalculation(null);
+        registration.reconcileModificationFinancialState(reservation.getStatus());
+        historyRecorder.completeReservationModificationSnapshot(reservation);
+        historyRecorder.recordRegistrationSettlementHistory(reservation, null, List.of(), null, List.of(), now);
+
+        String correlationId = UUID.randomUUID().toString();
+        List<AdminRefundPrepared.Refund> refunds = saveRefunds(plans, command, now, correlationId, "ITEM_CANCELLATION",
+                List.of(), Map.of("itemId", itemId));
+        store.flush();
+        return new AdminRefundPrepared(command.requestId(), correlationId, eventId, null, now,
+                List.of(new AdminRefundPrepared.Member(registrationId, previous, registration.getContractAmount(),
+                        registration.getPaidAmount(), registration.getStatus(), reservation.getStatus(), false)),
+                refunds);
+    }
+
+    /** 원결제별 환불 시도와 귀속, 준비 로그를 저장한다. 전체 환불·정보 변경·부분 취소가 같은 기록 형식을 쓴다. */
+    private List<AdminRefundPrepared.Refund> saveRefunds(List<RefundPreparationPlan> plans, AdminRefundCommandContext command,
+            LocalDateTime now, String correlationId, String operation, List<String> removed, Map<String, Object> extra) {
         List<AdminRefundPrepared.Refund> refunds = new ArrayList<>();
         for (RefundPreparationPlan plan : plans) {
             boolean cancellation = plan.targets().stream().allMatch(t -> t.originalAllocation().getRegistration().isSoftDeleted());
@@ -291,19 +411,15 @@ public class AdminRefundPreparationTransactionService {
             metadata.put("requestId", command.requestId()); metadata.put("adminId", command.adminId());
             metadata.put("reason", command.reason()); metadata.put("preparedAt", now.toString());
             metadata.put("amount", plan.amount()); metadata.put("allocationCount", plan.targets().size());
-            metadata.put("operation", targets == null ? "PAYMENT_REFUND" : "PAYMENT_PARTIAL_REFUND");
+            metadata.put("operation", operation);
             metadata.put("participationCanceledIds", removed);
-            if (targets != null) { metadata.put("requestedChanges", targets); }
+            metadata.putAll(extra);
             store.log(PaymentProcessLog.builder().paymentId(plan.payment().getId()).paymentCancelId(saved.getId())
                     .orderId(plan.payment().getOrderId()).correlationId(correlationId).idempotencyKey(saved.getIdempotencyKey())
                     .processType(PaymentProcessType.CANCEL_PREPARED).source(PaymentProcessSource.ADMIN).metadata(metadata).build());
             refunds.add(new AdminRefundPrepared.Refund(saved.getId(), plan.payment().getId(), plan.amount(), saved.getCancelType(), saved.getStatus()));
         }
-        store.flush();
-        AdminRefundPrepared prepared = new AdminRefundPrepared(command.requestId(), correlationId, eventId, organizationId, now, members, refunds);
-        // 추가 결제/동일 금액 변경은 금융 시도가 없으므로 업무 변경과 같은 Tx에 배치 증거를 남긴다.
-        if (targets != null) { store.recordAdjustmentPrepared(command, prepared); }
-        return prepared;
+        return refunds;
     }
 
     /** 정책 계산 결과와 참가 취소 분기를 분리한다. 결제 롤백 기능은 여기 포함하지 않는다. */

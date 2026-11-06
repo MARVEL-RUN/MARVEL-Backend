@@ -39,6 +39,7 @@ public interface RegistrationQueryRepository extends JpaRepository<Registration,
      * 단체 주문은 registration이 없으므로 구성원별 귀속 원장을 확인한다.
      * 결제 조인은 신청마다 한 번만 하므로 복수 결제/추가 결제에도 중복 집계하지 않는다.
      * 참가 항목(RegistrationEntry)마다 한 행이며 항목이 없으면 신청 한 행이다. 성별·생년월일·종목은 항목 값을 쓰고, 결제 값은 주문 값이 항목 수만큼 되풀이된다.
+     * 부분 취소한 구매 줄의 참가 항목은 뺀다.
      * 귀속 없는 기존 단체원은 양수 계약액 완납·CONFIRMED·단체 완료 주문 1건일 때만 보완한다.
      * 귀속이 있거나 완료 주문이 여러 건이면 단체 결제수단을 추정하지 않는다.
      * 이 보완은 통계 조회 전용이며 금융 원장을 생성하거나 수정하지 않는다.
@@ -92,6 +93,10 @@ public interface RegistrationQueryRepository extends JpaRepository<Registration,
         join r.eventCategory c
         left join r.organization o
         left join RegistrationEntry e on e.registration = r
+            and not exists (
+                select canceled.id from RegistrationItem canceled
+                where canceled.id = e.registrationItem.id and canceled.canceledAt is not null
+            )
         left join e.eventCategory ec
         where r.event.id = :eventId
           and r.softDeleted = false

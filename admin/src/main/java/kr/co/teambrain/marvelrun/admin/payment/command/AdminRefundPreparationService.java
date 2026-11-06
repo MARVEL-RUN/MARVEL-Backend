@@ -20,6 +20,13 @@ public class AdminRefundPreparationService {
         requireNoTransaction();
         return transactions.preparePartial(eventId, organizationId, targets, command);
     }
+    /** 상품 하나 취소(부분 취소)의 독립 준비 트랜잭션을 실행한다. */
+    public AdminRefundPrepared prepareItemCancellation(String eventId, String registrationId, String itemId,
+            AdminRefundCommandContext command) {
+        requireNoTransaction();
+        return transactions.prepareItemCancellation(eventId, registrationId, itemId, command);
+    }
+
     /** 호출자가 배치 전체를 하나의 트랜잭션으로 감싸지 못하게 한다. */
     private static void requireNoTransaction() {
         if (TransactionSynchronizationManager.isActualTransactionActive()) {

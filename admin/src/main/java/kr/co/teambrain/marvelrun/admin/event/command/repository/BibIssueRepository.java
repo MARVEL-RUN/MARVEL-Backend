@@ -54,7 +54,7 @@ public class BibIssueRepository {
 
     /**
      * 배번이 없는 발급 대상 참가 항목을 신청일시·신청 ID·구매 줄 순서·종목 순서·항목 ID 순으로 읽는다.
-     * 한 신청에 같은 종목 항목이 여럿이면 앞 구매 줄의 항목이 앞 번호를 받는다.
+     * 한 신청에 같은 종목 항목이 여럿이면 앞 구매 줄의 항목이 앞 번호를 받는다. 부분 취소한 줄의 항목은 받지 않는다.
      */
     public List<Target> findTargets(String eventId, LocalDateTime deadline) {
         return jdbc.query("""
@@ -64,7 +64,7 @@ public class BibIssueRepository {
                 JOIN registration_item i ON i.id = e.registration_item_id
                 JOIN event_category c ON c.id = e.event_category_id
                 WHERE r.event_id = :eventId AND r.is_del = 0 AND r.status = 'CONFIRMED' AND r.external_payment = 0
-                  AND e.bib_number IS NULL AND r.registration_date < :deadline
+                  AND e.bib_number IS NULL AND r.registration_date < :deadline AND i.canceled_at IS NULL
                 ORDER BY r.registration_date, r.id, i.sort_order, c.sort_order, e.id
                 """, new MapSqlParameterSource("eventId", eventId).addValue("deadline", deadline),
                 (rs, rowNum) -> new Target(rs.getString("entry_id"), rs.getString("event_category_id"),
@@ -75,8 +75,9 @@ public class BibIssueRepository {
     public int countAlreadyIssued(String eventId, LocalDateTime deadline) {
         return count("""
                 SELECT COUNT(*) FROM registration_entry e JOIN registration r ON r.id = e.registration_id
+                JOIN registration_item i ON i.id = e.registration_item_id
                 WHERE r.event_id = :eventId AND r.is_del = 0 AND r.status = 'CONFIRMED' AND r.external_payment = 0
-                  AND e.bib_number IS NOT NULL AND r.registration_date < :deadline
+                  AND e.bib_number IS NOT NULL AND r.registration_date < :deadline AND i.canceled_at IS NULL
                 """, eventId, deadline);
     }
 
@@ -99,8 +100,9 @@ public class BibIssueRepository {
                 WHERE r.event_id = :eventId AND r.is_del = 0 AND r.status = 'CONFIRMED' AND r.external_payment = 0
                   AND r.registration_date < :deadline
                   AND ((c.product_type IS NOT NULL
-                        AND NOT EXISTS (SELECT 1 FROM registration_item i WHERE i.registration_id = r.id))
-                    OR EXISTS (SELECT 1 FROM registration_item i WHERE i.registration_id = r.id
+                        AND NOT EXISTS (SELECT 1 FROM registration_item i WHERE i.registration_id = r.id
+                                        AND i.canceled_at IS NULL))
+                    OR EXISTS (SELECT 1 FROM registration_item i WHERE i.registration_id = r.id AND i.canceled_at IS NULL
                                AND NOT EXISTS (SELECT 1 FROM registration_entry e WHERE e.registration_item_id = i.id)))
                 """, eventId, deadline);
     }

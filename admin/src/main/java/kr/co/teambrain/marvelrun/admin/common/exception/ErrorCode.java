@@ -189,6 +189,8 @@ public enum ErrorCode {
             "상품(단품·패키지) 신청은 관리자 금액 조정을 할 수 없습니다. 전체 취소 후 다시 신청해 주세요."),
 
     // 단품 → 패키지 상향
+    REGISTRATION_ITEM_NOT_FOUND(HttpStatus.NOT_FOUND, "신청에 없는 상품입니다."),
+    REGISTRATION_ITEM_ALREADY_CANCELED(HttpStatus.CONFLICT, "이미 취소한 상품입니다."),
     ADMIN_PACKAGE_UPGRADE_PENDING(HttpStatus.CONFLICT,
             "패키지 상향 결제를 기다리는 신청입니다. 상향을 먼저 취소한 뒤 다시 시도해주세요."),
     PACKAGE_UPGRADE_NOT_FOUND(HttpStatus.NOT_FOUND, "진행 중인 패키지 상향이 없습니다."),

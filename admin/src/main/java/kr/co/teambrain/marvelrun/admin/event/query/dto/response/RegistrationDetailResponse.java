@@ -69,14 +69,18 @@ public record RegistrationDetailResponse(
         List<ItemResponse> items
 ) {
 
-    /** 구매 줄 하나. 받는 사람은 상위 entries에서 itemId로 찾는다. */
+    /**
+     * 구매 줄 하나. 받는 사람은 상위 entries에서 itemId로 찾는다.
+     * 부분 취소한 줄도 남기고 canceledAt을 채운다. 그 줄의 받는 사람은 entries에 없다.
+     */
     public record ItemResponse(
             String itemId,
             String eventCategoryId,
             String eventCategoryName,
             ProductType productType,
             BigDecimal amount,
-            List<SouvenirJson> selectedSouvenirList
+            List<SouvenirJson> selectedSouvenirList,
+            LocalDateTime canceledAt
     ) {
     }
 }

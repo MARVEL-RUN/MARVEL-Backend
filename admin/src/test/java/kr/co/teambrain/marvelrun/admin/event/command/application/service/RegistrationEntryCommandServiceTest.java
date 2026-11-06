@@ -124,6 +124,16 @@ class RegistrationEntryCommandServiceTest {
         assertError(ErrorCode.REGISTRATION_ENTRY_PACKAGE_ONLY, request(valid("ea")));
     }
 
+    /** 부분 취소한 상품의 받는 사람은 다른 신청의 항목처럼 거절하고 값을 바꾸지 않는다. */
+    @Test
+    void rejectsEntryOfCanceledLine() {
+        stubEntries(registration(pkg, false, null, false));
+        entryB.getRegistrationItem().cancel(NOW.minusDays(1));
+
+        assertError(ErrorCode.INVALID_REGISTRATION_ENTRIES, request(valid("eb")));
+        assertThat(entryB.getName()).isEqualTo("원래B");
+    }
+
     /** 다른 신청의 참가 항목 id는 거절한다. */
     @Test
     void rejectsForeignEntry() {
