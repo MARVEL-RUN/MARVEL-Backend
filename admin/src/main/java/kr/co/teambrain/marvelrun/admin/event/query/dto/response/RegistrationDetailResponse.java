@@ -69,15 +69,14 @@ public record RegistrationDetailResponse(
         List<ItemResponse> items
 ) {
 
-    /** 구매 줄 하나. 사용자 마이페이지 응답과 같은 모양이다. 받는 사람은 줄에 묶인 참가 항목이다. */
+    /** 구매 줄 하나. 받는 사람은 상위 entries에서 itemId로 찾는다. */
     public record ItemResponse(
             String itemId,
             String eventCategoryId,
             String eventCategoryName,
             ProductType productType,
             BigDecimal amount,
-            List<SouvenirJson> selectedSouvenirList,
-            List<RegistrationEntryResponse> entries
+            List<SouvenirJson> selectedSouvenirList
     ) {
     }
 }

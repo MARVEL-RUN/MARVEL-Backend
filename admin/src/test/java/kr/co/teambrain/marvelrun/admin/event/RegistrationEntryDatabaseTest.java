@@ -18,6 +18,7 @@ import kr.co.teambrain.marvelrun.admin.event.query.report.RegistrationDailyRepor
 import kr.co.teambrain.marvelrun.admin.event.query.service.RegistrationQueryService;
 import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationActionPolicyReader;
 import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationReservationHistoryResolver;
+import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationRowSouvenirs;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
@@ -56,7 +57,7 @@ import static org.mockito.Mockito.when;
         "spring.flyway.enabled=false", "spring.liquibase.enabled=false"})
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import({ReferenceFilterQueryService.class, RegistrationQueryService.class, RegistrationActionPolicyReader.class,
-        RegistrationRowQueryRepository.class, RegistrationReservationHistoryResolver.class,
+        RegistrationRowQueryRepository.class, RegistrationReservationHistoryResolver.class, RegistrationRowSouvenirs.class,
         RegistrationDailyReportQueryRepository.class})
 @ImportAutoConfiguration(JacksonAutoConfiguration.class)
 class RegistrationEntryDatabaseTest {
@@ -206,22 +207,22 @@ class RegistrationEntryDatabaseTest {
                 .containsExactly("공용키트", "공용키트", "공용키트");
     }
 
-    /** 신청 상세의 구매 줄은 상품 종류와 그 줄에 묶인 참가 항목을 함께 돌려준다. */
+    /** 신청 상세의 구매 줄은 상품 종류를 돌려주고, 참가 항목은 itemId로 그 줄을 가리킨다. */
     @Test
-    void detailReturnsItemsWithTheirEntries() {
+    void detailReturnsItemsAndEntriesPointToThem() {
         RegistrationDetailResponse packageDetail = queries.getRegistrationDetail(pkgRegistration.getId());
         assertThat(packageDetail.items()).hasSize(1);
         RegistrationDetailResponse.ItemResponse packageItem = packageDetail.items().getFirst();
         assertThat(packageItem.productType()).isEqualTo(ProductType.PACKAGE);
-        assertThat(packageItem.entries()).extracting(RegistrationEntryResponse::bibNumber)
+        assertThat(packageDetail.entries()).extracting(RegistrationEntryResponse::bibNumber)
                 .containsExactly("10001", "20001", "30001");
-        assertThat(packageItem.entries()).extracting(RegistrationEntryResponse::itemId)
+        assertThat(packageDetail.entries()).extracting(RegistrationEntryResponse::itemId)
                 .containsOnly(packageItem.itemId());
 
         RegistrationDetailResponse singleDetail = queries.getRegistrationDetail(singleRegistration.getId());
         assertThat(singleDetail.items()).hasSize(1);
         assertThat(singleDetail.items().getFirst().productType()).isEqualTo(ProductType.SINGLE);
-        assertThat(singleDetail.items().getFirst().entries()).extracting(RegistrationEntryResponse::bibNumber)
+        assertThat(singleDetail.entries()).extracting(RegistrationEntryResponse::bibNumber)
                 .containsExactly("10002");
     }
 
@@ -235,23 +236,26 @@ class RegistrationEntryDatabaseTest {
                 .containsExactlyInAnyOrder("5km | A", "10km | B", "3km | C", "5km | A");
     }
 
-    /** 참가 항목이 없는 패키지 신청은 통계와 보고서에서 빠진다. 패키지 종목 열이 생기거나 보고서 전체가 막히지 않게 한다. */
+    /** 참가 항목이 없는 패키지 신청도 빼지 않고 신청 종목(패키지) 한 행으로 센다. */
     @Test
-    void packageWithoutEntriesIsLeftOutOfStatisticsAndDailyReport() {
+    void packageWithoutEntriesIsCountedAsPackageCourse() {
         Registration noEntries = registration(eventId, pkg);
         em.flush();
         item(noEntries.getId());
         em.flush();
 
         List<RegistrationDailyReportRow> rows = dailyReport.findReportRows(eventId, NOW.minusDays(30), NOW.plusDays(400));
-        assertThat(rows).hasSize(4);
-        assertThat(rows).extracting(RegistrationDailyReportRow::courseName).doesNotContain("패키지");
+        assertThat(rows).hasSize(5);
+        assertThat(rows).extracting(RegistrationDailyReportRow::courseName).containsOnlyOnce("패키지");
 
-        assertThat(registrationQueries.findStatsByEventId(eventId)).hasSize(4)
-                .extracting(RegistrationStatDto::courseName).doesNotContain("패키지");
+        assertThat(registrationQueries.findStatsByEventId(eventId)).hasSize(5)
+                .extracting(RegistrationStatDto::courseName).containsOnlyOnce("패키지");
     }
 
-    /** 같은 신원 검사용 잠금 읽기는 본인과 삭제 이력을 빼고 같은 신원의 살아 있는 신청만 센다. */
+    /**
+     * 같은 신청자 주문 여러 건 허용 신청의 신원 검사용 잠금 읽기는 본인과 삭제 이력을 빼고 같은 신원의 살아 있는 신청만 센다.
+     * duplicate_allowed 행은 유니크 인덱스에서 빠지므로 같은 신원 두 행을 만들 수 있다.
+     */
     @Test
     void lockingIdentityCountIgnoresSelfAndDeletedRows() {
         jdbc.update("update registration set duplicate_allowed = 1, name = '같은신청자' where id in (?, ?)",

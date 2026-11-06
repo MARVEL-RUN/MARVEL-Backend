@@ -4,14 +4,13 @@ import jakarta.persistence.criteria.JoinType;
 import jakarta.servlet.http.HttpServletResponse;
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
+import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationSearchCondition;
-import kr.co.teambrain.marvelrun.admin.event.query.repository.EventCategorySouvenirQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationRowQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.SouvenirQueryRepository;
-import kr.co.teambrain.marvelrun.admin.event.query.repository.projection.RegistrationOptionProjection;
-import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationReservationHistoryResolver;
+import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationRowSouvenirs;
 import kr.co.teambrain.marvelrun.admin.event.query.util.RegistrationSpecification;
 import kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventFormat;
@@ -31,7 +30,6 @@ import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.regex.Pattern;
@@ -46,8 +44,8 @@ public class RegistrationExcelService {
     private final RegistrationQueryRepository registrationQueryRepository;
     private final SouvenirQueryRepository souvenirQueryRepository;
     private final RegistrationRowQueryRepository registrationRowQueryRepository;
-    private final EventCategorySouvenirQueryRepository eventCategorySouvenirQueryRepository;
-    private final RegistrationReservationHistoryResolver souvenirResolver;
+    private final RegistrationRowSouvenirs rowSouvenirs;
+    private final ServerTimeProvider serverTimeProvider;
 
     private static final int REGISTRATION_CHUNK_SIZE = 1000;
 
@@ -62,7 +60,7 @@ public class RegistrationExcelService {
     };
     /** 버추얼 "상품" 시트: 구매한 상품마다 한 행이다. 금액은 이 시트에만 있다. */
     private static final String[] LINE_HEADERS = {
-            "번호", "신청 ID", "주문자명", "주문자 전화번호", "이메일", "대회명", "상품", "기념품(사이즈)", "금액",
+            "번호", "신청 ID", "주문자명", "주문자 전화번호", "이메일", "대회명", "상품", "기념품(사이즈)", "상품 금액",
             "신청일시", "신청상태", "우편번호", "주소", "상세주소", "보호자명", "보호자 번호", "보호자 관계",
             "보호자 동의", "필수약관 동의", "마케팅 동의", "마케팅 채널 동의", "현재 명단 제외 여부"
     };
@@ -113,8 +111,7 @@ public class RegistrationExcelService {
                 specification,
                 Sort.by(Sort.Order.desc("registrationDate"), Sort.Order.desc("id"))
         );
-        Map<String, String> souvenirNames = loadSouvenirNames(registrations.stream()
-                .map(Registration::getSouvenirJson).toList());
+        Map<String, String> souvenirNames = loadSouvenirNames(registrations);
         writeWorkbook(registrations, souvenirNames, response);
     }
 
@@ -137,13 +134,18 @@ public class RegistrationExcelService {
             }
         }
 
-        // 행마다 구매 줄 기념품을 읽고, 이름은 한 번에 조회한다.
+        // 구매 줄 기념품은 줄마다 한 번만 읽고(구매 줄이 없으면 신청마다), 이름은 한 번에 조회한다.
+        Map<String, List<SouvenirJson>> readLines = new HashMap<>();
         List<List<SouvenirJson>> lineSouvenirs = new ArrayList<>();
         for (RegistrationRowQueryRepository.Row row : rows) {
-            lineSouvenirs.add(souvenirResolver.readSouvenirs(row.souvenirJson()));
+            String lineKey = row.itemId() != null ? row.itemId() : row.registrationId();
+            if (!readLines.containsKey(lineKey)) {
+                readLines.put(lineKey, rowSouvenirs.readLine(row.souvenirJson()));
+            }
+            lineSouvenirs.add(readLines.get(lineKey));
         }
-        Map<String, String> souvenirNames = loadSouvenirNames(lineSouvenirs);
-        Map<String, Set<String>> linkedSouvenirIds = linkedSouvenirIds(condition.eventId());
+        Map<String, String> souvenirNames = rowSouvenirs.names(new ArrayList<>(readLines.values()));
+        Map<String, Set<String>> linkedSouvenirIds = rowSouvenirs.linkedSouvenirIds(condition.eventId());
 
         // "상품" 시트: 구매 줄 하나에 한 행이다. 줄 금액은 그 줄의 금액이고, 구매 줄이 없는 신청은 계약금액이다.
         List<Object[]> lineValues = new ArrayList<>();
@@ -160,7 +162,7 @@ public class RegistrationExcelService {
                     lineNumber++, registration.getId(), registration.getName(), registration.getPhNum(),
                     emailOf(registration),
                     registration.getEvent() == null ? "" : registration.getEvent().getNameKr(),
-                    row.productName(), souvenirText(lineSouvenirs.get(index), souvenirNames),
+                    row.productName(), virtualSouvenirText(lineSouvenirs.get(index), souvenirNames),
                     row.itemId() == null ? registration.getContractAmount() : row.itemAmount(),
                     registration.getRegistrationDate(),
                     registration.getStatus() == null ? "" : registration.getStatus().getDisplayName(),
@@ -181,10 +183,10 @@ public class RegistrationExcelService {
             participantValues.add(new Object[]{
                     index + 1, registration.getId(), row.productName(),
                     row.entryCategoryName() != null ? row.entryCategoryName() : row.productName(),
-                    row.name(), row.gender() == GenderClass.M ? "남성" : "여성", row.birth(), row.phNum(),
+                    row.name(), genderName(row.gender()), row.birth(), row.phNum(),
                     row.bibNumber(),
-                    souvenirText(rowSouvenirs(lineSouvenirs.get(index), row.entryCategoryId(), linkedSouvenirIds),
-                            souvenirNames),
+                    virtualSouvenirText(rowSouvenirs.rowSouvenirs(
+                            lineSouvenirs.get(index), row.entryCategoryId(), linkedSouvenirIds), souvenirNames),
                     registration.getName(), registration.getPhNum(),
                     registration.getRegistrationDate(),
                     registration.getStatus() == null ? "" : registration.getStatus().getDisplayName(),
@@ -195,13 +197,13 @@ public class RegistrationExcelService {
     }
 
     /** 모든 선택 기념품의 이름을 한 번에 조회한다. */
-    private Map<String, String> loadSouvenirNames(List<List<SouvenirJson>> souvenirLists) {
+    private Map<String, String> loadSouvenirNames(List<Registration> registrations) {
         Set<String> ids = new LinkedHashSet<>();
-        for (List<SouvenirJson> souvenirs : souvenirLists) {
-            if (souvenirs == null) {
+        for (Registration registration : registrations) {
+            if (registration.getSouvenirJson() == null) {
                 continue;
             }
-            for (SouvenirJson souvenir : souvenirs) {
+            for (SouvenirJson souvenir : registration.getSouvenirJson()) {
                 if (souvenir != null && StringUtils.hasText(souvenir.souvenirId())) {
                     ids.add(souvenir.souvenirId());
                 }
@@ -215,26 +217,6 @@ public class RegistrationExcelService {
             }
         }
         return names;
-    }
-
-    /** 행의 기념품: 구매 줄 선택 가운데 그 행 종목에 연결된 것만 쓴다. 참가 항목이 없는 행은 줄 선택 전부다. */
-    private List<SouvenirJson> rowSouvenirs(List<SouvenirJson> lineSouvenirs, String entryCategoryId,
-                                            Map<String, Set<String>> linkedSouvenirIds) {
-        if (entryCategoryId == null) {
-            return lineSouvenirs;
-        }
-        Set<String> linked = linkedSouvenirIds.getOrDefault(entryCategoryId, Set.of());
-        return lineSouvenirs.stream().filter(souvenir -> linked.contains(souvenir.souvenirId())).toList();
-    }
-
-    /** 종목마다 연결된 기념품 ID를 모은다. 대회의 연결 조회는 한 번만 한다. */
-    private Map<String, Set<String>> linkedSouvenirIds(String eventId) {
-        Map<String, Set<String>> linked = new HashMap<>();
-        for (RegistrationOptionProjection option : eventCategorySouvenirQueryRepository
-                .findRegistrationOptionsProjectionByEventId(eventId)) {
-            linked.computeIfAbsent(option.getEventCategoryId(), key -> new HashSet<>()).add(option.getSouvenirId());
-        }
-        return linked;
     }
 
     /** 신청별 한글 상태·명단 제외 여부를 출력하고 금액·일시의 셀 자료형을 보존한다. */
@@ -272,29 +254,11 @@ public class RegistrationExcelService {
             int rowNumber = 1;
             for (Registration registration : registrations) {
                 Organization organization = registration.getOrganization();
-                // 참가자 개별 이메일을 먼저 확인하고, 없으면 단체장 또는 유저 이메일로
-                String email = registration.getEmail();
-                if (!StringUtils.hasText(email)) {
-                    email = organization != null ? organization.getEmail()
-                            : registration.getUser() == null ? "" : registration.getUser().getEmail();
-                }
-                String address = registration.getAddress();
-                String addressDetail = registration.getAddressDetail();
-                if (!StringUtils.hasText(address) && organization != null) {
-                    address = organization.getAddress();
-                    addressDetail = organization.getAddressDetail();
-                }
-                String zipcode = "";
-                if (address != null) {
-                    int separator = address.lastIndexOf('_');
-                    if (separator >= 0 && address.substring(separator + 1).matches("\\d{5}")) {
-                        zipcode = address.substring(separator + 1);
-                        address = address.substring(0, separator);
-                    }
-                }
+                String email = emailOf(registration);
+                Object[] address = addressOf(registration);
                 Object[] values = {
                         rowNumber, registration.getId(), organization == null ? "개인" : "단체",
-                        registration.getName(), genderName(registration), registration.getBirth(),
+                        registration.getName(), genderName(registration.getGender()), registration.getBirth(),
                         registration.getPhNum(), email,
                         registration.getEvent() == null ? "" : registration.getEvent().getNameKr(),
                         organization == null ? "" : organization.getGroupName(),
@@ -304,7 +268,7 @@ public class RegistrationExcelService {
                         souvenirText(registration.getSouvenirJson(), souvenirNames),
                         registration.getRegistrationDate(), registration.getContractAmount(),
                         registration.getStatus() == null ? "" : registration.getStatus().getDisplayName(),
-                        zipcode, address, addressDetail, registration.getGuardianName(),
+                        address[0], address[1], address[2], registration.getGuardianName(),
                         registration.getGuardianPhNum(), registration.getGuardianRelationship(),
                         registration.isGuardianConsent(), registration.getTermsEssentialAgreed(),
                         registration.getTermsMarketingAgreed(), registration.getTermsMarketingChannelAgreed(),
@@ -374,7 +338,7 @@ public class RegistrationExcelService {
 
     /** 다운로드 응답 헤더를 쓰고 워크북을 내보낸다. */
     private void writeResponse(SXSSFWorkbook workbook, HttpServletResponse response) throws IOException {
-        String timestamp = LocalDateTime.now(ZoneId.of("Asia/Seoul"))
+        String timestamp = serverTimeProvider.currentDateTime()
                 .format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
         String filename = URLEncoder.encode("마블런_신청목록_" + timestamp + ".xlsx",
                 StandardCharsets.UTF_8).replace("+", "%20");
@@ -440,14 +404,14 @@ public class RegistrationExcelService {
     }
 
     /** 저장된 성별을 표시명으로 바꾸며 미입력은 빈 셀로 유지한다. */
-    private String genderName(Registration registration) {
-        if (registration.getGender() == null) {
+    private String genderName(GenderClass gender) {
+        if (gender == null) {
             return "";
         }
-        return switch (registration.getGender().name()) {
+        return switch (gender.name()) {
             case "M" -> "남성";
             case "F" -> "여성";
-            default -> registration.getGender().name();
+            default -> gender.name();
         };
     }
 
@@ -461,6 +425,11 @@ public class RegistrationExcelService {
                         + (StringUtils.hasText(souvenir.selectedSize())
                         ? " (" + clean(souvenir.selectedSize()) + ")" : ""))
                 .collect(Collectors.joining(" | "));
+    }
+
+    /** 버추얼 행의 기념품 칸이다. 구매 줄 JSON을 못 읽었으면(null) 엑셀 전체를 실패시키지 않고 확인 문구를 쓴다. */
+    private String virtualSouvenirText(List<SouvenirJson> souvenirs, Map<String, String> names) {
+        return souvenirs == null ? "기념품 확인 필요" : souvenirText(souvenirs, names);
     }
 
     /** XML 제어 문자를 제거하고 엑셀 셀의 최대 문자 수를 지킨다. */

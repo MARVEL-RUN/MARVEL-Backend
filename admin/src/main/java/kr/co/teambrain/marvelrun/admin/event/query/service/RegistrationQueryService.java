@@ -26,16 +26,14 @@ import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationEntr
 import kr.co.teambrain.marvelrun.admin.event.command.repository.PackageUpgradeCommandRepository;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.upgrade.PackageUpgradeStatus;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationListResponse;
-import kr.co.teambrain.marvelrun.admin.event.query.repository.EventCategorySouvenirQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.PaymentQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationEntryQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationItemQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationRowQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.SouvenirQueryRepository;
-import kr.co.teambrain.marvelrun.admin.event.query.repository.projection.RegistrationOptionProjection;
 import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationActionPolicyReader;
-import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationReservationHistoryResolver;
+import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationRowSouvenirs;
 import kr.co.teambrain.marvelrun.admin.event.query.util.RegistrationSpecification;
 import kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventFormat;
@@ -44,7 +42,6 @@ import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentMetho
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentProcessStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import lombok.RequiredArgsConstructor;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCategoryStartGroup;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.EventCategoryStartGroupRepository;
@@ -74,8 +71,7 @@ public class RegistrationQueryService {
     private final SouvenirQueryRepository souvenirQueryRepository;
     private final PackageUpgradeCommandRepository packageUpgrades;
     private final RegistrationRowQueryRepository registrationRowQueryRepository;
-    private final EventCategorySouvenirQueryRepository eventCategorySouvenirQueryRepository;
-    private final RegistrationReservationHistoryResolver souvenirResolver;
+    private final RegistrationRowSouvenirs rowSouvenirs;
     private static final LocalDate CHILD_CUTOFF_DATE = LocalDate.of(2013, 11, 1);
 
     /** 현재 페이지의 그룹 코드를 일괄 조회하고 기존 정렬·건수를 유지한다. 버추얼 대회는 참가자마다 한 행이다. */
@@ -147,10 +143,10 @@ public class RegistrationQueryService {
 
         // 행의 기념품: 구매 줄 선택 가운데 그 행 종목에 연결된 것만 쓴다.
         List<List<SouvenirJson>> lineSouvenirs = rows.stream()
-                .map(row -> readLineSouvenirs(row.souvenirJson()))
+                .map(row -> rowSouvenirs.readLine(row.souvenirJson()))
                 .toList();
-        Map<String, Set<String>> linkedSouvenirIds = linkedSouvenirIds(condition.eventId());
-        Map<String, String> souvenirNames = findSouvenirNames(lineSouvenirs);
+        Map<String, Set<String>> linkedSouvenirIds = rowSouvenirs.linkedSouvenirIds(condition.eventId());
+        Map<String, String> souvenirNames = rowSouvenirs.names(lineSouvenirs);
 
         List<RegistrationListResponse> content = new ArrayList<>();
         for (int index = 0; index < rows.size(); index++) {
@@ -158,7 +154,10 @@ public class RegistrationQueryService {
             Registration registration = registrations.get(row.registrationId());
             boolean isOrganization = registration.getOrganization() != null;
             Payment payment = payments.get(row.registrationId());
-            String souvenirName = rowSouvenirs(lineSouvenirs.get(index), row.entryCategoryId(), linkedSouvenirIds).stream()
+            List<SouvenirJson> souvenirs = rowSouvenirs.rowSouvenirs(
+                    lineSouvenirs.get(index), row.entryCategoryId(), linkedSouvenirIds);
+            // 구매 줄 기념품 JSON을 못 읽은 행은 페이지 전체를 실패시키지 않고 확인 문구를 쓴다.
+            String souvenirName = souvenirs == null ? "기념품 확인 필요" : souvenirs.stream()
                     .map(souvenir -> souvenirNames.getOrDefault(souvenir.souvenirId(), ""))
                     .collect(Collectors.joining(" | "));
 
@@ -190,47 +189,6 @@ public class RegistrationQueryService {
                     .build());
         }
         return new PageImpl<>(content, pageable, totalElements);
-    }
-
-    /** 구매 줄의 기념품 선택 JSON을 읽는다. 형식이 깨졌으면 내부 오류로 응답한다. */
-    private List<SouvenirJson> readLineSouvenirs(String json) {
-        try {
-            return souvenirResolver.readSouvenirs(json);
-        } catch (JsonProcessingException exception) {
-            throw new CustomException(ErrorCode.INTERNAL_SERVER_ERROR, "구매 줄 기념품 JSON 해석 실패");
-        }
-    }
-
-    /** 행의 기념품을 고른다. 참가 항목이 없는 행은 구매 줄의 선택 전부다. */
-    private List<SouvenirJson> rowSouvenirs(List<SouvenirJson> lineSouvenirs, String entryCategoryId,
-                                            Map<String, Set<String>> linkedSouvenirIds) {
-        if (entryCategoryId == null) {
-            return lineSouvenirs;
-        }
-        Set<String> linked = linkedSouvenirIds.getOrDefault(entryCategoryId, Set.of());
-        return lineSouvenirs.stream().filter(souvenir -> linked.contains(souvenir.souvenirId())).toList();
-    }
-
-    /** 종목마다 연결된 기념품 ID를 모은다. 대회의 연결 조회는 한 번만 한다. */
-    private Map<String, Set<String>> linkedSouvenirIds(String eventId) {
-        Map<String, Set<String>> linked = new HashMap<>();
-        for (RegistrationOptionProjection option : eventCategorySouvenirQueryRepository
-                .findRegistrationOptionsProjectionByEventId(eventId)) {
-            linked.computeIfAbsent(option.getEventCategoryId(), key -> new HashSet<>()).add(option.getSouvenirId());
-        }
-        return linked;
-    }
-
-    /** 페이지 행들이 가진 기념품 ID의 이름을 한 번에 읽는다. */
-    private Map<String, String> findSouvenirNames(List<List<SouvenirJson>> lineSouvenirs) {
-        List<String> ids = lineSouvenirs.stream().flatMap(List::stream)
-                .map(SouvenirJson::souvenirId).distinct().toList();
-        if (ids.isEmpty()) {
-            return Map.of();
-        }
-        return souvenirQueryRepository.findNamesByIds(ids).stream()
-                .collect(Collectors.toMap(SouvenirQueryRepository.SouvenirNameProjection::getId,
-                        SouvenirQueryRepository.SouvenirNameProjection::getName, (first, second) -> first));
     }
 
     /** 일괄 조회한 표시 코드와 기존 목록 정보를 결합한다. */
@@ -396,7 +354,7 @@ public class RegistrationQueryService {
                         .map(RegistrationEntryResponse::from).toList())
                 .entriesEditable(!registration.isSoftDeleted()
                         && registration.isProductPurchase())
-                .items(toItemResponses(registration.getId(), entries))
+                .items(toItemResponses(registration.getId()))
                 .packageUpgrade(packageUpgrades.findAllByRegistrations(List.of(registration.getId()), PackageUpgradeStatus.PENDING)
                         .stream().findFirst().map(PackageUpgradeSummaryResponse::from).orElse(null))
                 .referenceFilter(referenceFilters.loadReferenceFilterSummaries(Collections.singletonList(registration.getReferenceFilterId())).get(registration.getReferenceFilterId()))
@@ -438,11 +396,8 @@ public class RegistrationQueryService {
                 .build();
     }
 
-    /** 구매 줄마다 그 줄에 묶인 참가 항목을 모아 돌려준다. 참가 항목은 종목 순서대로 이미 정렬돼 있다. */
-    private List<RegistrationDetailResponse.ItemResponse> toItemResponses(String registrationId, List<RegistrationEntry> entries) {
-        Map<String, List<RegistrationEntryResponse>> entriesByItem = entries.stream()
-                .collect(Collectors.groupingBy(entry -> entry.getRegistrationItem().getId(), LinkedHashMap::new,
-                        Collectors.mapping(RegistrationEntryResponse::from, Collectors.toList())));
+    /** 신청의 구매 줄을 줄 순서대로 돌려준다. */
+    private List<RegistrationDetailResponse.ItemResponse> toItemResponses(String registrationId) {
         return registrationItemRepository.findByRegistration_IdOrderBySortOrderAsc(registrationId).stream()
                 .map(item -> new RegistrationDetailResponse.ItemResponse(
                         item.getId(),
@@ -450,8 +405,7 @@ public class RegistrationQueryService {
                         item.getEventCategory().getName(),
                         item.getEventCategory().getProductType(),
                         item.getAmount(),
-                        item.getSouvenirJson() == null ? List.of() : item.getSouvenirJson(),
-                        entriesByItem.getOrDefault(item.getId(), List.of())))
+                        item.getSouvenirJson() == null ? List.of() : item.getSouvenirJson()))
                 .toList();
     }
 

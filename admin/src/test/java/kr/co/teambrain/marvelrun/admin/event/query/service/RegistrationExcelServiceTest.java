@@ -6,6 +6,7 @@ import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Root;
+import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationSearchCondition;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.EventCategorySouvenirQueryRepository;
@@ -13,6 +14,7 @@ import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryR
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationRowQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.SouvenirQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationReservationHistoryResolver;
+import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationRowSouvenirs;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventFormat;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
@@ -29,6 +31,9 @@ import org.springframework.mock.web.MockHttpServletResponse;
 
 import java.io.ByteArrayInputStream;
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -47,7 +52,9 @@ class RegistrationExcelServiceTest {
     private final RegistrationRowQueryRepository rowRepository = mock(RegistrationRowQueryRepository.class);
     private final RegistrationExcelService service = new RegistrationExcelService(
             repository, mock(SouvenirQueryRepository.class), rowRepository,
-            mock(EventCategorySouvenirQueryRepository.class), new RegistrationReservationHistoryResolver(new ObjectMapper()));
+            new RegistrationRowSouvenirs(new RegistrationReservationHistoryResolver(new ObjectMapper()),
+                    mock(EventCategorySouvenirQueryRepository.class), mock(SouvenirQueryRepository.class)),
+            new ServerTimeProvider(Clock.fixed(Instant.parse("2026-11-07T00:00:00Z"), ZoneId.of("Asia/Seoul"))));
 
     /** 선택 ID 유무에 따른 삭제 필터와 대회·검색·단체 조건 및 정렬 계약을 검증한다. */
     @ParameterizedTest
@@ -192,7 +199,7 @@ class RegistrationExcelServiceTest {
             Sheet lines = workbook.getSheet("상품");
             assertThat(lines.getLastRowNum()).isEqualTo(3);
             assertThat(lines.getRow(0).getLastCellNum()).isEqualTo((short) 22);
-            assertThat(lines.getRow(0).getCell(8).getStringCellValue()).isEqualTo("금액");
+            assertThat(lines.getRow(0).getCell(8).getStringCellValue()).isEqualTo("상품 금액");
             assertThat(lines.getRow(1).getCell(6).getStringCellValue()).isEqualTo("패키지");
             assertThat(lines.getRow(1).getCell(8).getNumericCellValue()).isEqualTo(30000);
             assertThat(lines.getRow(2).getCell(8).getNumericCellValue()).isEqualTo(10000);
@@ -211,6 +218,25 @@ class RegistrationExcelServiceTest {
             assertThat(participants.getRow(3).getCell(8).getStringCellValue()).isEqualTo("30001");
             assertThat(participants.getRow(4).getCell(8).getStringCellValue()).isEmpty();
             assertThat(participants.getRow(5).getCell(4).getStringCellValue()).isEqualTo("항목없음");
+        }
+    }
+
+    /** 구매 줄 기념품 JSON이 깨져도 엑셀은 만들어지고, 그 줄의 기념품 칸에는 확인 문구가 들어간다. */
+    @Test
+    void virtualWritesCheckTextWhenLineSouvenirJsonIsBroken() throws Exception {
+        when(repository.findEventFormatById("event-1")).thenReturn(EventFormat.VIRTUAL);
+        when(repository.findByIdIn(any())).thenReturn(List.of(Registration.builder().id("r1").name("주문자").build()));
+        when(rowRepository.find(any(), any(), any(), any())).thenReturn(List.of(
+                new RegistrationRowQueryRepository.Row("r1", "i1", "어벤저스", new BigDecimal("40000"), "{broken",
+                        "e1", "c1", "어벤저스", "주문자", "19900101", GenderClass.M, "01000000000", null)));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        service.download(new RegistrationSearchCondition("event-1", null, null, null, null),
+                null, null, response);
+
+        try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(response.getContentAsByteArray()))) {
+            assertThat(workbook.getSheet("상품").getRow(1).getCell(7).getStringCellValue()).isEqualTo("기념품 확인 필요");
+            assertThat(workbook.getSheet("참가자").getRow(1).getCell(9).getStringCellValue()).isEqualTo("기념품 확인 필요");
         }
     }
 

@@ -74,7 +74,8 @@ public class RegistrationRowQueryRepository {
                 rs.getString("item_id"), rs.getString("product_name"), rs.getBigDecimal("item_amount"),
                 rs.getString("souvenir_json"), rs.getString("entry_id"), rs.getString("entry_category_id"),
                 rs.getString("entry_category_name"), rs.getString("name"), rs.getString("birth"),
-                GenderClass.valueOf(rs.getString("gender")), rs.getString("ph_num"), rs.getString("bib_number")));
+                rs.getString("gender") == null ? null : GenderClass.valueOf(rs.getString("gender")),
+                rs.getString("ph_num"), rs.getString("bib_number")));
     }
 
     /** 검색 조건을 WHERE 절로 만든다. 값은 params에 담는다. */
