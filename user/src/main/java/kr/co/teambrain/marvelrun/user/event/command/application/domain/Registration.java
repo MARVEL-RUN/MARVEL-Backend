@@ -1,6 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.domain;
 
 
+import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import kr.co.teambrain.marvelrun.common.entity.RegistrationBase;
@@ -122,7 +123,8 @@ public class Registration extends RegistrationBase<
             String encodedPassword,
             BigDecimal contractAmount,
             LocalDateTime now,
-            boolean duplicateAllowed
+            boolean duplicateAllowed,
+            String ordererKey
     ) {
 
         String guardianName = request.guardianName();
@@ -164,6 +166,7 @@ public class Registration extends RegistrationBase<
                 .termsAgreedAt(now)
                 .email(request.email())
                 .duplicateAllowed(duplicateAllowed)
+                .ordererKey(ordererKey)
                 .build();
     }
 
@@ -487,6 +490,44 @@ public class Registration extends RegistrationBase<
         }
         this.contractAmount = contractAmount.subtract(amount);
         this.status = RegistrationStatus.CONFIRMED;
+    }
+
+    /** 토큰 주문자의 개인 주문인지 본다. 취소 여부는 호출한 업무가 판단한다. */
+    public boolean isOwnedBy(String ordererKey) {
+        return ordererKey != null && organization == null && ordererKey.equals(this.ordererKey);
+    }
+
+    /** 로그인한 주문자가 주문 주소(배송지)만 바꾼다. 검증은 호출자가 한다. */
+    public void changeAddress(String address, String addressDetail) {
+        if (organization != null || softDeleted) {
+            throw new CustomException(ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET);
+        }
+        this.address = address;
+        this.addressDetail = addressDetail;
+    }
+
+    /**
+     * 주문자 정보 일괄 변경. 같은 주문자 키의 모든 주문(취소 포함)에 같은 값을 넣는다.
+     * 취소한 주문도 바꿔야 새 신원으로 로그인했을 때 같은 주문자로 묶인다. 검증은 호출자가 살아 있는 주문에만 한다.
+     */
+    public void changeOrdererIdentity(String name, String phNum, String birth, GenderClass gender) {
+        if (organization != null) {
+            throw new CustomException(ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET);
+        }
+        this.name = name;
+        this.phNum = phNum;
+        this.birth = birth;
+        this.gender = gender;
+    }
+
+    /**
+     * 주문자 비밀번호 일괄 변경. 취소한 주문도 바꾼다. 그대로 두면 취소 주문의 옛 비밀번호로 같은 주문자에 로그인된다.
+     */
+    public void changeOrdererPassword(String encodedPassword) {
+        if (organization != null) {
+            throw new CustomException(ErrorCode.INVALID_REGISTRATION_MODIFICATION_TARGET);
+        }
+        this.password = encodedPassword;
     }
 
     /**

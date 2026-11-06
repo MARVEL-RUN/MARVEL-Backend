@@ -12,8 +12,10 @@ import kr.co.teambrain.marvelrun.user.common.security.details.CustomAdminDetail;
 import kr.co.teambrain.marvelrun.user.common.security.util.JwtTokenProvider;
 import kr.co.teambrain.marvelrun.user.common.security.util.JwtUtil;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.Registration;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.policy.EventRegistrationPolicy;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationAccessRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.valid.RegistrationAccessVerifier;
+import kr.co.teambrain.marvelrun.user.event.command.repository.EventRegistrationPolicyRepository;
 import kr.co.teambrain.marvelrun.user.event.command.repository.RegistrationCommandRepository;
 import kr.co.teambrain.marvelrun.user.participantauth.command.application.dto.ParticipantLoginResponse;
 import kr.co.teambrain.marvelrun.user.participantauth.command.application.dto.ParticipantTokens;
@@ -27,7 +29,8 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * 개인 본인확인(이름·생년월일·휴대폰·비밀번호)으로 참가자 토큰을 주고, 재발급·로그아웃을 처리한다.
- * 토큰의 subject는 신청 id, role은 PARTICIPANT다. 살아 있는 개인 신청만 로그인할 수 있다.
+ * 토큰의 subject는 주문자 키(registration.orderer_key), role은 PARTICIPANT다. 한 토큰으로 그 주문자의 주문을 모두 다룬다.
+ * 공개 조회·관리를 닫은 대회(public_registration_access_enabled = 0)만 로그인할 수 있다.
  */
 @Service
 @RequiredArgsConstructor
@@ -39,6 +42,7 @@ public class ParticipantAuthCommandService {
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final RegistrationCommandRepository registrationRepository;
+    private final EventRegistrationPolicyRepository policyRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final JwtUtil jwtUtil;
@@ -46,12 +50,15 @@ public class ParticipantAuthCommandService {
     private final TokenProperties tokenProperties;
 
     /**
-     * 기존 개인 조회와 같은 값으로 신청을 찾는다. 실패 이유는 응답으로 구분하지 않는다.
-     * 취소된 신청의 이력은 공개 조회로 본다.
+     * 기존 개인 조회와 같은 값으로 주문을 찾는다. 실패 이유는 응답으로 구분하지 않는다.
+     * 취소한 주문도 후보다. 살아 있는 주문을 먼저 보므로 같은 신원의 주문자가 둘이면 살아 있는 쪽으로 로그인한다.
      */
     @Transactional(readOnly = true)
     public ParticipantTokens login(String eventId, RegistrationAccessRequest access) {
-        List<Registration> candidates = registrationRepository.findActivePersonalByIdentity(
+        // 대회마다 같으므로 비밀번호 대조(BCrypt) 전에 거절한다.
+        validateLoginAvailable(eventId);
+
+        List<Registration> candidates = registrationRepository.findParticipantLoginCandidates(
                 eventId, access.name(), access.phNum(), access.birth());
 
         Registration matched = null;
@@ -72,11 +79,14 @@ public class ParticipantAuthCommandService {
 
         ParticipantTokens tokens = createTokens(matched);
         redisService.saveParticipantRefreshToken(
-                matched.getId(), tokens.refreshToken(), refreshTtlMillis(), TimeUnit.MILLISECONDS);
+                matched.getOrdererKey(), tokens.refreshToken(), refreshTtlMillis(), TimeUnit.MILLISECONDS);
         return tokens;
     }
 
-    /** 참가자 refresh로 토큰 두 개를 새로 받는다. 삭제된 신청이 계속 재발급받지 않도록 신청을 한 번 본다. */
+    /**
+     * 참가자 refresh로 토큰 두 개를 새로 받는다.
+     * 주문자의 주문이 남아 있는지와 대회가 아직 로그인 대상인지 한 번 본다. 모두 취소한 주문자도 재발급받는다.
+     */
     @Transactional(readOnly = true)
     public ParticipantTokens refresh(String refreshHeader) {
         String refreshToken = extractToken(refreshHeader, AuthErrorCode.MISSING_REFRESH_HEADER);
@@ -86,21 +96,25 @@ public class ParticipantAuthCommandService {
             throw new JwtAuthenticationException(AuthErrorCode.INVALID_REFRESH_TOKEN);
         }
 
-        String registrationId = claims.getSubject();
-        if (registrationId == null
-                || !redisService.isValidParticipantRefreshToken(registrationId, refreshToken)) {
+        String ordererKey = claims.getSubject();
+        if (ordererKey == null
+                || !redisService.isValidParticipantRefreshToken(ordererKey, refreshToken)) {
             throw new JwtAuthenticationException(AuthErrorCode.INVALID_REFRESH_TOKEN);
         }
 
-        Registration registration = registrationRepository.findById(registrationId)
-                .filter(found -> !found.isSoftDeleted() && found.getOrganization() == null)
-                .orElseThrow(() -> new JwtAuthenticationException(AuthErrorCode.INVALID_REFRESH_TOKEN));
+        List<Registration> orders = registrationRepository.findOrdererRegistrations(ordererKey);
+        if (orders.isEmpty()) {
+            throw new JwtAuthenticationException(AuthErrorCode.INVALID_REFRESH_TOKEN);
+        }
+        // 살아 있는 주문, 최근 신청 순이므로 첫 주문이 대표다.
+        Registration representative = orders.getFirst();
+        validateLoginAvailable(representative.getEvent().getId());
 
-        ParticipantTokens tokens = createTokens(registration);
+        ParticipantTokens tokens = createTokens(representative, orders.size());
 
         // 위 확인 뒤에 로그아웃이나 다른 재발급이 먼저 끝났으면 저장된 값이 달라져 교체가 실패한다.
         if (!redisService.replaceParticipantRefreshToken(
-                registrationId, refreshToken, tokens.refreshToken(), refreshTtlMillis())) {
+                ordererKey, refreshToken, tokens.refreshToken(), refreshTtlMillis())) {
             throw new JwtAuthenticationException(AuthErrorCode.INVALID_REFRESH_TOKEN);
         }
         return tokens;
@@ -127,15 +141,29 @@ public class ParticipantAuthCommandService {
         }
     }
 
-    private ParticipantTokens createTokens(Registration registration) {
+    /** 공개 조회·관리를 닫은 대회만 로그인한다. 열린 대회(오프라인)는 공개 조회로 관리한다. 정책 행이 없으면 열린 대회로 본다. */
+    private void validateLoginAvailable(String eventId) {
+        boolean publicAccessEnabled = policyRepository.findByEventId(eventId)
+                .map(EventRegistrationPolicy::isPublicRegistrationAccessEnabled)
+                .orElse(true);
+        if (publicAccessEnabled) {
+            throw new CustomException(ErrorCode.PARTICIPANT_LOGIN_NOT_AVAILABLE, " eventId=" + eventId);
+        }
+    }
+
+    private ParticipantTokens createTokens(Registration matched) {
+        return createTokens(matched, registrationRepository.findOrdererRegistrations(matched.getOrdererKey()).size());
+    }
+
+    private ParticipantTokens createTokens(Registration registration, int orderCount) {
         CustomAdminDetail participant = new CustomAdminDetail(
-                registration.getId(), TOKEN_NAME, ParticipantTokenRole.PARTICIPANT.name());
+                registration.getOrdererKey(), TOKEN_NAME, ParticipantTokenRole.PARTICIPANT.name());
 
         return new ParticipantTokens(
                 jwtTokenProvider.createAccessToken(participant),
                 jwtTokenProvider.createRefreshToken(participant),
                 new ParticipantLoginResponse(
-                        registration.getId(), registration.getEvent().getId(), registration.getName()));
+                        registration.getId(), registration.getEvent().getId(), registration.getName(), orderCount));
     }
 
     private long refreshTtlMillis() {

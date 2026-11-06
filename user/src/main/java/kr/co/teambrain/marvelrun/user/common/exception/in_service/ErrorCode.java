@@ -37,6 +37,8 @@ public enum ErrorCode {
     PACKAGE_UPGRADE_STATE_CONFLICT(HttpStatus.CONFLICT, "패키지 상향 상태가 맞지 않습니다. 관리자에게 문의해주세요."),
     PACKAGE_UPGRADE_MULTI_ITEM_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "상품을 여러 개 담은 신청은 아직 패키지로 상향할 수 없습니다."),
     REGISTRATION_LOGIN_REQUIRED(HttpStatus.CONFLICT, "로그인한 뒤 마이페이지에서 확인해주세요."),
+    PARTICIPANT_LOGIN_NOT_AVAILABLE(HttpStatus.CONFLICT, "이 대회는 신청 조회에서 신청 내역을 확인해주세요."),
+    PARTICIPANT_ORDER_SELECTION_REQUIRED(HttpStatus.CONFLICT, "주문이 여러 건입니다. 마이페이지에서 주문을 골라주세요."),
 
     EXTERNAL_PAYMENT_REGISTRATION_RESTRICTED(
             HttpStatus.CONFLICT,

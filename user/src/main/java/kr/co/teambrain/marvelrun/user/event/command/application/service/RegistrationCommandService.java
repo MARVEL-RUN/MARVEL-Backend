@@ -48,6 +48,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
 
@@ -116,7 +117,23 @@ public class RegistrationCommandService {
             String eventId,
             RegistrationCreateRequest request
     ) {
-        return register(eventId, request, false);
+        // 첫 공개 주문이 새 주문자다. 로그인 뒤 추가 주문은 registerAdditional로 이 값을 이어 받는다.
+        return create(eventId, request, false, null, UUID.randomUUID().toString());
+    }
+
+    /**
+     * 로그인한 주문자의 추가 주문을 만든다.
+     * 신원·비밀번호 해시·주문자 키는 호출자가 기존 주문에서 복사해 넘긴다. request.password()는 쓰지 않는다.
+     * 같은 신청자 주문 여러 건을 허용한 대회에서만 같은 신청자 거절을 건너뛴다.
+     */
+    @Transactional
+    public RegistrationCreateResponse registerAdditional(
+            String eventId,
+            RegistrationCreateRequest request,
+            String encodedPassword,
+            String ordererKey
+    ) {
+        return create(eventId, request, true, Objects.requireNonNull(encodedPassword), ordererKey);
     }
 
     /**
@@ -125,12 +142,15 @@ public class RegistrationCommandService {
      * @param additionalOrder 로그인한 신청자의 추가 주문이면 true.
      *                        같은 신청자 주문 여러 건을 허용한 대회에서 같은 신청자 거절을 건너뛴다.
      *                        공개 신청은 false다.
+     * @param copiedPasswordHash 추가 주문이 기존 주문에서 복사한 비밀번호 해시. 공개 신청은 null이고 request.password()를 인코딩한다.
+     * @param ordererKey 주문자 키. 공개 신청은 새 값, 추가 주문은 기존 주문의 값
      */
-    @Transactional
-    public RegistrationCreateResponse register(
+    private RegistrationCreateResponse create(
             String eventId,
             RegistrationCreateRequest request,
-            boolean additionalOrder
+            boolean additionalOrder,
+            String copiedPasswordHash,
+            String ordererKey
     ) {
         registrationCapacityService.lockEvent(eventId);
 
@@ -169,11 +189,14 @@ public class RegistrationCommandService {
                 : RegistrationPricingService.sum(itemPrices);
         BigDecimal contractAmount = discountPrice.finalAmount();
 
-        // BCrypt의 입력 한도를 넘는 원문은 자르지 않고 업무 오류로 거부한다.
-        if (request.password().getBytes(StandardCharsets.UTF_8).length > 72) {
-            throw new CustomException(ErrorCode.REGISTRATION_PASSWORD_TOO_LONG);
+        String encodedPassword = copiedPasswordHash;
+        if (encodedPassword == null) {
+            // BCrypt의 입력 한도를 넘는 원문은 자르지 않고 업무 오류로 거부한다.
+            if (request.password().getBytes(StandardCharsets.UTF_8).length > 72) {
+                throw new CustomException(ErrorCode.REGISTRATION_PASSWORD_TOO_LONG);
+            }
+            encodedPassword = passwordEncoder.encode(request.password());
         }
-        String encodedPassword = passwordEncoder.encode(request.password());
         Registration registration =
                 Registration.createForPaymentMvp(
                         event,
@@ -183,7 +206,8 @@ public class RegistrationCommandService {
                         encodedPassword,
                         contractAmount,
                         now,
-                        context.duplicateAllowed()
+                        context.duplicateAllowed(),
+                        ordererKey
                 );
 
         // 비대상 종목도 링크 자격을 보존하며 실제 적용 내역은 별도 계산 기록에 남긴다.

@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import kr.co.teambrain.marvelrun.user.participantauth.command.application.service.ParticipantOrderAccess;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult;
@@ -18,12 +19,20 @@ public class RegistrationCancellationCommandService {
     private final RegistrationCancellationTransactionService transactions;
     private final ModificationRefundExecutor refunds;
     private final ModificationRefundResultReader results;
+    private final ParticipantOrderAccess orderAccess;
 
     /** 개인 신청을 취소하고 실제 저장된 환불 결과를 반환한다. */
     public RegistrationModificationSettlementResult cancelPersonal(String eventId, String registrationId,
             RegistrationAccessRequest access) {
         requireNoTransaction();
         return finish(eventId, null, transactions.cancelPersonal(eventId, registrationId, access));
+    }
+
+    /** 로그인한 주문자의 주문을 취소한다. 공개 개인 취소와 같은 처리·환불 실행을 탄다. */
+    public RegistrationModificationSettlementResult cancelOwnedPersonal(String registrationId, String ordererKey) {
+        requireNoTransaction();
+        String eventId = orderAccess.findOwned(registrationId, ordererKey).getEvent().getId();
+        return finish(eventId, null, transactions.cancelOwnedPersonal(eventId, registrationId, ordererKey));
     }
 
     /** DB가 확정한 단체 전체 구성원을 취소하고 원결제별 환불 결과를 반환한다. */

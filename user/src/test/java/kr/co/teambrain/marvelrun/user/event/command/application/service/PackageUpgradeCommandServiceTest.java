@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import jakarta.persistence.EntityManager;
 import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
@@ -94,13 +95,30 @@ class PackageUpgradeCommandServiceTest {
         when(time.currentDateTime()).thenReturn(NOW);
     }
 
+    /** 다른 주문자의 주문은 잠금 뒤 다시 읽은 행으로 거절하고, 요청·결제창·취소 모두 상향을 건드리지 않는다. */
+    @Test
+    void rejectsOtherOrderersRegistration() {
+        locked(confirmed());
+
+        for (ThrowingCallable call : List.<ThrowingCallable>of(
+                () -> service.request("registration", "other-orderer", request()),
+                () -> service.preparePayment("registration", "other-orderer"),
+                () -> service.cancel("registration", "other-orderer"))) {
+            assertThatThrownBy(call)
+                    .isInstanceOf(CustomException.class)
+                    .extracting(e -> ((CustomException) e).getErrorCode())
+                    .isEqualTo(ErrorCode.REGISTRATION_ACCESS_DENIED);
+        }
+        verifyNoInteractions(capacitySupport, additionalPayments, pricing, upgradeRepository);
+    }
+
     /** 납부액이 비어 있는 이전 데이터는 500이 아니라 상향 불가로 거절하고 정원을 잡지 않는다. */
     @Test
     void rejectsNullPaidAmountBeforeHolding() {
-        locked(Registration.builder().id("registration").event(event).eventCategory(avengers)
+        locked(Registration.builder().id("registration").ordererKey("orderer").event(event).eventCategory(avengers)
                 .status(RegistrationStatus.CONFIRMED).contractAmount(SINGLE_PRICE).paidAmount(null).build());
 
-        assertThatThrownBy(() -> service.request("registration", request()))
+        assertThatThrownBy(() -> service.request("registration", "orderer", request()))
                 .isInstanceOf(CustomException.class)
                 .extracting(e -> ((CustomException) e).getErrorCode())
                 .isEqualTo(ErrorCode.PACKAGE_UPGRADE_NOT_ALLOWED);
@@ -110,11 +128,11 @@ class PackageUpgradeCommandServiceTest {
     /** 결제를 마치지 않은 신청은 정원·주문을 만들기 전에 거절한다. */
     @Test
     void rejectsUnconfirmedRegistrationBeforeHolding() {
-        locked(Registration.builder().id("registration").event(event).eventCategory(avengers)
+        locked(Registration.builder().id("registration").ordererKey("orderer").event(event).eventCategory(avengers)
                 .status(RegistrationStatus.PAYMENT_PENDING).contractAmount(SINGLE_PRICE)
                 .paidAmount(BigDecimal.ZERO).build());
 
-        assertThatThrownBy(() -> service.request("registration", request()))
+        assertThatThrownBy(() -> service.request("registration", "orderer", request()))
                 .isInstanceOf(CustomException.class)
                 .extracting(e -> ((CustomException) e).getErrorCode())
                 .isEqualTo(ErrorCode.PACKAGE_UPGRADE_NOT_ALLOWED);
@@ -129,7 +147,7 @@ class PackageUpgradeCommandServiceTest {
         when(upgradeRepository.findByRegistrationForUpdate("registration", PackageUpgradeStatus.PENDING))
                 .thenReturn(Optional.of(mock(PackageUpgrade.class)));
 
-        assertThatThrownBy(() -> service.request("registration", request()))
+        assertThatThrownBy(() -> service.request("registration", "orderer", request()))
                 .isInstanceOf(CustomException.class)
                 .extracting(e -> ((CustomException) e).getErrorCode())
                 .isEqualTo(ErrorCode.PACKAGE_UPGRADE_IN_PROGRESS);
@@ -165,7 +183,7 @@ class PackageUpgradeCommandServiceTest {
         when(additionalPayments.prepareLockedPackageUpgrade(List.of(), registration, pkg, NOW))
                 .thenReturn(new Order("payment-1", "order-1", "대회 - 패키지", DIFF));
 
-        PackageUpgradeOrderResponse response = service.request("registration", request());
+        PackageUpgradeOrderResponse response = service.request("registration", "orderer", request());
 
         InOrder order = inOrder(capacitySupport, upgradeRepository, additionalPayments);
         order.verify(capacitySupport).holdIncreases("event", diff, NOW);
@@ -192,7 +210,7 @@ class PackageUpgradeCommandServiceTest {
                 RegistrationItem.create(registration, 1, avengers, List.of(), SINGLE_PRICE),
                 RegistrationItem.create(registration, 2, avengers, List.of(), SINGLE_PRICE)));
 
-        assertThatThrownBy(() -> service.request("registration", request()))
+        assertThatThrownBy(() -> service.request("registration", "orderer", request()))
                 .isInstanceOf(CustomException.class)
                 .extracting(e -> ((CustomException) e).getErrorCode())
                 .isEqualTo(ErrorCode.PACKAGE_UPGRADE_MULTI_ITEM_NOT_ALLOWED);
@@ -211,7 +229,7 @@ class PackageUpgradeCommandServiceTest {
         when(additionalPayments.prepareLockedPackageUpgrade(List.of(), registration, pkg, NOW))
                 .thenReturn(new Order("payment-new", "order-new", "대회 - 패키지", DIFF));
 
-        service.preparePayment("registration");
+        service.preparePayment("registration", "orderer");
 
         assertThat(upgrade.getPaymentId()).isEqualTo("payment-new");
     }
@@ -227,7 +245,7 @@ class PackageUpgradeCommandServiceTest {
         when(capacitySupport.lockConsumedReservation(registration)).thenReturn(reservation);
         runAmountChange();
 
-        service.cancel("registration");
+        service.cancel("registration", "orderer");
 
         InOrder order = inOrder(paymentGuard, capacitySupport);
         order.verify(paymentGuard).prepareLockedPayments(List.of());
@@ -253,12 +271,12 @@ class PackageUpgradeCommandServiceTest {
     }
 
     private Registration confirmed() {
-        return Registration.builder().id("registration").event(event).eventCategory(avengers)
+        return Registration.builder().id("registration").ordererKey("orderer").event(event).eventCategory(avengers)
                 .status(RegistrationStatus.CONFIRMED).contractAmount(SINGLE_PRICE).paidAmount(SINGLE_PRICE).build();
     }
 
     private Registration upgrading() {
-        return Registration.builder().id("registration").event(event).eventCategory(avengers)
+        return Registration.builder().id("registration").ordererKey("orderer").event(event).eventCategory(avengers)
                 .status(RegistrationStatus.ADDITIONAL_PAYMENT_REQUIRED).contractAmount(PACKAGE_PRICE)
                 .paidAmount(SINGLE_PRICE).build();
     }

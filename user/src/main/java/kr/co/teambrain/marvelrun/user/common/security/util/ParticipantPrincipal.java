@@ -8,7 +8,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 /**
- * 참가자 토큰에서 신청 id를 꺼낸다. 참가자 API는 신청 id를 경로로 받지 않고 이것으로만 얻는다.
+ * 참가자 토큰에서 주문자 키를 꺼낸다. 경로로 받은 주문이 이 주문자의 것인지는 ParticipantOrderAccess가 본다.
  * 보안 설정·컨트롤러의 역할 검사와 함께 역할을 한 번 더 확인하는 셈이다.
  */
 public final class ParticipantPrincipal {
@@ -16,7 +16,7 @@ public final class ParticipantPrincipal {
     private ParticipantPrincipal() {
     }
 
-    public static String registrationId() {
+    public static String ordererKey() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication != null
                 && authentication.getPrincipal() instanceof CustomAdminDetail detail

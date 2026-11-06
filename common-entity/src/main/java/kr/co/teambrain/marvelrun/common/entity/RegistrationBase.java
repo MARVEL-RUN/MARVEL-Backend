@@ -256,6 +256,14 @@ public abstract class RegistrationBase<U extends UserBase, E extends EventBase, 
     protected boolean duplicateAllowed = false;
 
     /**
+     * 같은 주문자의 개인 주문을 묶는 키이자 참가자 토큰의 주체다.
+     * 첫 공개 주문 때 새 값을 넣고, 로그인 뒤 추가 주문은 기존 주문의 값을 복사한다. 같은 대회 안에서만 복사되므로 키가 같으면 대회도 같다.
+     * 단체 신청과 관리자가 등록한 신청(외부 결제 포함)은 비어 있고 참가자 로그인 대상이 아니다.
+     */
+    @Column(name = "orderer_key", length = 40, updatable = false)
+    protected String ordererKey;
+
+    /**
      * 상품(단품·패키지) 신청인지 본다.
      * 상품 신청의 종목·기념품은 첫 구매 줄의 대표값이므로, 가격·정원을 신청 행 종목 하나로 다시 계산하면 안 된다.
      */

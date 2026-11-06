@@ -103,6 +103,7 @@ public class RedisService {
 
     /*
      * 참가자 refresh. 관리자 refresh(refresh:{adminId})와 겹치지 않게 접두어를 이곳에서만 붙인다.
+     * 키는 주문자 키(토큰 subject)다. 주문자당 refresh 하나다.
      */
     private static final String PARTICIPANT_REFRESH_PREFIX = "refresh:participant:";
 
@@ -115,7 +116,7 @@ public class RedisService {
     );
 
     public void saveParticipantRefreshToken(
-            String registrationId,
+            String ordererKey,
             String refreshToken,
             long duration,
             TimeUnit unit
@@ -125,7 +126,7 @@ public class RedisService {
                 .opsForValue()
                 .set(
                         PARTICIPANT_REFRESH_PREFIX
-                                + registrationId,
+                                + ordererKey,
                         refreshToken,
                         duration,
                         unit
@@ -134,7 +135,7 @@ public class RedisService {
 
 
     public boolean isValidParticipantRefreshToken(
-            String registrationId,
+            String ordererKey,
             String providedToken
     ) {
 
@@ -143,14 +144,14 @@ public class RedisService {
                         .opsForValue()
                         .get(
                                 PARTICIPANT_REFRESH_PREFIX
-                                        + registrationId
+                                        + ordererKey
                         )
         );
     }
 
 
     public boolean replaceParticipantRefreshToken(
-            String registrationId,
+            String ordererKey,
             String expectedToken,
             String newToken,
             long durationMillis
@@ -161,7 +162,7 @@ public class RedisService {
                         COMPARE_AND_SET_SCRIPT,
                         List.of(
                                 PARTICIPANT_REFRESH_PREFIX
-                                        + registrationId
+                                        + ordererKey
                         ),
                         expectedToken,
                         newToken,
@@ -173,12 +174,12 @@ public class RedisService {
 
 
     public void deleteParticipantRefreshToken(
-            String registrationId
+            String ordererKey
     ) {
 
         redisTemplate.delete(
                 PARTICIPANT_REFRESH_PREFIX
-                        + registrationId
+                        + ordererKey
         );
     }
 }
