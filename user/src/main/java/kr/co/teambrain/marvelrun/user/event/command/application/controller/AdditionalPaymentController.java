@@ -1,6 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.controller;
 
 import jakarta.validation.Valid;
+import kr.co.teambrain.marvelrun.user.common.security.filter.PublicRegistrationAccess;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult.Order;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrganizationAccessRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationAccessRequest;
@@ -18,6 +19,7 @@ public class AdditionalPaymentController {
     private final AdditionalPaymentPreparationService service;
 
     /** 개인 추가금 주문을 생성/재사용한다. 실제 승인은 기존 공통 승인 API로 진행한다. */
+    @PublicRegistrationAccess
     @PostMapping("/registrations/{registrationId}/payments/additional/prepare")
     public ResponseEntity<Order> personal(@PathVariable("eventId") String eventId,
             @PathVariable("registrationId") String registrationId, @Valid @RequestBody RegistrationAccessRequest access) {

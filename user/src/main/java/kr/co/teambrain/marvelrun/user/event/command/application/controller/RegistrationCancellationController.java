@@ -1,6 +1,7 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.controller;
 
 import jakarta.validation.Valid;
+import kr.co.teambrain.marvelrun.user.common.security.filter.PublicRegistrationAccess;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.RegistrationModificationSettlementResult;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.OrganizationAccessRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationAccessRequest;
@@ -21,6 +22,7 @@ public class RegistrationCancellationController {
     private final RegistrationCancellationCommandService service;
 
     /** 개인 신청의 현재 본인확인 정보로 참가 취소를 요청한다. */
+    @PublicRegistrationAccess
     @PostMapping("/registrations/{registrationId}/cancellation")
     public ResponseEntity<RegistrationModificationSettlementResult> personal(
             @PathVariable("eventId") String eventId,

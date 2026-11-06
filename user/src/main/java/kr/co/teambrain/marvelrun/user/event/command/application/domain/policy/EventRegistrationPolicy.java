@@ -22,7 +22,8 @@ import java.time.LocalDate;
  *
  * 대회당 한 건을 사용한다.
  * 보호자 이름과 법정대리인 동의가 필요한 출생일 기준,
- * 주소 필수 여부, 단체 신청 허용 여부, 같은 신청자의 주문 여러 건 허용 여부를 저장한다.
+ * 주소 필수 여부, 단체 신청 허용 여부, 같은 신청자의 주문 여러 건 허용 여부,
+ * 공개 조회·관리 허용 여부를 저장한다.
  */
 @Getter
 @Entity
@@ -75,4 +76,11 @@ public class EventRegistrationPolicy {
      */
     @Column(name = "duplicate_registration_allowed", nullable = false)
     private boolean duplicateRegistrationAllowed;
+
+    /**
+     * 개인 신청을 공개 API(본문 본인확인)로 조회·수정·취소·재결제할 수 있다.
+     * false이면 로그인한 주문자만 관리한다. 공개 API는 PublicRegistrationAccessInterceptor가 막는다.
+     */
+    @Column(name = "public_registration_access_enabled", nullable = false)
+    private boolean publicRegistrationAccessEnabled;
 }

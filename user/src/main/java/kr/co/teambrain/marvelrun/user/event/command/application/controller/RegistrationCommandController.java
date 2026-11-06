@@ -2,6 +2,7 @@ package kr.co.teambrain.marvelrun.user.event.command.application.controller;
 
 import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.Operation;
+import kr.co.teambrain.marvelrun.user.common.security.filter.PublicRegistrationAccess;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.PersonalPasswordChangeRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.RegistrationPasswordChangeService;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationCreateRequest;
@@ -24,6 +25,7 @@ public class RegistrationCommandController {
     private final RegistrationPasswordChangeService passwordChangeService;
 
     /** 개인 신청의 비밀번호를 변경하고 성공 시 본문 없이 응답한다. */
+    @PublicRegistrationAccess
     @PatchMapping("/{eventId}/registrations/{registrationId}/password")
     public ResponseEntity<Void> changePassword(
             @PathVariable("eventId") String eventId,
