@@ -1,6 +1,5 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
-import kr.co.teambrain.marvelrun.user.participantauth.command.application.service.ParticipantOrderAccess;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
@@ -57,11 +56,7 @@ public class RegistrationEntryModificationService {
     @Transactional(readOnly = true)
     public RegistrationEntryListResponse findEntries(String registrationId, String ordererKey) {
         Registration registration = entityManager.find(Registration.class, registrationId);
-        if (registration == null) {
-            throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
-        }
-        ParticipantOrderAccess.verifyOwned(registration, ordererKey);
-        if (registration.isSoftDeleted()) {
+        if (registration == null || registration.isSoftDeleted() || !registration.isOwnedBy(ordererKey)) {
             throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
         }
         return new RegistrationEntryListResponse(entryRepository.findByRegistration_Id(registrationId).stream()
@@ -133,11 +128,7 @@ public class RegistrationEntryModificationService {
     private Registration lock(String registrationId, String ordererKey) {
         Registration registration = entityManager.find(Registration.class, registrationId,
                 LockModeType.PESSIMISTIC_WRITE);
-        if (registration == null) {
-            throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
-        }
-        ParticipantOrderAccess.verifyOwned(registration, ordererKey);
-        if (registration.isSoftDeleted()) {
+        if (registration == null || registration.isSoftDeleted() || !registration.isOwnedBy(ordererKey)) {
             throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
         }
         registration.validateOnlineRegistrationProcessingAllowed();

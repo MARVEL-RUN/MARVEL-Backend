@@ -52,9 +52,8 @@ public class ParticipantAuthCommandService {
     /**
      * 기존 개인 조회와 같은 값으로 주문을 찾는다. 실패 이유는 응답으로 구분하지 않는다.
      * 취소한 주문도 후보다. 살아 있는 주문을 먼저 보므로 같은 신원의 주문자가 둘이면 살아 있는 쪽으로 로그인한다.
-     * 후보를 공유 잠금으로 읽고 refresh 저장까지 같은 트랜잭션에서 하므로 읽기 전용 트랜잭션으로 두지 않는다.
      */
-    @Transactional
+    @Transactional(readOnly = true)
     public ParticipantTokens login(String eventId, RegistrationAccessRequest access) {
         // 대회마다 같으므로 비밀번호 대조(BCrypt) 전에 거절한다.
         validateLoginAvailable(eventId);

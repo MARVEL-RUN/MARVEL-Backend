@@ -1,6 +1,5 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
-import kr.co.teambrain.marvelrun.user.participantauth.command.application.service.ParticipantOrderAccess;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import kr.co.teambrain.marvelrun.common.discount.model.DiscountModels;
@@ -219,8 +218,7 @@ public class PackageUpgradeCommandService {
         registrationCapacityService.lockEvent(eventId);
         List<Payment> payments = paymentGuard.lockPersonal(eventId, registrationId);
         entityManager.refresh(found, LockModeType.PESSIMISTIC_WRITE);
-        ParticipantOrderAccess.verifyOwned(found, ordererKey);
-        if (found.isSoftDeleted()) {
+        if (found.isSoftDeleted() || !found.isOwnedBy(ordererKey)) {
             throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
         }
         found.validateOnlineRegistrationProcessingAllowed();

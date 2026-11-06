@@ -1,6 +1,5 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
-import kr.co.teambrain.marvelrun.user.participantauth.command.application.service.ParticipantOrderAccess;
 import java.util.function.Consumer;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
 
@@ -68,8 +67,11 @@ public class RegistrationCancellationTransactionService {
     /** 로그인한 주문자의 주문 전체 취소. 본인확인 대신 잠금 뒤 다시 읽은 행으로 주문자 소유를 본다. */
     @Transactional
     public Prepared cancelOwnedPersonal(String eventId, String registrationId, String ordererKey) {
-        return cancelLockedPersonal(eventId, registrationId,
-                registration -> ParticipantOrderAccess.verifyOwned(registration, ordererKey));
+        return cancelLockedPersonal(eventId, registrationId, registration -> {
+            if (!registration.isOwnedBy(ordererKey)) {
+                throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
+            }
+        });
     }
 
     /** 대회 → 결제 → 신청 순으로 잠그고, 다시 읽은 신청을 진입점별 확인(verify)에 넘긴 뒤 같은 취소 처리를 한다. */

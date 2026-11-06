@@ -492,6 +492,11 @@ public class Registration extends RegistrationBase<
         this.status = RegistrationStatus.CONFIRMED;
     }
 
+    /** 토큰 주문자의 개인 주문인지 본다. 취소 여부는 호출한 업무가 판단한다. */
+    public boolean isOwnedBy(String ordererKey) {
+        return ordererKey != null && organization == null && ordererKey.equals(this.ordererKey);
+    }
+
     /** 로그인한 주문자가 주문 주소(배송지)만 바꾼다. 검증은 호출자가 한다. */
     public void changeAddress(String address, String addressDetail) {
         if (organization != null || softDeleted) {

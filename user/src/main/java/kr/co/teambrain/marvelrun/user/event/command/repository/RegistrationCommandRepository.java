@@ -47,10 +47,7 @@ public interface RegistrationCommandRepository extends JpaRepository<Registratio
      * 참가자 로그인 후보. 주문자 키가 있는 개인 주문만 본다(외부 결제·관리자 등록 신청 제외).
      * 취소한 주문도 넣어 모두 취소한 주문자도 로그인해 환불 상태를 본다.
      * 살아 있는 주문, 최근 신청 순으로 돌려준다. 비밀번호는 호출부가 해시로 대조한다.
-     * 공유 잠금(FOR SHARE)으로 읽는다. 비밀번호 일괄 변경은 이 행들을 쓰기 잠금하므로, 겹친 로그인은 끝날 때까지 변경을 기다리게 하거나
-     * 변경이 커밋된 새 해시를 본다. 옛 비밀번호로 확인한 로그인이 변경 뒤에 refresh를 저장하지 못한다.
      */
-    @Lock(LockModeType.PESSIMISTIC_READ)
     @Query("""
         select r from Registration r
         where r.event.id = :eventId
@@ -80,13 +77,25 @@ public interface RegistrationCommandRepository extends JpaRepository<Registratio
         """)
     List<Registration> findOrdererRegistrations(@Param("ordererKey") String ordererKey);
 
-    /** 주문자의 개인 주문 전부를 id 순으로 잠근다. 대회 잠금 뒤에 부른다. */
+    /** 주문자의 대회 id. 주문자 키는 한 대회 안에서만 복사되므로 값은 하나다. 잠그기 전에 대회를 정할 때 쓴다. */
+    @Query("""
+        select distinct r.event.id from Registration r
+        where r.ordererKey = :ordererKey
+          and r.organization is null
+          and r.externalPayment = false
+        """)
+    Optional<String> findEventIdByOrdererKey(@Param("ordererKey") String ordererKey);
+
+    /**
+     * 주문자의 개인 주문 전부를 잠근다. 대회 잠금 뒤에 부른다.
+     * 여러 행을 잠그는 경로는 모두 대회 행을 먼저 잠그므로, 순서는 잠금이 아니라 대표 주문을 정하려고 맞춘다(살아 있는 주문, 최근 신청 순).
+     */
     @Query("""
         select r from Registration r
         where r.ordererKey = :ordererKey
           and r.organization is null
           and r.externalPayment = false
-        order by r.id
+        order by r.softDeleted asc, r.registrationDate desc, r.id
         """)
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     List<Registration> findOrdererRegistrationsForUpdate(@Param("ordererKey") String ordererKey);

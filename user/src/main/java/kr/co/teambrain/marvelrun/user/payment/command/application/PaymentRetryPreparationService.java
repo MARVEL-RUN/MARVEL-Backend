@@ -1,6 +1,5 @@
 package kr.co.teambrain.marvelrun.user.payment.command.application;
 
-import kr.co.teambrain.marvelrun.user.participantauth.command.application.service.ParticipantOrderAccess;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
 import kr.co.teambrain.marvelrun.user.event.command.application.service.RegistrationModificationPaymentGuard;
 
@@ -66,17 +65,20 @@ public class PaymentRetryPreparationService {
     }
 
     /**
-     * 로그인한 주문자의 결제 재시도. 본인확인 대신 잠금 뒤 다시 읽은 신청으로 주문자 소유를 본다.
+     * 로그인한 주문자의 결제 재시도. 본인확인 대신 잠그기 전과 잠금 뒤 다시 읽은 신청으로 주문자 소유를 본다.
      * 진행 중 상향이 있으면 상향 결제(.../upgrade/payment)로 하도록 거절한다.
      */
     @Transactional
     public Order prepareOwnedPersonal(String registrationId, String paymentId, String ordererKey) {
+        // 주문자 키는 바뀌지 않으므로(updatable=false) 남의 결제·대회 행을 잠그기 전에 소유를 본다.
         Registration found = entityManager.find(Registration.class, registrationId);
-        if (found == null) {
+        if (found == null || !found.isOwnedBy(ordererKey)) {
             throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
         }
         Locked locked = lockPersonal(found.getEvent().getId(), registrationId, paymentId);
-        ParticipantOrderAccess.verifyOwned(locked.registration(), ordererKey);
+        if (!locked.registration().isOwnedBy(ordererKey)) {
+            throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
+        }
         upgradeGuard.rejectPendingPackageUpgrade(registrationId, ErrorCode.PACKAGE_UPGRADE_IN_PROGRESS);
         return preparePaymentRetryOrder(locked.original(), locked.payments(), locked.registration().getEvent());
     }

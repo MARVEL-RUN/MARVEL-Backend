@@ -1,7 +1,5 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.LockModeType;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.RegistrationCapacityService;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
@@ -13,7 +11,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -29,22 +26,15 @@ public class ParticipantAdditionalOrderService {
     private final RegistrationCommandRepository registrationRepository;
     private final RegistrationCapacityService registrationCapacityService;
     private final RegistrationCommandService registrationCommandService;
-    private final EntityManager entityManager;
 
     @Transactional
     public RegistrationCreateResponse order(String ordererKey, ParticipantAdditionalOrderRequest request) {
-        String eventId = representative(registrationRepository.findOrdererRegistrations(ordererKey))
-                .getEvent().getId();
+        // 대회 id만 읽는다. 주문 엔티티를 미리 읽지 않아야 뒤의 잠금 조회가 최신 행을 준다.
+        String eventId = registrationRepository.findEventIdByOrdererKey(ordererKey)
+                .orElseThrow(() -> new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED, " 주문자의 주문이 없음"));
         // 신청 생성도 같은 대회를 잠근다. 같은 트랜잭션이라 다시 잠가도 기다리지 않는다.
         registrationCapacityService.lockEvent(eventId);
-        // 첫 읽기가 만든 스냅숏 대신 잠금 읽기로 최신 행을 본다. 이미 영속 상태인 엔티티는 쿼리 결과로 값이 바뀌지 않아 다시 읽는다.
-        List<Registration> orders = registrationRepository.findOrdererRegistrationsForUpdate(ordererKey);
-        orders.forEach(order -> entityManager.refresh(order, LockModeType.PESSIMISTIC_WRITE));
-        Registration source = representative(orders.stream()
-                .sorted(Comparator.comparing(Registration::isSoftDeleted)
-                        .thenComparing(Registration::getRegistrationDate,
-                                Comparator.nullsLast(Comparator.reverseOrder())))
-                .toList());
+        Registration source = representative(registrationRepository.findOrdererRegistrationsForUpdate(ordererKey));
 
         return registrationCommandService.registerAdditional(eventId,
                 request.toCreateRequest(source.getName(), source.getPhNum(), source.getBirth(), source.getGender(),
