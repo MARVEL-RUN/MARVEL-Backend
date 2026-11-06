@@ -209,7 +209,6 @@ public class RegistrationDailyReportQueryRepository {
 
         /**
          * 참가 항목마다 한 행이다. 항목이 없는 신청은 신청 한 행이며 종목·생년월일은 신청 값을 쓴다.
-         * 참가 항목이 없는 패키지 신청은 열이 없는 종목이라 보고서에서 뺀다.
          */
         String sql = FINANCIAL_CTE + """
             SELECT
@@ -224,9 +223,6 @@ public class RegistrationDailyReportQueryRepository {
                 ON entry.registration_id = resolved.id
             INNER JOIN event_category category
                 ON category.id = COALESCE(entry.event_category_id, resolved.event_category_id)
-            WHERE entry.id IS NOT NULL
-               OR category.product_type IS NULL
-               OR category.product_type <> 'PACKAGE'
             ORDER BY resolved.registration_date, resolved.id, entry.id
             """;
 
