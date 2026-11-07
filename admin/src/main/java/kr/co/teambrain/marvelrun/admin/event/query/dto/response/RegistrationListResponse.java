@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.admin.event.query.dto.response;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import kr.co.teambrain.marvelrun.admin.discount.query.ReferenceFilterSummaryResponse;
 
 import lombok.Builder;
@@ -29,13 +30,19 @@ public record RegistrationListResponse(
         LocalDateTime createdAt,  // 신청일시: registrationDate 필드
         String startGroupCode,
         boolean startGroupUnselected,
-        List<String> bibNumbers,  // 배번: 참가 항목의 발급 배번(하위 종목 정렬 순). 없으면 빈 목록
+        @Schema(description = "배번. 버추얼 대회는 그 행(참가 항목)의 배번 하나, 그 외는 발급 배번(하위 종목 정렬 순). 없으면 빈 목록")
+        List<String> bibNumbers,
         // 아래는 버추얼 대회 참가자 기준 목록에만 채운다. 오프라인 대회는 null이다.
-        String entryId,           // 참가 항목 ID. 같은 주문의 행을 구분한다. 참가 항목이 없으면 null
-        String itemId,            // 구매 줄 ID. 참가 항목이 없으면 null
-        String productName,       // 상품명: 구매 줄의 상품. 구매 줄이 없으면 신청 종목명
-        String ordererName,       // 주문자 이름
-        String ordererPhoneNumber // 주문자 연락처
+        @Schema(description = "참가 항목 ID. 버추얼 대회에서 같은 주문의 행을 구분한다. 참가 항목이 없거나 오프라인 대회면 null")
+        String entryId,
+        @Schema(description = "구매 줄 ID. 참가 항목이 없거나 오프라인 대회면 null")
+        String itemId,
+        @Schema(description = "상품명: 구매 줄의 상품. 구매 줄이 없으면 신청 종목명. 오프라인 대회는 null")
+        String productName,
+        @Schema(description = "주문자 이름. 오프라인 대회는 null")
+        String ordererName,
+        @Schema(description = "주문자 연락처. 오프라인 대회는 null")
+        String ordererPhoneNumber
 ) {
 
 }

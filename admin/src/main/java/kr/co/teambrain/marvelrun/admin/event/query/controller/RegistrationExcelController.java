@@ -105,6 +105,12 @@ public class RegistrationExcelController {
     /**
      * 대회와 검색 조건에 해당하는 신청 목록 전체를 다운로드한다.
      */
+    @Operation(
+            summary = "신청 목록 엑셀 다운로드",
+            description = "대회와 검색 조건에 해당하는 신청 목록 전체를 다운로드합니다. "
+                    + "버추얼 대회는 \"상품\"(구매 줄마다 한 행, 상품 금액 열 포함)과 \"참가자\"(참가 항목마다 한 행, 금액 없음) 두 시트로 나옵니다. "
+                    + "오프라인 대회는 기존 \"신청목록\" 28열 시트 그대로입니다."
+    )
     @GetMapping("/excel/download")
     public void download(
             @RequestParam("eventId") String eventId,
@@ -124,6 +130,11 @@ public class RegistrationExcelController {
     /**
      * 선택 ID가 있으면 삭제 여부와 관계없이 해당 신청을, 없으면 대회의 삭제되지 않은 신청을 다운로드한다.
      */
+    @Operation(
+            summary = "선택한 신청 엑셀 다운로드",
+            description = "선택한 신청 ID가 있으면 삭제 여부와 관계없이 그 신청을, 없으면 대회의 삭제되지 않은 신청을 다운로드합니다. "
+                    + "시트 구성은 신청 목록 엑셀 다운로드(GET)와 같습니다."
+    )
     @PostMapping("/excel/download")
     public void downloadSelected(
             @RequestParam("eventId") String eventId,
