@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.dto.request;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
@@ -15,6 +16,7 @@ public record RegistrationEntryModifyRequest(
         List<@NotNull @Valid Entry> entries
 ) {
     /** 받는 사람 한 명. 값 제약은 신청 때 받는 사람(RegistrationEntryRequest)과 같다. */
+    @Schema(name = "RegistrationEntryModifyRequestEntry")
     public record Entry(
             /** 신청 조회 응답의 참가 항목 ID */
             @NotBlank

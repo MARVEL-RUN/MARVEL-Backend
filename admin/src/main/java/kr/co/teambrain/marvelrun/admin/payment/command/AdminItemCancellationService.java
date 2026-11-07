@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.admin.payment.command;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
@@ -51,6 +52,7 @@ public class AdminItemCancellationService {
      * @param preparation 준비 결과(계약금액·납부액·상태와 환불 시도)
      * @param execution 환불 실행 결과. 환불 완료 여부는 이 값의 결과로 확인한다
      */
+    @Schema(name = "AdminItemCancellationResult")
     public record Result(boolean orderCanceled, AdminRefundPrepared preparation, AdminRefundExecutionService.Result execution) {
     }
 }
