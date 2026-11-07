@@ -67,29 +67,32 @@ public class PackageUpgradeApplier {
         pendingUpgrade(payment, allocations).ifPresent(upgrade -> {
             validateApplicable(upgrade, allocations.get(0));
             Registration registration = allocations.get(0).getRegistration();
+            List<RegistrationItem> activeItems = itemRepository.findActiveByRegistrationId(registration.getId());
+            RegistrationItem item = sourceItem(upgrade, activeItems);
 
-            // 단품 신청은 참가 항목이 지금 단품 하나뿐이어야 패키지 하위 종목 나머지를 더해 완성된다.
-            List<RegistrationEntry> entries = entryRepository.findByRegistration_Id(registration.getId());
+            // 상향할 단품 줄은 참가 항목이 지금 단품 하나뿐이어야 패키지 하위 종목 나머지를 더해 완성된다.
+            List<RegistrationEntry> entries = entryRepository.findByRegistration_Id(registration.getId()).stream()
+                    .filter(entry -> entry.getRegistrationItem().getId().equals(item.getId()))
+                    .toList();
             if (entries.size() != 1
-                    || !Objects.equals(entries.get(0).getEventCategory().getId(), registration.getEventCategory().getId())) {
-                throw stateConflict(upgrade, " 상향 전 참가 항목이 단품 하나가 아닙니다. entryCount=" + entries.size());
+                    || !Objects.equals(entries.get(0).getEventCategory().getId(), item.getEventCategory().getId())) {
+                throw stateConflict(upgrade, " 상향 전 구매 줄의 참가 항목이 단품 하나가 아닙니다. entryCount=" + entries.size());
             }
-            RegistrationItem item = singleItem(upgrade, registration);
 
             // 상향 대기 중 정원 연결이 바뀌었으면 승인 전에 막는다. 참가자는 상향을 취소하고 다시 요청한다.
             Reservation reservation = capacitySupport.lockConsumedReservation(registration);
             CapacityRequirementDiff diff = capacitySupport.packageDiff(
-                    item, upgrade.getTargetCategory(), participantsAfter(upgrade), reservation);
+                    activeItems, item, upgrade.getTargetCategory(), participantsAfter(upgrade), reservation);
             if (!PackageUpgradeCapacitySupport.increases(diff).equals(PackageUpgradeCapacitySupport.heldQuantities(upgrade))) {
                 throw CustomException.withResponseMessage(ErrorCode.PACKAGE_UPGRADE_STATE_CONFLICT,
                         "상향을 기다리는 동안 패키지 구성이 바뀌었습니다. 상향을 취소한 뒤 다시 요청해주세요.");
             }
             capacitySupport.validatePreheldMove(registration.getEvent().getId(), diff, upgrade);
 
-            // 승인 때 남길 가격 계산이 상향 뒤 계약금액과 같아야 기록이 실패하지 않는다.
+            // 승인 때 그 줄에 넣을 패키지 가격이 요청 때 정한 차액과 맞아야 계약금액과 줄 금액의 합이 어긋나지 않는다.
             DiscountModels.PriceResult price = pricing.calculate(registration, upgrade.getTargetCategory());
-            if (price.finalAmount().compareTo(registration.getContractAmount()) != 0) {
-                throw stateConflict(upgrade, " 패키지 가격 계산이 상향 계약금액과 다릅니다. finalAmount=" + price.finalAmount());
+            if (price.finalAmount().subtract(item.getAmount()).compareTo(upgrade.getAmount()) != 0) {
+                throw stateConflict(upgrade, " 패키지 가격 계산이 상향 차액과 다릅니다. finalAmount=" + price.finalAmount());
             }
         });
     }
@@ -106,25 +109,35 @@ public class PackageUpgradeApplier {
 
         String eventId = registration.getEvent().getId();
         EventCategory packageCategory = upgrade.getTargetCategory();
-        RegistrationItem item = singleItem(upgrade, registration);
+        List<RegistrationItem> activeItems = itemRepository.findActiveByRegistrationId(registration.getId());
+        RegistrationItem item = sourceItem(upgrade, activeItems);
 
         // 요청 때 잡아 둔 held를 그대로 확정으로 옮긴다. 새로 확보하지 않으므로 Toss 승인 뒤 정원 부족으로 실패하지 않는다.
         // 원래 단품 CATEGORY처럼 줄어드는 행은 확정 수량에서 돌려준다. 전체 정원은 늘어난 사람 수만큼 더 쓴다.
         Reservation reservation = capacitySupport.lockConsumedReservation(registration);
         CapacityRequirementDiff diff = capacitySupport.packageDiff(
-                item, packageCategory, participantsAfter(upgrade), reservation);
+                activeItems, item, packageCategory, participantsAfter(upgrade), reservation);
         capacityModificationService.confirmPreheldReservationMove(
                 eventId, diff, PackageUpgradeCapacitySupport.heldQuantities(upgrade), now);
 
-        // 패키지 가격(정가 − 단품 결제금액 = 차액)의 근거를 패키지 기준 가격 계산으로 남긴다. 구매 줄도 패키지로 바꾼다.
-        // 기념품은 정원을 옮긴 기준(패키지 종목에 연결된 것 전부)과 같은 목록을 줄과 신청에 저장한다.
+        // 그 줄만 패키지·패키지 가격으로 바꾼다. 신청 행의 종목은 그 줄이 대표 줄(살아 있는 첫 줄)일 때만 바꾼다.
+        // 기념품은 정원을 옮긴 기준(패키지 종목에 연결된 것 전부)과 같은 목록을 줄에, 대표 줄이면 신청에도 저장한다.
         DiscountModels.PriceResult packagePrice = pricing.calculate(registration, packageCategory);
         List<SouvenirJson> souvenirs = capacitySupport.packageSouvenirs(item, packageCategory);
-        registration.applyPackageUpgrade(packageCategory, souvenirs);
+        if (activeItems.getFirst().getId().equals(item.getId())) {
+            registration.applyPackageUpgrade(packageCategory, souvenirs);
+        }
         item.applyPackageUpgrade(packageCategory, packagePrice.finalAmount(), souvenirs);
         historyRecorder.completeReservationModificationSnapshot(reservation);
-        priceCalculations.recordRegistrationPriceCalculation(registration, packagePrice,
-                RegistrationPriceCalculationSnapshot.Reason.PACKAGE_UPGRADED);
+        // 가격 기록은 신청 전체 금액의 근거라 계약금액과 같아야 한다. 줄이 하나일 때만 패키지 가격이 곧 계약금액이다.
+        // 줄이 여럿이면 줄별 근거를 남길 형식이 없어 기존 기록을 그대로 둔다(줄 금액은 registration_item에 남는다).
+        if (activeItems.size() == 1) {
+            priceCalculations.recordRegistrationPriceCalculation(registration, packagePrice,
+                    RegistrationPriceCalculationSnapshot.Reason.PACKAGE_UPGRADED);
+        } else {
+            // 이전 기록은 상향 전 금액의 근거라 지금 계약금액의 근거로 내보내지 않게 참조를 끊는다.
+            registration.assignCurrentPriceCalculation(null);
+        }
 
         for (PackageUpgradeEntry added : upgrade.getAddedEntries()) {
             EventCategory component = entityManager.find(EventCategory.class, added.eventCategoryId());
@@ -153,8 +166,7 @@ public class PackageUpgradeApplier {
 
     private void validateApplicable(PackageUpgrade upgrade, PaymentAllocation allocation) {
         Registration registration = allocation.getRegistration();
-        EventCategory current = registration.getEventCategory();
-        // 요청 때 더한 차액만큼만 부족하고, 종목은 아직 그 패키지를 가리키는 단품이어야 한다.
+        // 요청 때 더한 차액만큼만 부족해야 한다. 상향할 줄의 종목은 sourceItem에서 본다.
         boolean valid = !registration.isSoftDeleted()
                 && registration.getStatus() == RegistrationStatus.ADDITIONAL_PAYMENT_REQUIRED
                 && registration.getContractAmount() != null
@@ -162,22 +174,28 @@ public class PackageUpgradeApplier {
                 && registration.getContractAmount().subtract(registration.getPaidAmount())
                         .compareTo(upgrade.getAmount()) == 0
                 && allocation.getAllocatedAmount() != null
-                && allocation.getAllocatedAmount().compareTo(upgrade.getAmount()) == 0
-                && current.getProductType() == ProductType.SINGLE
-                && Objects.equals(current.getParentCategoryId(), upgrade.getTargetCategory().getId());
+                && allocation.getAllocatedAmount().compareTo(upgrade.getAmount()) == 0;
         if (!valid) {
             throw stateConflict(upgrade, " 상향 결제를 적용할 신청 상태가 아닙니다.");
         }
     }
 
-    /** 상향할 단품 구매 줄. 신청에 줄이 하나뿐이고 그 줄이 신청 종목(단품)이어야 한다. */
-    private RegistrationItem singleItem(PackageUpgrade upgrade, Registration registration) {
-        List<RegistrationItem> items = itemRepository.findByRegistration_IdOrderBySortOrderAsc(registration.getId());
-        if (items.size() != 1
-                || !Objects.equals(items.get(0).getEventCategory().getId(), registration.getEventCategory().getId())) {
-            throw stateConflict(upgrade, " 상향할 구매 줄이 단품 하나가 아닙니다. itemCount=" + items.size());
+    /**
+     * 상향할 단품 구매 줄. 살아 있는 줄 가운데 요청 때 고른 줄이어야 하고, 아직 그 패키지를 가리키는 단품이어야 한다.
+     * 이 작업 전에 만든 상향(source_item_id 없음)은 줄이 하나뿐인 신청이었으므로 그 줄을 쓴다.
+     */
+    private RegistrationItem sourceItem(PackageUpgrade upgrade, List<RegistrationItem> activeItems) {
+        String sourceItemId = upgrade.getSourceItemId();
+        RegistrationItem item = sourceItemId == null && activeItems.size() == 1
+                ? activeItems.getFirst()
+                : activeItems.stream().filter(found -> found.getId().equals(sourceItemId)).findFirst()
+                        .orElseThrow(() -> stateConflict(upgrade, " 상향할 구매 줄이 없거나 취소됐습니다. itemId=" + sourceItemId));
+        EventCategory current = item.getEventCategory();
+        if (current.getProductType() != ProductType.SINGLE
+                || !Objects.equals(current.getParentCategoryId(), upgrade.getTargetCategory().getId())) {
+            throw stateConflict(upgrade, " 상향할 구매 줄이 그 패키지의 단품이 아닙니다. itemId=" + item.getId());
         }
-        return items.get(0);
+        return item;
     }
 
     /** 상향 뒤 참가 항목 수. 지금 단품 항목 하나에 더할 항목을 더한다. */

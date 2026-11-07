@@ -64,6 +64,10 @@ public abstract class RegistrationItemBase<
     @Column(name = "souvenir_json", columnDefinition = "JSON")
     protected List<SouvenirJson> souvenirJson;
 
+    /** 부분 취소 시각. null이면 살아 있는 줄이다. 취소한 줄과 그 참가 항목은 지우지 않고 남긴다. */
+    @Column(name = "canceled_at")
+    protected LocalDateTime canceledAt;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     protected LocalDateTime createdAt;
@@ -71,4 +75,8 @@ public abstract class RegistrationItemBase<
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     protected LocalDateTime updatedAt;
+
+    public boolean isCanceled() {
+        return canceledAt != null;
+    }
 }

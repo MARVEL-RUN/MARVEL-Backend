@@ -129,6 +129,10 @@ public class RegistrationCommandService {
         policyValidator.validateParticipant(registration.getEvent(), policy,
                 new RegistrationPolicyInput(request.birth(), guardianName, registration.isGuardianConsent()), today);
         for (RegistrationEntry entry : entryRepository.findByRegistration_Id(registration.getId())) {
+            // 부분 취소한 상품의 받는 사람은 더 참가하지 않으므로 보호자 기준을 보지 않는다.
+            if (entry.getRegistrationItem().isCanceled()) {
+                continue;
+            }
             policyValidator.validateParticipant(registration.getEvent(), policy,
                     new RegistrationPolicyInput(entry.getBirth(), guardianName, registration.isGuardianConsent()), today);
         }

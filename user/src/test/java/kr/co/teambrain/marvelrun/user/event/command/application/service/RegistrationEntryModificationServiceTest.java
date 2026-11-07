@@ -69,6 +69,7 @@ class RegistrationEntryModificationServiceTest {
     @Mock private EventCategory avengers;
     @Mock private RegistrationEntry first;
     @Mock private RegistrationEntry second;
+    @Mock private RegistrationItem liveItem;
 
     @BeforeEach
     void setUp() {
@@ -83,6 +84,27 @@ class RegistrationEntryModificationServiceTest {
         lenient().when(first.getEventCategory()).thenReturn(avengers);
         lenient().when(second.getEventCategory()).thenReturn(avengers);
         lenient().when(avengers.getId()).thenReturn("avengers");
+        lenient().when(first.getRegistrationItem()).thenReturn(liveItem);
+        lenient().when(second.getRegistrationItem()).thenReturn(liveItem);
+    }
+
+    /** 부분 취소한 상품의 받는 사람은 목록에 보이지 않고, 고치려 하면 다른 신청의 항목처럼 거절한다. */
+    @Test
+    void 취소한_상품의_받는_사람은_보이지_않고_고칠_수_없다() {
+        RegistrationItem canceledItem = mock(RegistrationItem.class);
+        when(canceledItem.isCanceled()).thenReturn(true);
+        when(second.getRegistrationItem()).thenReturn(canceledItem);
+        when(liveItem.getSortOrder()).thenReturn(1);
+        when(entryRepository.findByRegistration_Id("r1")).thenReturn(List.of(first, second));
+        when(registration.isSoftDeleted()).thenReturn(false);
+        when(entityManager.find(Registration.class, "r1")).thenReturn(registration);
+        lenient().when(liveItem.getEventCategory()).thenReturn(avengers);
+
+        assertThat(service.findEntries("r1", "orderer").entries())
+                .extracting(RegistrationEntryListResponse.Entry::entryId)
+                .containsExactly("e1");
+        assertError(() -> service.modifyEntries("r1", "orderer", request(entry("e2"))), ErrorCode.INVALID_REGISTRATION_ENTRIES);
+        verify(second, never()).updateRecipient(any(), any(), any(), any());
     }
 
     @Test

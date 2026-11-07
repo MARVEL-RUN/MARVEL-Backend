@@ -27,6 +27,7 @@ public class PackageUpgrade extends PackageUpgradeBase<Event, Registration, Even
 
     public static PackageUpgrade create(
             Registration registration,
+            RegistrationItem sourceItem,
             EventCategory packageCategory,
             BigDecimal amount,
             List<PackageUpgradeEntry> addedEntries,
@@ -35,6 +36,7 @@ public class PackageUpgrade extends PackageUpgradeBase<Event, Registration, Even
         return PackageUpgrade.builder()
                 .event(registration.getEvent())
                 .registration(registration)
+                .sourceItemId(sourceItem.getId())
                 .targetCategory(packageCategory)
                 .amount(amount)
                 .status(PackageUpgradeStatus.PENDING)

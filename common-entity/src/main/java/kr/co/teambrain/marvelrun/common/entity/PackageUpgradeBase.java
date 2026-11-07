@@ -49,6 +49,10 @@ public abstract class PackageUpgradeBase<
     @JoinColumn(name = "registration_id", nullable = false)
     protected R registration;
 
+    /** 상향할 단품 구매 줄. 승인 때 이 줄만 패키지로 바꾼다. */
+    @Column(name = "source_item_id", length = 40, updatable = false)
+    protected String sourceItemId;
+
     /** 상향할 패키지 상품. 단품의 parent_category_id다. */
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "target_category_id", nullable = false)

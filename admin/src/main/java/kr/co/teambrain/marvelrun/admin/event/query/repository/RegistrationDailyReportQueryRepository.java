@@ -209,6 +209,7 @@ public class RegistrationDailyReportQueryRepository {
 
         /**
          * 참가 항목마다 한 행이다. 항목이 없는 신청은 신청 한 행이며 종목·생년월일은 신청 값을 쓴다.
+         * 부분 취소한 구매 줄의 참가 항목은 뺀다.
          */
         String sql = FINANCIAL_CTE + """
             SELECT
@@ -221,6 +222,10 @@ public class RegistrationDailyReportQueryRepository {
             FROM resolved_registration resolved
             LEFT JOIN registration_entry entry
                 ON entry.registration_id = resolved.id
+                AND NOT EXISTS (
+                    SELECT 1 FROM registration_item canceled
+                    WHERE canceled.id = entry.registration_item_id AND canceled.canceled_at IS NOT NULL
+                )
             INNER JOIN event_category category
                 ON category.id = COALESCE(entry.event_category_id, resolved.event_category_id)
             ORDER BY resolved.registration_date, resolved.id, entry.id

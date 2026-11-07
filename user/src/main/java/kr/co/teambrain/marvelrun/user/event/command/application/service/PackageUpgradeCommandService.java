@@ -89,13 +89,21 @@ public class PackageUpgradeCommandService {
                     "결제를 마친 신청만 패키지로 상향할 수 있습니다.");
         }
 
-        EventCategory current = registration.getEventCategory();
+        // 주문 안 단품 줄 하나를 골라 그 줄만 패키지로 바꾼다. 다른 줄은 그대로 둔다.
+        List<RegistrationItem> activeItems = itemRepository.findActiveByRegistrationId(registrationId);
+        RegistrationItem item = sourceItem(activeItems, request.itemId());
+        // 잠금 전 신청 조회로 읽기 시점이 먼저 정해져 줄 목록이 그사이 부분 취소를 못 볼 수 있다.
+        // 고른 줄은 잠가 최신 값으로 다시 읽는다. 줄을 바꾸는 경로는 모두 대회를 먼저 잠그므로 순서가 엇갈리지 않는다.
+        entityManager.refresh(item, LockModeType.PESSIMISTIC_WRITE);
+        if (item.isCanceled()) {
+            throw CustomException.withResponseMessage(ErrorCode.PACKAGE_UPGRADE_NOT_ALLOWED,
+                    "주문에 없는 상품이거나 이미 취소한 상품입니다.");
+        }
+        EventCategory current = item.getEventCategory();
         if (current.getProductType() != ProductType.SINGLE || current.getParentCategoryId() == null) {
             throw CustomException.withResponseMessage(ErrorCode.PACKAGE_UPGRADE_NOT_ALLOWED,
-                    "단품 신청만 패키지로 상향할 수 있습니다.");
+                    "단품만 패키지로 상향할 수 있습니다.");
         }
-        // 상향은 구매 줄이 단품 하나뿐인 신청만 한다. 줄을 골라 상향하는 흐름은 아직 없다.
-        RegistrationItem item = singleItem(registration);
         EventCategory packageCategory = categoryRepository.findById(current.getParentCategoryId())
                 .filter(found -> Objects.equals(found.getEvent().getId(), event.getId()))
                 .filter(found -> found.getProductType() == ProductType.PACKAGE)
@@ -128,25 +136,28 @@ public class PackageUpgradeCommandService {
                 now.toLocalDate()
         );
 
-        // 차액은 신청 때와 같은 가격 계산으로 정한 패키지 가격에서 지금 계약금액(= 결제금액)을 뺀 값이다.
+        // 차액은 신청 때와 같은 가격 계산으로 정한 패키지 가격에서 그 단품 줄의 금액을 뺀 값이다.
         DiscountModels.PriceResult price = pricing.calculate(registration, packageCategory);
-        BigDecimal amount = price.finalAmount().subtract(registration.getContractAmount());
+        BigDecimal amount = price.finalAmount().subtract(item.getAmount());
         if (amount.signum() <= 0) {
             throw new CustomException(ErrorCode.REGISTRATION_POLICY_CONFIGURATION_ERROR,
-                    " 패키지 가격이 지금 계약금액보다 크지 않습니다. registrationId=" + registrationId);
+                    " 패키지 가격이 단품 줄 금액보다 크지 않습니다. registrationId=" + registrationId
+                            + ", itemId=" + item.getId());
         }
 
         // 앞서 만든 READY 주문은 쓰지 않는다. 진행 중인 결제·환불이 있으면 위에서 이미 막혔다.
         paymentGuard.invalidateLockedReadyPayments(locked.payments());
 
         Reservation reservation = capacitySupport.lockConsumedReservation(registration);
-        CapacityRequirementDiff diff = capacitySupport.packageDiff(item, packageCategory, components.size(), reservation);
+        CapacityRequirementDiff diff = capacitySupport.packageDiff(
+                activeItems, item, packageCategory, components.size(), reservation);
         List<PackageUpgradeHeldCapacity> held = capacitySupport.holdIncreases(event.getId(), diff, now);
 
         capacitySupport.recordAmountChange(reservation, now, "패키지 상향 요청: 계약금액에 차액 추가",
                 () -> registration.startPackageUpgrade(amount));
         PackageUpgrade upgrade = upgradeRepository.save(PackageUpgrade.create(
                 registration,
+                item,
                 packageCategory,
                 amount,
                 drafts.stream().map(PackageUpgradeCommandService::toEntry).toList(),
@@ -193,19 +204,29 @@ public class PackageUpgradeCommandService {
         entityManager.flush();
     }
 
-    /** 신청의 구매 줄이 하나뿐이고 그 줄이 신청 행의 단품과 같을 때 그 줄을 돌려준다. */
-    private RegistrationItem singleItem(Registration registration) {
-        List<RegistrationItem> items = itemRepository.findByRegistration_IdOrderBySortOrderAsc(registration.getId());
-        if (items.size() > 1) {
-            throw new CustomException(ErrorCode.PACKAGE_UPGRADE_MULTI_ITEM_NOT_ALLOWED,
-                    " registrationId=" + registration.getId() + ", itemCount=" + items.size());
+    /**
+     * 상향할 단품 줄. itemId가 없으면 살아 있는 단품 줄이 하나일 때만 그 줄로 정한다(이전 요청 본문 호환).
+     * 다른 주문의 줄·취소한 줄은 살아 있는 줄 목록에 없으므로 같은 오류로 거절한다.
+     */
+    private static RegistrationItem sourceItem(List<RegistrationItem> activeItems, String itemId) {
+        if (itemId == null || itemId.isBlank()) {
+            List<RegistrationItem> singles = activeItems.stream()
+                    .filter(item -> item.getEventCategory().getProductType() == ProductType.SINGLE)
+                    .toList();
+            if (singles.size() > 1) {
+                throw new CustomException(ErrorCode.PACKAGE_UPGRADE_ITEM_REQUIRED, " singleItemCount=" + singles.size());
+            }
+            if (singles.isEmpty()) {
+                throw CustomException.withResponseMessage(ErrorCode.PACKAGE_UPGRADE_NOT_ALLOWED,
+                        "단품만 패키지로 상향할 수 있습니다.");
+            }
+            return singles.getFirst();
         }
-        if (items.isEmpty()
-                || !Objects.equals(items.get(0).getEventCategory().getId(), registration.getEventCategory().getId())) {
-            throw new CustomException(ErrorCode.PACKAGE_UPGRADE_STATE_CONFLICT,
-                    " 상향할 단품 구매 줄이 신청 종목과 맞지 않습니다. registrationId=" + registration.getId());
-        }
-        return items.get(0);
+        return activeItems.stream()
+                .filter(item -> item.getId().equals(itemId))
+                .findFirst()
+                .orElseThrow(() -> CustomException.withResponseMessage(ErrorCode.PACKAGE_UPGRADE_NOT_ALLOWED,
+                        "주문에 없는 상품이거나 이미 취소한 상품입니다."));
     }
 
     /** 대회 → 결제 → 신청 순으로 잠그고, 다시 읽은 신청이 토큰 주문자의 살아 있는 개인 주문인지 본다. */

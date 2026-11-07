@@ -131,6 +131,24 @@ class VirtualRosterDatabaseTest {
         assertThat(rows.getLast().registrationId()).isEqualTo(noItem);
     }
 
+    /** 부분 취소한 줄과 그 받는 사람은 패킹 명단·인쇄 명단에 나오지 않는다. */
+    @Test
+    void canceledLinesAreLeftOutOfPackingAndPrint() {
+        String order = registration(eventId, catA, "CONFIRMED", false, false, START.plusDays(1));
+        String first = item(order);
+        String second = addItem(order, catB, 2, "[{\"souvenirId\":\"s2\"}]");
+        entryInItem(eventId, order, first, catA, "13", "취소한 상품");
+        entryInItem(eventId, order, second, catB, "21", "남은 상품");
+        jdbc.update("update registration_item set canceled_at = ? where id = ?", START.plusDays(2), first);
+
+        assertThat(repository.findPackingLines(eventId, START, END))
+                .extracting(PackingLine::itemId, PackingLine::entryName)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(second, "남은 상품"));
+        assertThat(repository.findPrintEntries(eventId, START, END))
+                .extracting(PrintEntry::name)
+                .containsExactly("남은 상품");
+    }
+
     /** 범위 끝이 null이면 그쪽을 막지 않는다. 1차는 시작 전 신청까지, 마지막 차수는 마감 뒤 신청까지 담고 상향 대기 신청은 뺀다. */
     @Test
     void openEndedRangesIncludeEarlyAndLateRegistrations() {

@@ -87,7 +87,7 @@ class ProductCapacityHoldTest {
         RegistrationItem first = item(registration, "item-1", 1, avengers, "40000");
         RegistrationItem second = item(registration, "item-2", 2, avengers, "40000");
         RegistrationItem third = item(registration, "item-3", 3, pack, "75000");
-        when(registrationItems.findAllByRegistrationIds(List.of("registration"))).thenReturn(List.of(first, second, third));
+        when(registrationItems.findActiveByRegistrationIds(List.of("registration"))).thenReturn(List.of(first, second, third));
         when(registrationEntries.findByRegistration_IdIn(List.of("registration"))).thenReturn(List.of(
                 entry(first, avengers), entry(second, avengers),
                 entry(third, avengers), entry(third, xmen), entry(third, fantastic4)));
@@ -146,7 +146,7 @@ class ProductCapacityHoldTest {
     @Test
     void productRegistrationWithoutItemsIsRejected() {
         Registration registration = registration(avengers);
-        when(registrationItems.findAllByRegistrationIds(List.of("registration"))).thenReturn(List.of());
+        when(registrationItems.findActiveByRegistrationIds(List.of("registration"))).thenReturn(List.of());
 
         assertThatThrownBy(() -> service.holdAndCloseIfFull(event, List.of(registration), NOW))
                 .isInstanceOfSatisfying(CustomException.class, exception ->

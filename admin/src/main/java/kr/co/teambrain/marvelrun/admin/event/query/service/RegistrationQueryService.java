@@ -405,7 +405,8 @@ public class RegistrationQueryService {
                         item.getEventCategory().getName(),
                         item.getEventCategory().getProductType(),
                         item.getAmount(),
-                        item.getSouvenirJson() == null ? List.of() : item.getSouvenirJson()))
+                        item.getSouvenirJson() == null ? List.of() : item.getSouvenirJson(),
+                        item.getCanceledAt()))
                 .toList();
     }
 

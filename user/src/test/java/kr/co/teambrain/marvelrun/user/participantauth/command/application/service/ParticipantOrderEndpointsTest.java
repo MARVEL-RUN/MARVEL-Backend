@@ -24,13 +24,15 @@ class ParticipantOrderEndpointsTest {
 
     /** 각 서비스의 남의 주문 거절 테스트: ParticipantOrderQueryServiceTest(상세), ParticipantOrderModificationServiceTest(주소),
      *  RegistrationEntryModificationServiceTest(받는 사람), RegistrationCancellationCommandServiceTest·
-     *  RegistrationCancellationTransactionServiceTest(취소), PaymentRetryPreparationServiceTest(재결제),
+     *  RegistrationCancellationTransactionServiceTest(취소), RegistrationItemCancellationTest(상품 하나 취소),
+     *  PaymentRetryPreparationServiceTest(재결제),
      *  PackageUpgradeCommandServiceTest(상향). */
     private static final List<String> OWNED_ORDER_ENDPOINTS = List.of(
             "GET /v1/participant/registrations/{registrationId}",
             "PATCH /v1/participant/registrations/{registrationId}",
             "PATCH /v1/participant/registrations/{registrationId}/entries",
             "POST /v1/participant/registrations/{registrationId}/cancellation",
+            "POST /v1/participant/registrations/{registrationId}/items/{itemId}/cancellation",
             "POST /v1/participant/registrations/{registrationId}/payments/{paymentId}/retry",
             "POST /v1/participant/registrations/{registrationId}/upgrade",
             "POST /v1/participant/registrations/{registrationId}/upgrade/payment",

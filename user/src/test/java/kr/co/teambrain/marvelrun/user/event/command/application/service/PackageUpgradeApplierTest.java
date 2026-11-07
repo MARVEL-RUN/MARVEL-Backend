@@ -131,7 +131,7 @@ class PackageUpgradeApplierTest {
         RegistrationItem item = singleEntry(registration);
         Reservation reservation = mock(Reservation.class);
         when(capacitySupport.lockConsumedReservation(registration)).thenReturn(reservation);
-        when(capacitySupport.packageDiff(item, pkg, 2, reservation)).thenReturn(new CapacityRequirementDiff(
+        when(capacitySupport.packageDiff(List.of(item), item, pkg, 2, reservation)).thenReturn(new CapacityRequirementDiff(
                 "reservation", ReservationStatus.CONSUMED, 1L,
                 List.of(new CapacityRequirementDiff.Item("cap-new", 0, 1, 1, 0, 0))));
 
@@ -153,6 +153,7 @@ class PackageUpgradeApplierTest {
         when(allocation.getAllocatedAmount()).thenReturn(DIFF);
         when(upgradeRepository.findByRegistrationForUpdate("registration", PackageUpgradeStatus.PENDING))
                 .thenReturn(Optional.of(upgrade(registration)));
+        singleItem(registration);
         when(entryRepository.findByRegistration_Id("registration")).thenReturn(List.of());
 
         assertThatThrownBy(() -> applier().validateBeforeConfirm(payment, List.of(allocation)))
@@ -162,25 +163,70 @@ class PackageUpgradeApplierTest {
         verifyNoInteractions(capacitySupport, pricing);
     }
 
-    /** 구매 줄이 여럿인 신청은 상향 승인 전에 막는다. 줄을 골라 상향하는 흐름은 아직 없다. */
+    /** 고른 줄이 취소됐거나 살아 있는 줄에 없으면 Toss 호출 전에 막는다. */
     @Test
-    void rejectsMultiItemRegistrationBeforeConfirm() {
+    void rejectsWhenSourceItemIsNoLongerActiveBeforeConfirm() {
         Registration registration = upgrading();
         additionalPayment(registration);
         when(allocation.getAllocatedAmount()).thenReturn(DIFF);
         when(upgradeRepository.findByRegistrationForUpdate("registration", PackageUpgradeStatus.PENDING))
                 .thenReturn(Optional.of(upgrade(registration)));
-        RegistrationItem first = RegistrationItem.create(registration, 1, avengers, List.of(), new BigDecimal("40000"));
-        when(entryRepository.findByRegistration_Id("registration")).thenReturn(List.of(RegistrationEntry.create(
-                first, new RegistrationEntryDraft(avengers, "신청자", "010-0000-0000", "1990-01-01", GenderClass.M))));
-        when(itemRepository.findByRegistration_IdOrderBySortOrderAsc("registration")).thenReturn(List.of(first,
-                RegistrationItem.create(registration, 2, xmen, List.of(), new BigDecimal("40000"))));
+        when(itemRepository.findActiveByRegistrationId("registration")).thenReturn(List.of(
+                item(registration, "item-2", 2, xmen, "40000")));
 
         assertThatThrownBy(() -> applier().validateBeforeConfirm(payment, List.of(allocation)))
                 .isInstanceOf(CustomException.class)
                 .extracting(e -> ((CustomException) e).getErrorCode())
                 .isEqualTo(ErrorCode.PACKAGE_UPGRADE_STATE_CONFLICT);
         verifyNoInteractions(capacitySupport, pricing);
+    }
+
+    /**
+     * 줄이 여럿인 주문은 고른 단품 줄만 패키지로 바꾼다. 대표 줄이 아니면 신청 종목은 그대로이고,
+     * 신청 전체 금액과 같은 가격 기록을 만들 수 없으므로 가격 기록을 남기지 않는다.
+     */
+    @Test
+    void appliesUpgradeToChosenLineAmongMany() {
+        EventCategory packageProduct = EventCategory.builder().id("package").event(event)
+                .productType(ProductType.PACKAGE).amount(new BigDecimal("75000")).build();
+        Registration registration = Registration.builder().id("registration").event(event).eventCategory(packageProduct)
+                .status(RegistrationStatus.ADDITIONAL_PAYMENT_REQUIRED).currentPriceCalculationId("calc-115000")
+                .contractAmount(new BigDecimal("150000")).paidAmount(new BigDecimal("115000")).build();
+        additionalPayment(registration);
+        when(allocation.getAllocatedAmount()).thenReturn(DIFF);
+        RegistrationItem first = item(registration, "item-0", 1, packageProduct, "75000");
+        RegistrationItem chosen = item(registration, "item-1", 2, avengers, "40000");
+        List<RegistrationItem> active = List.of(first, chosen);
+        when(itemRepository.findActiveByRegistrationId("registration")).thenReturn(active);
+        PackageUpgrade upgrade = upgrade(registration);
+        when(upgradeRepository.findByRegistrationForUpdate("registration", PackageUpgradeStatus.PENDING))
+                .thenReturn(Optional.of(upgrade));
+        Reservation reservation = mock(Reservation.class);
+        CapacityRequirementDiff diff = new CapacityRequirementDiff("reservation", ReservationStatus.CONSUMED, 1L, List.of());
+        when(capacitySupport.lockConsumedReservation(registration)).thenReturn(reservation);
+        when(capacitySupport.packageDiff(active, chosen, pkg, 2, reservation)).thenReturn(diff);
+        List<SouvenirJson> kits = List.of(new SouvenirJson("kit-avengers", "FREE"), new SouvenirJson("kit-xmen", "FREE"));
+        when(capacitySupport.packageSouvenirs(chosen, pkg)).thenReturn(kits);
+        when(entityManager.find(EventCategory.class, "xmen")).thenReturn(xmen);
+        when(pricing.calculate(registration, pkg)).thenReturn(price("75000"));
+        List<SouvenirJson> representativeSouvenirs = registration.getSouvenirJson();
+
+        applier().applyIfPending(payment, List.of(allocation), NOW);
+
+        assertThat(chosen.getEventCategory()).isSameAs(pkg);
+        assertThat(chosen.getAmount()).isEqualByComparingTo("75000");
+        assertThat(chosen.getSouvenirJson()).isEqualTo(kits);
+        assertThat(first.getEventCategory()).isSameAs(packageProduct);
+        assertThat(registration.getEventCategory()).isSameAs(packageProduct);
+        // 대표 줄이 아니므로 신청 행의 기념품도 그대로다.
+        assertThat(registration.getSouvenirJson()).isEqualTo(representativeSouvenirs);
+        verifyNoInteractions(priceCalculations);
+        // 상향 전 115,000원 기록은 150,000원의 근거가 아니므로 현재 참조를 끊는다.
+        assertThat(registration.getCurrentPriceCalculationId()).isNull();
+        ArgumentCaptor<RegistrationEntry> saved = ArgumentCaptor.forClass(RegistrationEntry.class);
+        verify(entryRepository).save(saved.capture());
+        assertThat(saved.getValue().getRegistrationItem()).isSameAs(chosen);
+        assertThat(upgrade.getStatus()).isEqualTo(PackageUpgradeStatus.COMPLETED);
     }
 
     /** 정원 숫자 검사에서 막히면 가격 계산까지 가지 않는다. */
@@ -196,7 +242,7 @@ class PackageUpgradeApplierTest {
         Reservation reservation = mock(Reservation.class);
         CapacityRequirementDiff diff = matchingDiff();
         when(capacitySupport.lockConsumedReservation(registration)).thenReturn(reservation);
-        when(capacitySupport.packageDiff(item, pkg, 2, reservation)).thenReturn(diff);
+        when(capacitySupport.packageDiff(List.of(item), item, pkg, 2, reservation)).thenReturn(diff);
         doThrow(new CustomException(ErrorCode.CAPACITY_COUNTER_MISMATCH))
                 .when(capacitySupport).validatePreheldMove("event", diff, upgrade);
 
@@ -219,7 +265,7 @@ class PackageUpgradeApplierTest {
         RegistrationItem item = singleEntry(registration);
         Reservation reservation = mock(Reservation.class);
         when(capacitySupport.lockConsumedReservation(registration)).thenReturn(reservation);
-        when(capacitySupport.packageDiff(item, pkg, 2, reservation)).thenReturn(matchingDiff());
+        when(capacitySupport.packageDiff(List.of(item), item, pkg, 2, reservation)).thenReturn(matchingDiff());
         when(pricing.calculate(registration, pkg)).thenReturn(price("80000"));
 
         assertThatThrownBy(() -> applier().validateBeforeConfirm(payment, List.of(allocation)))
@@ -241,7 +287,7 @@ class PackageUpgradeApplierTest {
         Reservation reservation = mock(Reservation.class);
         CapacityRequirementDiff diff = matchingDiff();
         when(capacitySupport.lockConsumedReservation(registration)).thenReturn(reservation);
-        when(capacitySupport.packageDiff(item, pkg, 2, reservation)).thenReturn(diff);
+        when(capacitySupport.packageDiff(List.of(item), item, pkg, 2, reservation)).thenReturn(diff);
         when(pricing.calculate(registration, pkg)).thenReturn(price("75000"));
 
         applier().validateBeforeConfirm(payment, List.of(allocation));
@@ -262,7 +308,7 @@ class PackageUpgradeApplierTest {
         CapacityRequirementDiff diff = new CapacityRequirementDiff("reservation", ReservationStatus.CONSUMED, 1L, List.of());
         RegistrationItem item = singleItem(registration);
         when(capacitySupport.lockConsumedReservation(registration)).thenReturn(reservation);
-        when(capacitySupport.packageDiff(item, pkg, 2, reservation)).thenReturn(diff);
+        when(capacitySupport.packageDiff(List.of(item), item, pkg, 2, reservation)).thenReturn(diff);
         List<SouvenirJson> kits = List.of(new SouvenirJson("kit-avengers", "FREE"), new SouvenirJson("kit-xmen", "FREE"));
         when(capacitySupport.packageSouvenirs(item, pkg)).thenReturn(kits);
         when(entityManager.find(EventCategory.class, "xmen")).thenReturn(xmen);
@@ -308,8 +354,9 @@ class PackageUpgradeApplierTest {
         when(allocation.getRegistration()).thenReturn(registration);
     }
 
+    /** 요청 때 고른 단품 줄은 item-1이다. */
     private PackageUpgrade upgrade(Registration registration) {
-        return PackageUpgrade.create(registration, pkg, DIFF,
+        return PackageUpgrade.create(registration, RegistrationItem.builder().id("item-1").build(), pkg, DIFF,
                 List.of(new PackageUpgradeEntry("xmen", "받는사람", "010-1111-2222", "1990-01-01", GenderClass.F)),
                 List.of(new PackageUpgradeHeldCapacity("cap-package", 1)));
     }
@@ -324,9 +371,14 @@ class PackageUpgradeApplierTest {
 
     /** 신청의 구매 줄이 지금 단품 하나뿐이다. */
     private RegistrationItem singleItem(Registration registration) {
-        RegistrationItem item = RegistrationItem.create(registration, 1, avengers, List.of(), new BigDecimal("40000"));
-        when(itemRepository.findByRegistration_IdOrderBySortOrderAsc("registration")).thenReturn(List.of(item));
+        RegistrationItem item = item(registration, "item-1", 1, avengers, "40000");
+        when(itemRepository.findActiveByRegistrationId("registration")).thenReturn(List.of(item));
         return item;
+    }
+
+    private RegistrationItem item(Registration registration, String id, int sortOrder, EventCategory product, String amount) {
+        return RegistrationItem.builder().id(id).event(event).registration(registration).eventCategory(product)
+                .sortOrder(sortOrder).souvenirJson(List.of()).amount(new BigDecimal(amount)).build();
     }
 
     /** 요청 때 잡은 held(cap-package 1)와 같은 증가분. */

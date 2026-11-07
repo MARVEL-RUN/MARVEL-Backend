@@ -59,7 +59,9 @@ public class RegistrationEntryModificationService {
         if (registration == null || registration.isSoftDeleted() || !registration.isOwnedBy(ordererKey)) {
             throw new CustomException(ErrorCode.REGISTRATION_ACCESS_DENIED);
         }
+        // 부분 취소한 상품의 받는 사람은 보여 주지 않는다.
         return new RegistrationEntryListResponse(entryRepository.findByRegistration_Id(registrationId).stream()
+                .filter(entry -> !entry.getRegistrationItem().isCanceled())
                 .sorted(Comparator.comparingInt((RegistrationEntry entry) -> entry.getRegistrationItem().getSortOrder())
                         .thenComparing(entry -> entry.getEventCategory().getOrder(),
                                 Comparator.nullsLast(Comparator.naturalOrder()))
@@ -91,7 +93,9 @@ public class RegistrationEntryModificationService {
                 throw new CustomException(ErrorCode.REGISTRATION_ENTRY_DUPLICATED, " entryId=" + item.entryId());
             }
         }
+        // 부분 취소한 상품의 받는 사람은 고칠 수 없다. 다른 신청의 항목과 같은 오류로 거절한다.
         Map<String, RegistrationEntry> owned = entryRepository.findByRegistration_Id(registrationId).stream()
+                .filter(entry -> !entry.getRegistrationItem().isCanceled())
                 .collect(Collectors.toMap(RegistrationEntry::getId, Function.identity()));
         if (!owned.keySet().containsAll(requestedIds)) {
             throw new CustomException(ErrorCode.INVALID_REGISTRATION_ENTRIES, " 다른 신청의 참가 항목입니다.");

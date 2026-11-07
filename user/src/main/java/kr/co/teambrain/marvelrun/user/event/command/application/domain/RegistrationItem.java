@@ -6,12 +6,15 @@ import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import kr.co.teambrain.marvelrun.common.entity.RegistrationItemBase;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
+import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
+import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /** 신청의 구매 줄. 상품 한 개와 그 줄의 기념품·금액을 담는다. */
@@ -46,6 +49,14 @@ public class RegistrationItem extends RegistrationItemBase<Event, Registration, 
                 .souvenirJson(List.copyOf(souvenirs))
                 .amount(amount)
                 .build();
+    }
+
+    /** 이 줄을 부분 취소한다. 줄과 참가 항목은 지우지 않는다. 이미 취소한 줄은 호출자가 먼저 거른다. */
+    public void cancel(LocalDateTime now) {
+        if (canceledAt != null || now == null) {
+            throw new CustomException(ErrorCode.REGISTRATION_ITEM_ALREADY_CANCELED, " itemId=" + id);
+        }
+        this.canceledAt = now;
     }
 
     /** 단품 → 패키지 상향 승인 때 줄의 상품·금액·기념품을 패키지로 바꾼다. 기념품은 패키지 종목에 연결된 것 전부다. */

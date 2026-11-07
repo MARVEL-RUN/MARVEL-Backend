@@ -29,6 +29,7 @@ import java.util.Set;
 import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
 import kr.co.teambrain.marvelrun.admin.event.command.application.context.RegistrationPolicyContext;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.RegistrationEntry;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.RegistrationItem;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.policy.EventRegistrationPolicy;
 import kr.co.teambrain.marvelrun.admin.event.command.application.valid.RegistrationPolicyValidator;
 import kr.co.teambrain.marvelrun.admin.event.command.application.valid.loader.RegistrationPolicyLoader;
@@ -110,6 +111,7 @@ class RegistrationPasswordResetTest {
         when(policyLoader.load("event", Set.of(), Set.of())).thenReturn(new RegistrationPolicyContext(policy, Map.of(), Map.of()));
         RegistrationEntry child = mock(RegistrationEntry.class);
         when(child.getBirth()).thenReturn("2015-01-01");
+        when(child.getRegistrationItem()).thenReturn(mock(RegistrationItem.class));
         when(entries.findByRegistration_Id("r")).thenReturn(List.of(child));
         when(time.currentDateTime()).thenReturn(LocalDateTime.of(2026, 11, 6, 10, 0));
         // 오프라인 규칙이면 요금 구분이 바뀌어 PRICE_TIER_CHANGE_NOT_ALLOWED가 나는 생년월일 변경

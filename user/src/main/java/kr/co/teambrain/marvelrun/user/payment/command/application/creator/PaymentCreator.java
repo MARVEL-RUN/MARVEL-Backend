@@ -241,7 +241,7 @@ public class PaymentCreator {
         if (registration.isProductPurchase()) {
             List<RegistrationItem> items =
                     registrationItemCommandRepository
-                            .findByRegistration_IdOrderBySortOrderAsc(registration.getId());
+                            .findActiveByRegistrationId(registration.getId());
 
             if (!items.isEmpty()) {
                 String first = eventName + " - " + items.getFirst().getEventCategory().getName();

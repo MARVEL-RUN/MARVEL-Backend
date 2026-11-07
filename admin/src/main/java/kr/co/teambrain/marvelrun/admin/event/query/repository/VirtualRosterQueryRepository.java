@@ -46,20 +46,22 @@ public class VirtualRosterQueryRepository {
                 (rs, rowNum) -> new EventInfo(rs.getString("name_kr"), rs.getString("event_format"))).stream().findFirst();
     }
 
-    /** 참가 항목 하나가 한 행이다. 배번 길이, 배번 순이고 배번이 없는 항목은 끝에 둔다. */
+    /** 참가 항목 하나가 한 행이다. 배번 길이, 배번 순이고 배번이 없는 항목은 끝에 둔다. 부분 취소한 상품의 항목은 뺀다. */
     public List<PrintEntry> findPrintEntries(String eventId, LocalDateTime from, LocalDateTime to) {
         return jdbc.query("""
                 SELECT e.bib_number, e.name, c.name AS category_name
                 FROM registration_entry e
                 JOIN registration r ON r.id = e.registration_id
+                JOIN registration_item i ON i.id = e.registration_item_id
                 JOIN event_category c ON c.id = e.event_category_id
                 """ + ROUND_FILTER + """
+                  AND i.canceled_at IS NULL
                 ORDER BY (e.bib_number IS NULL), CHAR_LENGTH(e.bib_number), e.bib_number, r.registration_date, r.id, c.sort_order, e.id
                 """, range(eventId, from, to),
                 (rs, rowNum) -> new PrintEntry(rs.getString("bib_number"), rs.getString("name"), rs.getString("category_name")));
     }
 
-    /** 참가 항목 하나가 한 행이다. 신청일시, 신청 ID, 구매 줄 순서, 종목 순서, 항목 ID 순이다. */
+    /** 참가 항목 하나가 한 행이다. 신청일시, 신청 ID, 구매 줄 순서, 종목 순서, 항목 ID 순이다. 부분 취소한 줄은 뺀다. */
     public List<PackingLine> findPackingLines(String eventId, LocalDateTime from, LocalDateTime to) {
         return jdbc.query("""
                 SELECT r.id, i.id AS item_id, pc.name AS product_name, pc.product_type,
@@ -68,7 +70,7 @@ public class VirtualRosterQueryRepository {
                        e.bib_number, e.name AS entry_name,
                        r.name, r.ph_num, r.address, r.address_detail
                 FROM registration r
-                LEFT JOIN registration_item i ON i.registration_id = r.id
+                LEFT JOIN registration_item i ON i.registration_id = r.id AND i.canceled_at IS NULL
                 JOIN event_category pc ON pc.id = COALESCE(i.event_category_id, r.event_category_id)
                 LEFT JOIN registration_entry e ON e.registration_item_id = i.id
                 LEFT JOIN event_category ec ON ec.id = e.event_category_id

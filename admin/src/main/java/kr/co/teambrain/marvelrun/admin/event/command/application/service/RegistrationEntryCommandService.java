@@ -62,7 +62,9 @@ public class RegistrationEntryCommandService {
                 throw new CustomException(ErrorCode.REGISTRATION_ENTRY_DUPLICATED);
             }
         }
+        // 부분 취소한 상품의 받는 사람은 고칠 수 없다. 다른 신청의 항목과 같은 오류로 거절한다.
         Map<String, RegistrationEntry> owned = entryRepository.findByRegistration_Id(registrationId).stream()
+                .filter(entry -> !entry.getRegistrationItem().isCanceled())
                 .collect(Collectors.toMap(RegistrationEntry::getId, Function.identity()));
         if (!owned.keySet().containsAll(requestedIds)) {
             throw new CustomException(ErrorCode.INVALID_REGISTRATION_ENTRIES);

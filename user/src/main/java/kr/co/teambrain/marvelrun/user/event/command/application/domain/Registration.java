@@ -542,8 +542,28 @@ public class Registration extends RegistrationBase<
     }
 
     /**
+     * 구매 줄 하나를 부분 취소한 뒤 신청에 반영한다. 계약금액에서 줄 금액을 뺀다.
+     * 대표 줄(살아 있는 첫 줄)이 바뀌었으면 신청의 종목·기념품을 새 대표 줄 값으로 옮긴다.
+     * 금융 상태(PARTIAL_REFUND_REQUIRED)는 같은 트랜잭션의 정산이 정한다. 호출자는 정원 이동을 먼저 마친다.
+     */
+    public void applyItemCancellation(BigDecimal itemAmount, EventCategory representativeCategory,
+                                      List<SouvenirJson> representativeSouvenirs) {
+        if (organization != null || softDeleted || contractAmount == null || itemAmount == null
+                || itemAmount.signum() < 0 || itemAmount.compareTo(contractAmount) >= 0
+                || representativeCategory == null) {
+            throw new CustomException(ErrorCode.REGISTRATION_FINANCIAL_STATE_INVALID,
+                    " 구매 줄 취소를 반영할 수 없는 신청입니다. registrationId=" + getId());
+        }
+        this.contractAmount = contractAmount.subtract(itemAmount);
+        this.eventCategory = representativeCategory;
+        this.souvenirJson = representativeSouvenirs == null ? List.of() : List.copyOf(representativeSouvenirs);
+        // 남은 계약금액의 근거가 아니므로 현재 가격 계산 참조를 끊는다. 이전 기록 행은 그대로 남는다.
+        this.currentPriceCalculationId = null;
+    }
+
+    /**
      * 상향 결제 승인 때 종목과 기념품을 패키지로 바꾼다. 계약금액은 요청 때 이미 올렸다.
-     * 상향은 구매 줄이 하나뿐인 신청만 하므로 그 줄의 기념품이 곧 대표 줄 값이다.
+     * 상향한 줄이 대표 줄(살아 있는 첫 줄)일 때만 부르므로 그 줄의 기념품이 곧 신청 값이다.
      */
     public void applyPackageUpgrade(EventCategory packageCategory, List<SouvenirJson> souvenirs) {
         if (softDeleted || packageCategory == null || souvenirs == null) {

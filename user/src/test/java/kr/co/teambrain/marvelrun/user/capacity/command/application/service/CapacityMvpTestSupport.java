@@ -99,6 +99,7 @@ import static org.mockito.Mockito.*;
         BCryptPasswordEncoder.class,
         CapacityHoldService.class,
         CapacityRequirementResolver.class,
+        RegistrationItemCapacityRequirements.class,
         RegistrationCapacityService.class,
         ReservationReleaseService.class,
         ReservationPaymentService.class,

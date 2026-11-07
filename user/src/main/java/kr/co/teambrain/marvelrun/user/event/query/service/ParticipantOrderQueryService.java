@@ -117,6 +117,7 @@ public class ParticipantOrderQueryService {
                                 entry.getBirth(),
                                 entry.getGender(),
                                 entry.getBibNumber()))
-                        .toList());
+                        .toList(),
+                item.getCanceledAt());
     }
 }
