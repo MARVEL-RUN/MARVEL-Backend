@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.user.community.query.dto.response;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 
 import java.time.LocalDateTime;
@@ -28,5 +29,6 @@ public class NoticeDetailResponse {
 
     private List<String> attachmentUrls;
 
+@Schema(description = "공지가 속한 대회 id. 대회에 속하지 않은 공지는 null")
     private String eventId;
 }

@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.user.community.query.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
 import kr.co.teambrain.marvelrun.user.common.dto.PasswordInputRequest;
 import kr.co.teambrain.marvelrun.user.community.query.domain.NoticeSearchTarget;
 import kr.co.teambrain.marvelrun.user.community.query.domain.NoticeSortType;
@@ -22,6 +23,7 @@ public class NoticeQueryController {
     private final NoticeQueryService noticeQueryService;
 
 
+    @Operation(summary = "공지사항 목록 조회", description = "eventId를 보내면 그 대회의 공지, 보내지 않으면 대회에 속하지 않은 공지만 조회한다. 응답의 각 공지에 eventId가 있으며 대회에 속하지 않은 공지는 null이다.")
     @GetMapping
     public ResponseEntity<NoticeHeaderPageWrapperResponse>
     getQuestionPage(
@@ -86,6 +88,7 @@ public class NoticeQueryController {
     /**
      * 공지사항 상세
      */
+    @Operation(summary = "공지사항 상세 조회", description = "응답에 공지가 속한 대회 eventId가 있다. 대회에 속하지 않은 공지는 null이다.")
     @PostMapping("/{noticeId}/detail")
     public ResponseEntity<NoticeDetailResponse>
     getQuestionDetail(
