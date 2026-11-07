@@ -28,9 +28,12 @@ import kr.co.teambrain.marvelrun.common.inheritance_enum.upgrade.PackageUpgradeS
 import kr.co.teambrain.marvelrun.admin.event.query.dto.response.RegistrationListResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.PaymentQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationEntryQueryRepository;
+import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationItemQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
+import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationRowQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.SouvenirQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationActionPolicyReader;
+import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationRowSouvenirs;
 import kr.co.teambrain.marvelrun.admin.event.query.util.RegistrationSpecification;
 import kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventFormat;
@@ -43,6 +46,7 @@ import lombok.RequiredArgsConstructor;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCategoryStartGroup;
 import kr.co.teambrain.marvelrun.admin.event.command.repository.EventCategoryStartGroupRepository;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -57,6 +61,7 @@ public class RegistrationQueryService {
     private final ServerTimeProvider policyTime;
     private final EventCategoryStartGroupRepository startGroupRepository;
     private final RegistrationEntryQueryRepository bibEntryRepository;
+    private final RegistrationItemQueryRepository registrationItemRepository;
 
 
 
@@ -65,13 +70,18 @@ public class RegistrationQueryService {
 
     private final SouvenirQueryRepository souvenirQueryRepository;
     private final PackageUpgradeCommandRepository packageUpgrades;
+    private final RegistrationRowQueryRepository registrationRowQueryRepository;
+    private final RegistrationRowSouvenirs rowSouvenirs;
     private static final LocalDate CHILD_CUTOFF_DATE = LocalDate.of(2013, 11, 1);
 
-    /** 현재 페이지의 그룹 코드를 일괄 조회하고 기존 정렬·건수를 유지한다. */
+    /** 현재 페이지의 그룹 코드를 일괄 조회하고 기존 정렬·건수를 유지한다. 버추얼 대회는 참가자마다 한 행이다. */
     public Page<RegistrationListResponse> getRegistrationList(
             RegistrationSearchCondition condition,
             Pageable pageable
     ) {
+        if (registrationQueryRepository.findEventFormatById(condition.eventId()) == EventFormat.VIRTUAL) {
+            return getVirtualRegistrationList(condition, pageable);
+        }
         Page<Registration> registrations = registrationQueryRepository.findAll(
                 RegistrationSpecification.searchWith(condition),
                 pageable
@@ -109,6 +119,76 @@ public class RegistrationQueryService {
 
             return convertToDto(registration, listNumber, souvenirNames, groupCodes, filterSummaries, bibNumbers);
         });
+    }
+
+    /** 버추얼 대회 목록: 참가 항목마다 한 행이다. 건수·번호도 행 기준이다. 신청 엔티티는 페이지의 신청만 한 번에 읽는다. */
+    private Page<RegistrationListResponse> getVirtualRegistrationList(RegistrationSearchCondition condition, Pageable pageable) {
+        long totalElements = registrationRowQueryRepository.count(condition, null);
+        List<RegistrationRowQueryRepository.Row> rows = registrationRowQueryRepository.find(
+                condition, null, pageable.getPageSize(), pageable.getOffset());
+
+        List<String> registrationIds = rows.stream().map(RegistrationRowQueryRepository.Row::registrationId).distinct().toList();
+        Map<String, Registration> registrations = registrationIds.isEmpty() ? Map.of()
+                : registrationQueryRepository.findByIdIn(registrationIds).stream()
+                .collect(Collectors.toMap(Registration::getId, registration -> registration));
+        // 최근 결제는 신청마다 한 번만 읽는다.
+        Map<String, Payment> payments = new HashMap<>();
+        for (String registrationId : registrationIds) {
+            paymentQueryRepository.findFirstByRegistrationIdOrderByCreatedAtDesc(registrationId)
+                    .ifPresent(payment -> payments.put(registrationId, payment));
+        }
+        Map<String, ReferenceFilterSummaryResponse> filterSummaries = referenceFilters.loadReferenceFilterSummaries(
+                registrations.values().stream().map(Registration::getReferenceFilterId).toList());
+        Map<String, String> groupCodes = findStartGroupCodes(registrations.values().stream().toList());
+
+        // 행의 기념품: 구매 줄 선택 가운데 그 행 종목에 연결된 것만 쓴다.
+        List<List<SouvenirJson>> lineSouvenirs = rows.stream()
+                .map(row -> rowSouvenirs.readLine(row.souvenirJson()))
+                .toList();
+        Map<String, Set<String>> linkedSouvenirIds = rowSouvenirs.linkedSouvenirIds(condition.eventId());
+        Map<String, String> souvenirNames = rowSouvenirs.names(lineSouvenirs);
+
+        List<RegistrationListResponse> content = new ArrayList<>();
+        for (int index = 0; index < rows.size(); index++) {
+            RegistrationRowQueryRepository.Row row = rows.get(index);
+            Registration registration = registrations.get(row.registrationId());
+            boolean isOrganization = registration.getOrganization() != null;
+            Payment payment = payments.get(row.registrationId());
+            List<SouvenirJson> souvenirs = rowSouvenirs.rowSouvenirs(
+                    lineSouvenirs.get(index), row.entryCategoryId(), linkedSouvenirIds);
+            // 구매 줄 기념품 JSON을 못 읽은 행은 페이지 전체를 실패시키지 않고 확인 문구를 쓴다.
+            String souvenirName = souvenirs == null ? "기념품 확인 필요" : souvenirs.stream()
+                    .map(souvenir -> souvenirNames.getOrDefault(souvenir.souvenirId(), ""))
+                    .collect(Collectors.joining(" | "));
+
+            content.add(RegistrationListResponse.builder()
+                    .referenceFilter(filterSummaries.get(registration.getReferenceFilterId()))
+                    .registrationId(registration.getId())
+                    .startGroupCode(registration.getStartGroupId() == null ? null : groupCodes.get(registration.getStartGroupId()))
+                    .startGroupUnselected(registration.isStartGroupUnselected())
+                    .listNumber(totalElements - pageable.getOffset() - index)
+                    .type(isOrganization ? "단체" : "개인")
+                    .name(row.name())
+                    .orgName(isOrganization ? registration.getOrganization().getGroupName() : null)
+                    .birth(row.birth())
+                    .gender(row.gender() == GenderClass.M ? "남성" : "여성")
+                    .courseName(row.entryCategoryName() != null ? row.entryCategoryName() : row.productName())
+                    .souvenirName(souvenirName)
+                    .phoneNumber(row.phNum())
+                    .marketingConsent(Boolean.TRUE.equals(registration.getTermsMarketingAgreed()) ? "Y" : "N")
+                    .status((payment != null && payment.getProcessStatus() == PaymentProcessStatus.UNKNOWN)
+                            ? PaymentProcessStatus.UNKNOWN.name()
+                            : registration.getStatus().name())
+                    .createdAt(registration.getRegistrationDate())
+                    .bibNumbers(row.bibNumber() == null ? List.of() : List.of(row.bibNumber()))
+                    .entryId(row.entryId())
+                    .itemId(row.itemId())
+                    .productName(row.productName())
+                    .ordererName(registration.getName())
+                    .ordererPhoneNumber(registration.getPhNum())
+                    .build());
+        }
+        return new PageImpl<>(content, pageable, totalElements);
     }
 
     /** 일괄 조회한 표시 코드와 기존 목록 정보를 결합한다. */
@@ -197,11 +277,12 @@ public class RegistrationQueryService {
 
         // 비활성화된 기존 선택도 저장된 코드로 표시한다.
         Map<String, String> groupCodes = findStartGroupCodes(List.of(registration));
-        return toRegistrationDetailResponse(registration, payment, registration.getStartGroupId() == null ? null : groupCodes.get(registration.getStartGroupId()));
+        List<RegistrationEntry> entries = bibEntryRepository.findByRegistrationIds(List.of(registrationId));
+        return toRegistrationDetailResponse(registration, payment, registration.getStartGroupId() == null ? null : groupCodes.get(registration.getStartGroupId()), entries);
     }
 
     /* 신청 정보와 결제 표시값을 변환하며 외부 결제 여부는 저장된 값을 그대로 제공한다. */
-    private RegistrationDetailResponse toRegistrationDetailResponse(Registration registration, Payment payment, String startGroupCode) {
+    private RegistrationDetailResponse toRegistrationDetailResponse(Registration registration, Payment payment, String startGroupCode, List<RegistrationEntry> entries) {
         boolean isOrganization = registration.getOrganization() != null;
 
         // 이메일 추출: 단체면 단체 대표 이메일, 개인이면 유저 이메일
@@ -269,10 +350,11 @@ public class RegistrationQueryService {
                 ? payment.getPaymentMethod().name() : "-";
 
         return RegistrationDetailResponse.builder()
-                .entries(bibEntryRepository.findByRegistrationIds(List.of(registration.getId())).stream()
+                .entries(entries.stream()
                         .map(RegistrationEntryResponse::from).toList())
                 .entriesEditable(!registration.isSoftDeleted()
                         && registration.isProductPurchase())
+                .items(toItemResponses(registration.getId()))
                 .packageUpgrade(packageUpgrades.findAllByRegistrations(List.of(registration.getId()), PackageUpgradeStatus.PENDING)
                         .stream().findFirst().map(PackageUpgradeSummaryResponse::from).orElse(null))
                 .referenceFilter(referenceFilters.loadReferenceFilterSummaries(Collections.singletonList(registration.getReferenceFilterId())).get(registration.getReferenceFilterId()))
@@ -312,6 +394,19 @@ public class RegistrationQueryService {
                 .termsMarketingAgreed(registration.getTermsMarketingAgreed())
                 .termsMarketingChannelAgreed(registration.getTermsMarketingChannelAgreed())
                 .build();
+    }
+
+    /** 신청의 구매 줄을 줄 순서대로 돌려준다. */
+    private List<RegistrationDetailResponse.ItemResponse> toItemResponses(String registrationId) {
+        return registrationItemRepository.findByRegistration_IdOrderBySortOrderAsc(registrationId).stream()
+                .map(item -> new RegistrationDetailResponse.ItemResponse(
+                        item.getId(),
+                        item.getEventCategory().getId(),
+                        item.getEventCategory().getName(),
+                        item.getEventCategory().getProductType(),
+                        item.getAmount(),
+                        item.getSouvenirJson() == null ? List.of() : item.getSouvenirJson()))
+                .toList();
     }
 
     /** 저장된 그룹의 활성 여부와 무관하게 목록 한 번으로 코드를 가져온다. */

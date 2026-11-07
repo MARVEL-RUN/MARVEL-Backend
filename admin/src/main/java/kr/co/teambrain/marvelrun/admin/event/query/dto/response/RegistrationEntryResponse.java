@@ -12,11 +12,15 @@ public record RegistrationEntryResponse(
         String phNum,
         String birth,
         GenderClass gender,
-        String bibNumber
+        String bibNumber,
+        /** 참가 항목이 속한 구매 줄 ID와 그 상품명. 한 주문에 상품이 여럿이면 줄을 가리킨다. */
+        String itemId,
+        String productName
 ) {
     public static RegistrationEntryResponse from(RegistrationEntry entry) {
         return new RegistrationEntryResponse(entry.getId(), entry.getEventCategory().getId(),
                 entry.getEventCategory().getName(), entry.getName(), entry.getPhNum(), entry.getBirth(),
-                entry.getGender(), entry.getBibNumber());
+                entry.getGender(), entry.getBibNumber(), entry.getRegistrationItem().getId(),
+                entry.getRegistrationItem().getEventCategory().getName());
     }
 }

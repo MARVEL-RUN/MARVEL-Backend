@@ -22,6 +22,8 @@ public interface EventCategorySouvenirQueryRepository extends JpaRepository<Even
             ec.name as eventCategoryName,
             ec.amount as eventCategoryAmount,
             ec.isActive as eventCategoryIsActive,
+            ec.productType as eventCategoryProductType,
+            ec.parentCategoryId as eventCategoryParentCategoryId,
 
             s.order as souvenirOrder,
             s.id as souvenirId,

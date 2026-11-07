@@ -8,6 +8,7 @@ import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Event;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.EventCategory;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.RegistrationEntry;
+import kr.co.teambrain.marvelrun.admin.event.command.application.domain.RegistrationItem;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.policy.EventCategoryRegistrationPolicy;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.policy.EventRegistrationPolicy;
 import kr.co.teambrain.marvelrun.admin.event.command.application.dto.RegistrationEntryModifyRequest;
@@ -208,8 +209,11 @@ class RegistrationEntryCommandServiceTest {
                 .name("신청자").phNum("01000000000").birth("1990-01-01").gender(GenderClass.M).build();
     }
 
+    /** 참가 항목은 늘 구매 줄에 묶이므로 신청 종목으로 만든 첫 구매 줄을 붙인다. 수정 응답이 줄 ID·상품명을 읽는다. */
     private RegistrationEntry entry(String id, Registration registration, EventCategory category, String name, String bib) {
-        return RegistrationEntry.builder().id(id).event(event).registration(registration).eventCategory(category)
+        RegistrationItem line = RegistrationItem.builder().id("line").event(event).registration(registration)
+                .eventCategory(registration.getEventCategory()).sortOrder(1).build();
+        return RegistrationEntry.builder().id(id).event(event).registration(registration).registrationItem(line).eventCategory(category)
                 .name(name).phNum("01000000000").birth("1990-01-01").gender(GenderClass.M).bibNumber(bib).build();
     }
 

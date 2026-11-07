@@ -17,9 +17,11 @@ import kr.co.teambrain.marvelrun.admin.event.query.dto.PaymentDailyCountRow;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.PaymentDailyGraphResponse;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationStatDto;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventFormat;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentMethod;
+import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.xssf.streaming.SXSSFWorkbook;
@@ -176,6 +178,47 @@ class RegistrationDailyReportServiceTest {
             assertThat(totals(workbook.getSheet("누계"), "신청자(합계)")).containsExactly(3.0);
             assertThat(totals(workbook.getSheet("누계"), "입금자(합계)")).containsExactly(2.0);
             assertThat(totals(workbook.getSheet("일자별"), "입금자(합계)")).containsExactly(0.0, 1.0, 1.0, 0.0);
+        } finally {
+            workbook.dispose();
+        }
+    }
+
+    /** 패키지 종목은 열이 되지 않는다. 참가 항목은 하위 종목으로 집계하므로 패키지 열은 비어 남기 때문이다. */
+    @Test
+    void packageCategoryIsLeftOutOfCourseColumns() throws IOException {
+        LocalDate opened = LocalDate.of(2026, 10, 5);
+        LocalDate endDate = LocalDate.of(2026, 10, 8);
+        Event event = reportEvent(opened);
+        when(event.getEventFormat()).thenReturn(EventFormat.VIRTUAL);
+        ServerTimeProvider time = mock(ServerTimeProvider.class);
+        when(time.currentDateTime()).thenReturn(LocalDateTime.of(2026, 10, 8, 12, 0));
+        EventCategoryQueryRepository categories = mock(EventCategoryQueryRepository.class);
+        EventCategory single = mock(EventCategory.class);
+        when(single.getName()).thenReturn("A");
+        EventCategory packageCategory = mock(EventCategory.class);
+        when(packageCategory.getName()).thenReturn("P");
+        when(packageCategory.getProductType()).thenReturn(ProductType.PACKAGE);
+        when(categories.findAllByEvent_IdOrderByOrderDesc("event")).thenReturn(List.of(packageCategory, single));
+        RegistrationDailyReportQueryRepository repository = mock(RegistrationDailyReportQueryRepository.class);
+        when(repository.findReportRows("event", opened.atStartOfDay(), endDate.plusDays(1).atStartOfDay()))
+                .thenReturn(List.of(new RegistrationDailyReportRow(RegistrationStatus.CONFIRMED, "1990-01-01", "A",
+                        new BigDecimal("40000"), opened.atTime(10, 0), opened.plusDays(1).atStartOfDay())));
+        RegistrationDailyReportService service = new RegistrationDailyReportService(time, categories,
+                mock(EventCommandRepository.class), mock(RegistrationQueryRepository.class), repository);
+
+        SXSSFWorkbook workbook = service.getDailyPaymenterExcelReport(event, opened, endDate);
+        try (workbook) {
+            List<String> texts = new java.util.ArrayList<>();
+            for (Sheet sheet : workbook) {
+                for (Row row : sheet) {
+                    row.forEach(cell -> {
+                        if (cell.getCellType() == CellType.STRING) {
+                            texts.add(cell.getStringCellValue());
+                        }
+                    });
+                }
+            }
+            assertThat(texts).contains("A").doesNotContain("P");
         } finally {
             workbook.dispose();
         }

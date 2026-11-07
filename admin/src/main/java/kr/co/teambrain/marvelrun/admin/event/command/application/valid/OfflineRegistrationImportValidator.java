@@ -148,6 +148,11 @@ public class OfflineRegistrationImportValidator {
                     result.addError(row.rowNumber(), "category", "INVALID_MAPPING", "대회·종목·기념품 소속과 매핑을 확인해주세요.");
                     continue;
                 }
+                // 상품 종목은 구매 줄·참가 항목이 있어야 하는데 일괄 등록은 신청 행만 만들므로 받지 않는다.
+                if (category.getProductType() != null) {
+                    result.addError(row.rowNumber(), "category", "PRODUCT_CATEGORY", "상품 종목은 일괄 등록할 수 없습니다.");
+                    continue;
+                }
                 EventCategorySouvenir souvenir = selected.getFirst();
                 if (!Boolean.TRUE.equals(category.getIsActive()) || !Boolean.TRUE.equals(souvenir.getSouvenir().getIsActive())) {
                     result.addError(row.rowNumber(), "category", "INACTIVE_SELECTION", "비활성 종목 또는 기념품은 신청할 수 없습니다.");

@@ -10,6 +10,7 @@ import kr.co.teambrain.marvelrun.admin.event.query.repository.EventCategoryQuery
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationDailyReportQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventFormat;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationStatus;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.ss.usermodel.*;
@@ -336,10 +337,11 @@ public class RegistrationDailyReportService {
         LocalDate resolvedStartDate = reportDateRange.startDate();
         LocalDate resolvedEndDate = reportDateRange.endDate();
 
-        /** 대회에 설정된 코스 순서대로 엑셀 열을 구성한다. */
+        /** 대회에 설정된 코스 순서대로 엑셀 열을 구성한다. 패키지 종목은 참가 항목 종목으로 집계하므로 열에서 뺀다. */
         List<String> courseNames = categories
                 .findAllByEvent_IdOrderByOrderDesc(event.getId())
                 .stream()
+                .filter(category -> category.getProductType() != ProductType.PACKAGE)
                 .map(category -> category.getName())
                 .toList();
 

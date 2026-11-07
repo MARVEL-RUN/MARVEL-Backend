@@ -29,7 +29,13 @@ public record RegistrationListResponse(
         LocalDateTime createdAt,  // 신청일시: registrationDate 필드
         String startGroupCode,
         boolean startGroupUnselected,
-        List<String> bibNumbers   // 배번: 참가 항목의 발급 배번(하위 종목 정렬 순). 없으면 빈 목록
+        List<String> bibNumbers,  // 배번: 참가 항목의 발급 배번(하위 종목 정렬 순). 없으면 빈 목록
+        // 아래는 버추얼 대회 참가자 기준 목록에만 채운다. 오프라인 대회는 null이다.
+        String entryId,           // 참가 항목 ID. 같은 주문의 행을 구분한다. 참가 항목이 없으면 null
+        String itemId,            // 구매 줄 ID. 참가 항목이 없으면 null
+        String productName,       // 상품명: 구매 줄의 상품. 구매 줄이 없으면 신청 종목명
+        String ordererName,       // 주문자 이름
+        String ordererPhoneNumber // 주문자 연락처
 ) {
 
 }

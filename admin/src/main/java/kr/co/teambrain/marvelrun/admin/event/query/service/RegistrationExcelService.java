@@ -4,16 +4,17 @@ import jakarta.persistence.criteria.JoinType;
 import jakarta.servlet.http.HttpServletResponse;
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
+import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
 import kr.co.teambrain.marvelrun.admin.event.command.application.domain.Registration;
-import kr.co.teambrain.marvelrun.admin.event.command.application.domain.RegistrationEntry;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.RegistrationSearchCondition;
-import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualRosterModels;
-import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationEntryQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationQueryRepository;
+import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationRowQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.SouvenirQueryRepository;
+import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationRowSouvenirs;
 import kr.co.teambrain.marvelrun.admin.event.query.util.RegistrationSpecification;
 import kr.co.teambrain.marvelrun.admin.user.command.application.domain.Organization;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.EventFormat;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.ss.usermodel.*;
@@ -29,7 +30,6 @@ import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.regex.Pattern;
@@ -43,11 +43,11 @@ public class RegistrationExcelService {
 
     private final RegistrationQueryRepository registrationQueryRepository;
     private final SouvenirQueryRepository souvenirQueryRepository;
-    private final RegistrationEntryQueryRepository entryRepository;
+    private final RegistrationRowQueryRepository registrationRowQueryRepository;
+    private final RegistrationRowSouvenirs rowSouvenirs;
+    private final ServerTimeProvider serverTimeProvider;
 
-    private static final int ENTRY_CHUNK_SIZE = 1000;
-    /** 버추얼 대회에만 끝에 덧붙이는 열이다. */
-    private static final String[] VIRTUAL_HEADERS = {"배번", "참가 항목"};
+    private static final int REGISTRATION_CHUNK_SIZE = 1000;
 
     private static final Pattern CONTROL_CHARACTERS =
             Pattern.compile("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]");
@@ -57,6 +57,18 @@ public class RegistrationExcelService {
             "신청일시", "계약금액", "신청상태", "우편번호", "주소", "상세주소",
             "보호자명", "보호자 번호", "보호자 관계", "보호자 동의",
             "필수약관 동의", "마케팅 동의", "마케팅 채널 동의", "현재 명단 제외 여부"
+    };
+    /** 버추얼 "상품" 시트: 구매한 상품마다 한 행이다. 금액은 이 시트에만 있다. */
+    private static final String[] LINE_HEADERS = {
+            "번호", "신청 ID", "주문자명", "주문자 전화번호", "이메일", "대회명", "상품", "기념품(사이즈)", "상품 금액",
+            "신청일시", "신청상태", "우편번호", "주소", "상세주소", "보호자명", "보호자 번호", "보호자 관계",
+            "보호자 동의", "필수약관 동의", "마케팅 동의", "마케팅 채널 동의", "현재 명단 제외 여부"
+    };
+    /** 버추얼 "참가자" 시트: 참가자마다 한 행이다. 금액 열은 없다. */
+    private static final String[] PARTICIPANT_HEADERS = {
+            "번호", "신청 ID", "상품", "종목명", "참가자명", "성별", "생년월일", "전화번호", "배번",
+            "기념품(사이즈)", "주문자명", "주문자 전화번호", "신청일시", "신청상태", "우편번호", "주소",
+            "상세주소", "현재 명단 제외 여부"
     };
 
     /** 선택 ID가 있으면 삭제된 신청도 포함하며, 전체·검색 다운로드는 삭제된 신청을 제외한다. */
@@ -69,6 +81,12 @@ public class RegistrationExcelService {
         // 대회가 지정된 다운로드만 허용한다.
         if (!StringUtils.hasText(condition.eventId())) {
             throw new CustomException(ErrorCode.EVENT_NOT_FOUND);
+        }
+
+        // 버추얼 대회는 참가자 기준 두 시트로 내보낸다. 그 밖의 대회는 기존 신청 단위 한 시트다.
+        if (registrationQueryRepository.findEventFormatById(condition.eventId()) == EventFormat.VIRTUAL) {
+            downloadVirtual(condition, organizationId, registrationIds, response);
+            return;
         }
 
         // 명시적으로 선택한 신청에만 삭제 여부 제한을 해제한다.
@@ -94,10 +112,88 @@ public class RegistrationExcelService {
                 Sort.by(Sort.Order.desc("registrationDate"), Sort.Order.desc("id"))
         );
         Map<String, String> souvenirNames = loadSouvenirNames(registrations);
-        // 버추얼 대회만 참가 항목을 읽는다. 대회가 없거나 형식이 비어 있으면 기존 오프라인 출력이다.
-        boolean virtual = registrationQueryRepository.findEventFormatById(condition.eventId()) == EventFormat.VIRTUAL;
-        Map<String, List<RegistrationEntry>> entries = virtual ? loadEntries(registrations) : null;
-        writeWorkbook(registrations, souvenirNames, entries, response);
+        writeWorkbook(registrations, souvenirNames, response);
+    }
+
+    /** 버추얼 대회: "상품" 시트(구매 줄마다 한 행)와 "참가자" 시트(참가자마다 한 행)를 한 파일로 내보낸다. */
+    private void downloadVirtual(
+            RegistrationSearchCondition condition,
+            String organizationId,
+            List<String> registrationIds,
+            HttpServletResponse response
+    ) throws IOException {
+        List<RegistrationRowQueryRepository.Row> rows = registrationRowQueryRepository.find(
+                condition, new RegistrationRowQueryRepository.Export(organizationId, registrationIds), null, null);
+        List<String> ids = rows.stream().map(RegistrationRowQueryRepository.Row::registrationId).distinct().toList();
+        // 신청은 ID를 나눠 읽어 IN 목록이 끝없이 길어지지 않게 한다.
+        Map<String, Registration> registrations = new HashMap<>();
+        for (int from = 0; from < ids.size(); from += REGISTRATION_CHUNK_SIZE) {
+            for (Registration registration : registrationQueryRepository.findByIdIn(
+                    ids.subList(from, Math.min(from + REGISTRATION_CHUNK_SIZE, ids.size())))) {
+                registrations.put(registration.getId(), registration);
+            }
+        }
+
+        // 구매 줄 기념품은 줄마다 한 번만 읽고(구매 줄이 없으면 신청마다), 이름은 한 번에 조회한다.
+        Map<String, List<SouvenirJson>> readLines = new HashMap<>();
+        List<List<SouvenirJson>> lineSouvenirs = new ArrayList<>();
+        for (RegistrationRowQueryRepository.Row row : rows) {
+            String lineKey = row.itemId() != null ? row.itemId() : row.registrationId();
+            if (!readLines.containsKey(lineKey)) {
+                readLines.put(lineKey, rowSouvenirs.readLine(row.souvenirJson()));
+            }
+            lineSouvenirs.add(readLines.get(lineKey));
+        }
+        Map<String, String> souvenirNames = rowSouvenirs.names(new ArrayList<>(readLines.values()));
+        Map<String, Set<String>> linkedSouvenirIds = rowSouvenirs.linkedSouvenirIds(condition.eventId());
+
+        // "상품" 시트: 구매 줄 하나에 한 행이다. 줄 금액은 그 줄의 금액이고, 구매 줄이 없는 신청은 계약금액이다.
+        List<Object[]> lineValues = new ArrayList<>();
+        Set<String> seenItems = new HashSet<>();
+        int lineNumber = 1;
+        for (int index = 0; index < rows.size(); index++) {
+            RegistrationRowQueryRepository.Row row = rows.get(index);
+            if (row.itemId() != null && !seenItems.add(row.itemId())) {
+                continue;
+            }
+            Registration registration = registrations.get(row.registrationId());
+            Object[] address = addressOf(registration);
+            lineValues.add(new Object[]{
+                    lineNumber++, registration.getId(), registration.getName(), registration.getPhNum(),
+                    emailOf(registration),
+                    registration.getEvent() == null ? "" : registration.getEvent().getNameKr(),
+                    row.productName(), virtualSouvenirText(lineSouvenirs.get(index), souvenirNames),
+                    row.itemId() == null ? registration.getContractAmount() : row.itemAmount(),
+                    registration.getRegistrationDate(),
+                    registration.getStatus() == null ? "" : registration.getStatus().getDisplayName(),
+                    address[0], address[1], address[2], registration.getGuardianName(),
+                    registration.getGuardianPhNum(), registration.getGuardianRelationship(),
+                    registration.isGuardianConsent(), registration.getTermsEssentialAgreed(),
+                    registration.getTermsMarketingAgreed(), registration.getTermsMarketingChannelAgreed(),
+                    registration.isSoftDeleted()
+            });
+        }
+
+        // "참가자" 시트: 목록과 같은 행이며 받는 사람 값을 쓴다. 참가 항목이 없는 행은 주문자 값이다.
+        List<Object[]> participantValues = new ArrayList<>();
+        for (int index = 0; index < rows.size(); index++) {
+            RegistrationRowQueryRepository.Row row = rows.get(index);
+            Registration registration = registrations.get(row.registrationId());
+            Object[] address = addressOf(registration);
+            participantValues.add(new Object[]{
+                    index + 1, registration.getId(), row.productName(),
+                    row.entryCategoryName() != null ? row.entryCategoryName() : row.productName(),
+                    row.name(), genderName(row.gender()), row.birth(), row.phNum(),
+                    row.bibNumber(),
+                    virtualSouvenirText(rowSouvenirs.rowSouvenirs(
+                            lineSouvenirs.get(index), row.entryCategoryId(), linkedSouvenirIds), souvenirNames),
+                    registration.getName(), registration.getPhNum(),
+                    registration.getRegistrationDate(),
+                    registration.getStatus() == null ? "" : registration.getStatus().getDisplayName(),
+                    address[0], address[1], address[2], registration.isSoftDeleted()
+            });
+        }
+        writeVirtualWorkbook(lineValues, participantValues, response);
     }
 
     /** 모든 선택 기념품의 이름을 한 번에 조회한다. */
@@ -123,40 +219,12 @@ public class RegistrationExcelService {
         return names;
     }
 
-    /** 신청 ID를 나눠 참가 항목을 읽어 신청별로 묶는다. 종목 정렬 순서를 유지한다. */
-    private Map<String, List<RegistrationEntry>> loadEntries(List<Registration> registrations) {
-        List<String> ids = registrations.stream().map(Registration::getId).toList();
-        Map<String, List<RegistrationEntry>> entries = new HashMap<>();
-        for (int from = 0; from < ids.size(); from += ENTRY_CHUNK_SIZE) {
-            List<String> chunk = ids.subList(from, Math.min(from + ENTRY_CHUNK_SIZE, ids.size()));
-            for (RegistrationEntry entry : entryRepository.findByRegistrationIds(chunk)) {
-                entries.computeIfAbsent(entry.getRegistration().getId(), key -> new ArrayList<>()).add(entry);
-            }
-        }
-        return entries;
-    }
-
-    /** 발급된 배번만 " | "로 잇는다. */
-    private String bibText(List<RegistrationEntry> entries) {
-        return entries.stream().map(RegistrationEntry::getBibNumber).filter(StringUtils::hasText)
-                .collect(Collectors.joining(" | "));
-    }
-
-    /** "종목명 이름"을 " | "로 잇는다. 종목명에서 거리 접두어는 뺀다. */
-    private String entryText(List<RegistrationEntry> entries) {
-        return entries.stream()
-                .map(entry -> VirtualRosterModels.stripDistance(entry.getEventCategory().getName()) + " " + entry.getName())
-                .collect(Collectors.joining(" | "));
-    }
-
     /** 신청별 한글 상태·명단 제외 여부를 출력하고 금액·일시의 셀 자료형을 보존한다. */
     private void writeWorkbook(
             List<Registration> registrations,
             Map<String, String> souvenirNames,
-            Map<String, List<RegistrationEntry>> entries,
             HttpServletResponse response
     ) throws IOException {
-        String[] headers = entries == null ? HEADERS : concat(HEADERS, VIRTUAL_HEADERS);
         // 대용량 출력용 워크북과 열 서식을 준비한다.
         SXSSFWorkbook workbook = new SXSSFWorkbook(100);
         try (workbook) {
@@ -172,9 +240,9 @@ public class RegistrationExcelService {
             CellStyle dateStyle = workbook.createCellStyle();
             dateStyle.setDataFormat(workbook.createDataFormat().getFormat("yyyy-mm-dd hh:mm:ss"));
             Row header = sheet.createRow(0);
-            for (int index = 0; index < headers.length; index++) {
+            for (int index = 0; index < HEADERS.length; index++) {
                 Cell cell = header.createCell(index);
-                cell.setCellValue(headers[index]);
+                cell.setCellValue(HEADERS[index]);
                 cell.setCellStyle(headerStyle);
                 sheet.setColumnWidth(index, 20 * 256);
             }
@@ -186,29 +254,11 @@ public class RegistrationExcelService {
             int rowNumber = 1;
             for (Registration registration : registrations) {
                 Organization organization = registration.getOrganization();
-                // 참가자 개별 이메일을 먼저 확인하고, 없으면 단체장 또는 유저 이메일로
-                String email = registration.getEmail();
-                if (!StringUtils.hasText(email)) {
-                    email = organization != null ? organization.getEmail()
-                            : registration.getUser() == null ? "" : registration.getUser().getEmail();
-                }
-                String address = registration.getAddress();
-                String addressDetail = registration.getAddressDetail();
-                if (!StringUtils.hasText(address) && organization != null) {
-                    address = organization.getAddress();
-                    addressDetail = organization.getAddressDetail();
-                }
-                String zipcode = "";
-                if (address != null) {
-                    int separator = address.lastIndexOf('_');
-                    if (separator >= 0 && address.substring(separator + 1).matches("\\d{5}")) {
-                        zipcode = address.substring(separator + 1);
-                        address = address.substring(0, separator);
-                    }
-                }
+                String email = emailOf(registration);
+                Object[] address = addressOf(registration);
                 Object[] values = {
                         rowNumber, registration.getId(), organization == null ? "개인" : "단체",
-                        registration.getName(), genderName(registration), registration.getBirth(),
+                        registration.getName(), genderName(registration.getGender()), registration.getBirth(),
                         registration.getPhNum(), email,
                         registration.getEvent() == null ? "" : registration.getEvent().getNameKr(),
                         organization == null ? "" : organization.getGroupName(),
@@ -218,16 +268,12 @@ public class RegistrationExcelService {
                         souvenirText(registration.getSouvenirJson(), souvenirNames),
                         registration.getRegistrationDate(), registration.getContractAmount(),
                         registration.getStatus() == null ? "" : registration.getStatus().getDisplayName(),
-                        zipcode, address, addressDetail, registration.getGuardianName(),
+                        address[0], address[1], address[2], registration.getGuardianName(),
                         registration.getGuardianPhNum(), registration.getGuardianRelationship(),
                         registration.isGuardianConsent(), registration.getTermsEssentialAgreed(),
                         registration.getTermsMarketingAgreed(), registration.getTermsMarketingChannelAgreed(),
                         registration.isSoftDeleted()
                 };
-                if (entries != null) {
-                    List<RegistrationEntry> own = entries.getOrDefault(registration.getId(), List.of());
-                    values = concat(values, new Object[]{bibText(own), entryText(own)});
-                }
                 Row row = sheet.createRow(rowNumber++);
                 for (int index = 0; index < values.length; index++) {
                     writeCell(row.createCell(index), values[index], moneyStyle, dateStyle, index == 15);
@@ -235,29 +281,107 @@ public class RegistrationExcelService {
             }
             // 추가된 열까지 필터를 적용하고 다운로드 응답을 작성한다.
             sheet.setAutoFilter(new org.apache.poi.ss.util.CellRangeAddress(
-                    0, registrations.size(), 0, headers.length - 1));
-            String timestamp = LocalDateTime.now(ZoneId.of("Asia/Seoul"))
-                    .format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
-            String filename = URLEncoder.encode("마블런_신청목록_" + timestamp + ".xlsx",
-                    StandardCharsets.UTF_8).replace("+", "%20");
-            response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-            response.setHeader(HttpHeaders.CONTENT_DISPOSITION,
-                    "attachment; filename=\"registrations_" + timestamp + ".xlsx\"; filename*=UTF-8''" + filename);
-            response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
-            response.setHeader(HttpHeaders.PRAGMA, "no-cache");
-            response.setDateHeader(HttpHeaders.EXPIRES, 0);
-            response.setHeader("X-Content-Type-Options", "nosniff");
-            workbook.write(response.getOutputStream());
-            response.getOutputStream().flush();
+                    0, registrations.size(), 0, HEADERS.length - 1));
+            writeResponse(workbook, response);
         } finally {
             workbook.dispose();
         }
     }
 
-    private static <T> T[] concat(T[] head, T[] tail) {
-        T[] merged = Arrays.copyOf(head, head.length + tail.length);
-        System.arraycopy(tail, 0, merged, head.length, tail.length);
-        return merged;
+    /** 버추얼 대회: 두 시트를 한 통합 문서에 쓴다. 금액은 "상품" 시트만 가진다. */
+    private void writeVirtualWorkbook(List<Object[]> lineValues, List<Object[]> participantValues,
+                                      HttpServletResponse response) throws IOException {
+        SXSSFWorkbook workbook = new SXSSFWorkbook(100);
+        try (workbook) {
+            workbook.setCompressTempFiles(true);
+            writeSheet(workbook, "상품", LINE_HEADERS, lineValues, 8,
+                    Map.of(1, 38, 6, 36, 7, 36, 12, 50));
+            writeSheet(workbook, "참가자", PARTICIPANT_HEADERS, participantValues, -1,
+                    Map.of(1, 38, 2, 36, 9, 36, 15, 50));
+            writeResponse(workbook, response);
+        } finally {
+            workbook.dispose();
+        }
+    }
+
+    /** 시트 하나를 만든다. 첫 행은 굵은 머리글, 금액 열(moneyIndex)만 천 단위 서식이며 -1이면 금액 열이 없다. */
+    private void writeSheet(SXSSFWorkbook workbook, String sheetName, String[] headers, List<Object[]> values,
+                            int moneyIndex, Map<Integer, Integer> wideColumns) {
+        Sheet sheet = workbook.createSheet(sheetName);
+        sheet.createFreezePane(0, 1);
+        CellStyle headerStyle = workbook.createCellStyle();
+        Font font = workbook.createFont();
+        font.setBold(true);
+        headerStyle.setFont(font);
+        CellStyle moneyStyle = workbook.createCellStyle();
+        moneyStyle.setDataFormat(workbook.createDataFormat().getFormat("#,##0"));
+        CellStyle dateStyle = workbook.createCellStyle();
+        dateStyle.setDataFormat(workbook.createDataFormat().getFormat("yyyy-mm-dd hh:mm:ss"));
+        Row header = sheet.createRow(0);
+        for (int index = 0; index < headers.length; index++) {
+            Cell cell = header.createCell(index);
+            cell.setCellValue(headers[index]);
+            cell.setCellStyle(headerStyle);
+            sheet.setColumnWidth(index, wideColumns.getOrDefault(index, 20) * 256);
+        }
+        for (int rowIndex = 0; rowIndex < values.size(); rowIndex++) {
+            Object[] rowValues = values.get(rowIndex);
+            Row row = sheet.createRow(rowIndex + 1);
+            for (int index = 0; index < rowValues.length; index++) {
+                writeCell(row.createCell(index), rowValues[index], moneyStyle, dateStyle, index == moneyIndex);
+            }
+        }
+        // 추가된 열까지 필터를 적용한다.
+        sheet.setAutoFilter(new org.apache.poi.ss.util.CellRangeAddress(
+                0, values.size(), 0, headers.length - 1));
+    }
+
+    /** 다운로드 응답 헤더를 쓰고 워크북을 내보낸다. */
+    private void writeResponse(SXSSFWorkbook workbook, HttpServletResponse response) throws IOException {
+        String timestamp = serverTimeProvider.currentDateTime()
+                .format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+        String filename = URLEncoder.encode("마블런_신청목록_" + timestamp + ".xlsx",
+                StandardCharsets.UTF_8).replace("+", "%20");
+        response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        response.setHeader(HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=\"registrations_" + timestamp + ".xlsx\"; filename*=UTF-8''" + filename);
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
+        response.setHeader(HttpHeaders.PRAGMA, "no-cache");
+        response.setDateHeader(HttpHeaders.EXPIRES, 0);
+        response.setHeader("X-Content-Type-Options", "nosniff");
+        workbook.write(response.getOutputStream());
+        response.getOutputStream().flush();
+    }
+
+    /** 주문자 이메일이다. 참가자 개별 이메일을 먼저 보고, 없으면 단체장 또는 유저 이메일을 쓴다. */
+    private String emailOf(Registration registration) {
+        Organization organization = registration.getOrganization();
+        String email = registration.getEmail();
+        if (!StringUtils.hasText(email)) {
+            email = organization != null ? organization.getEmail()
+                    : registration.getUser() == null ? "" : registration.getUser().getEmail();
+        }
+        return email;
+    }
+
+    /** 우편번호·주소·상세주소다. 주소 끝의 "_우편번호"는 떼어 따로 적고, 신청 주소가 없으면 단체 주소를 쓴다. */
+    private Object[] addressOf(Registration registration) {
+        Organization organization = registration.getOrganization();
+        String address = registration.getAddress();
+        String addressDetail = registration.getAddressDetail();
+        if (!StringUtils.hasText(address) && organization != null) {
+            address = organization.getAddress();
+            addressDetail = organization.getAddressDetail();
+        }
+        String zipcode = "";
+        if (address != null) {
+            int separator = address.lastIndexOf('_');
+            if (separator >= 0 && address.substring(separator + 1).matches("\\d{5}")) {
+                zipcode = address.substring(separator + 1);
+                address = address.substring(0, separator);
+            }
+        }
+        return new Object[]{zipcode, address, addressDetail};
     }
 
     /** 값의 자료형을 보존하고 전화번호·우편번호의 앞자리 0을 유지한다. */
@@ -280,14 +404,14 @@ public class RegistrationExcelService {
     }
 
     /** 저장된 성별을 표시명으로 바꾸며 미입력은 빈 셀로 유지한다. */
-    private String genderName(Registration registration) {
-        if (registration.getGender() == null) {
+    private String genderName(GenderClass gender) {
+        if (gender == null) {
             return "";
         }
-        return switch (registration.getGender().name()) {
+        return switch (gender.name()) {
             case "M" -> "남성";
             case "F" -> "여성";
-            default -> registration.getGender().name();
+            default -> gender.name();
         };
     }
 
@@ -301,6 +425,11 @@ public class RegistrationExcelService {
                         + (StringUtils.hasText(souvenir.selectedSize())
                         ? " (" + clean(souvenir.selectedSize()) + ")" : ""))
                 .collect(Collectors.joining(" | "));
+    }
+
+    /** 버추얼 행의 기념품 칸이다. 구매 줄 JSON을 못 읽었으면(null) 엑셀 전체를 실패시키지 않고 확인 문구를 쓴다. */
+    private String virtualSouvenirText(List<SouvenirJson> souvenirs, Map<String, String> names) {
+        return souvenirs == null ? "기념품 확인 필요" : souvenirText(souvenirs, names);
     }
 
     /** XML 제어 문자를 제거하고 엑셀 셀의 최대 문자 수를 지킨다. */

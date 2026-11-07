@@ -41,6 +41,7 @@ import kr.co.teambrain.marvelrun.admin.event.command.repository.*;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.PaymentDailyCountRow;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationDailyReportQueryRepository;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
+import kr.co.teambrain.marvelrun.common.inheritance_enum.ProductType;
 import kr.co.teambrain.marvelrun.common.json_object.ReservationHistoryEntry;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import org.apache.poi.ss.usermodel.Row;
@@ -268,6 +269,30 @@ class OfflineRegistrationImportTest {
         assertThat(result.contexts().get(0).approvedAtUtc()).isEqualTo(LocalDateTime.of(2026, 10, 2, 15, 0));
         assertThat(result.contexts().get(1).paidAtKst()).isEqualTo(LocalDateTime.of(2026, 10, 3, 23, 59, 59));
         assertThat(result.contexts().get(1).approvedAtUtc()).isEqualTo(LocalDateTime.of(2026, 10, 3, 14, 59, 59));
+    }
+
+    /** 상품 종목은 구매 줄·참가 항목 없이 저장되므로 행 오류로 거절한다. */
+    @Test
+    void rejectsProductCategory() {
+        Event event = mock(Event.class);
+        EventCategory category = mock(EventCategory.class);
+        EventCategorySouvenir selected = mock(EventCategorySouvenir.class);
+        Souvenir souvenir = mock(Souvenir.class);
+        when(event.getId()).thenReturn("event");
+        when(events.findById("event")).thenReturn(Optional.of(event));
+        when(category.getEvent()).thenReturn(event);
+        when(category.getProductType()).thenReturn(ProductType.PACKAGE);
+        when(categories.findById("category")).thenReturn(Optional.of(category));
+        when(selected.getSouvenir()).thenReturn(souvenir);
+        when(souvenir.getId()).thenReturn("shirt");
+        when(souvenir.getEvent()).thenReturn(event);
+        when(mappings.findAllMappingsByCategoryId("category")).thenReturn(List.of(selected));
+        OfflineRegistrationImportResult result = new OfflineRegistrationImportResult();
+        validator.validateOfflineRows(mapping(), LocalDate.of(2026, 10, 3),
+                List.of(new OfflineRegistrationExcelRow(7, validCells(), Set.of())), result);
+        assertThat(result.errors()).extracting(OfflineRegistrationImportResponse.Failure::code)
+                .containsExactly("PRODUCT_CATEGORY");
+        assertThat(result.contexts()).isEmpty();
     }
 
     /** 파일 첫 오류 이후에도 마지막 행의 독립 오류를 수집한다. */

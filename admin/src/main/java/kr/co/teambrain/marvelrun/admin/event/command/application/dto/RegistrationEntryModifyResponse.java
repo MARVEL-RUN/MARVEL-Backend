@@ -16,11 +16,14 @@ public record RegistrationEntryModifyResponse(List<Entry> entries) {
             String phNum,
             String birth,
             GenderClass gender,
-            String bibNumber
+            String bibNumber,
+            String itemId,
+            String productName
     ) {
         public static Entry from(RegistrationEntry entry) {
             return new Entry(entry.getId(), entry.getEventCategory().getId(), entry.getEventCategory().getName(),
-                    entry.getName(), entry.getPhNum(), entry.getBirth(), entry.getGender(), entry.getBibNumber());
+                    entry.getName(), entry.getPhNum(), entry.getBirth(), entry.getGender(), entry.getBibNumber(),
+                    entry.getRegistrationItem().getId(), entry.getRegistrationItem().getEventCategory().getName());
         }
     }
 }

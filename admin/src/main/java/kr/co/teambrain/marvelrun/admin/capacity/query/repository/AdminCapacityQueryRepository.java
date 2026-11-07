@@ -67,11 +67,11 @@ public class AdminCapacityQueryRepository {
         MapSqlParameterSource params = parameters(eventId, capacityId, state)
                 .addValue("limit", size).addValue("offset", (long) page * size);
         return jdbc.query("""
-                select r.id, r.name, r.birth, r.ph_num, o.group_name as organization_name
+                select r.id, r.name, r.birth, r.ph_num, o.group_name as organization_name, ri.quantity
                 """ + PARTICIPANT_FROM + " order by r.id limit :limit offset :offset", params,
                 (rs, rowNum) -> new CapacityParticipantResponse(rs.getString("id"),
                         rs.getString("name"), rs.getString("birth"), rs.getString("ph_num"),
-                        rs.getString("organization_name")));
+                        rs.getString("organization_name"), rs.getInt("quantity")));
     }
 
     /** 목록과 COUNT에 동일한 대회·정원·예약 상태 조건을 적용한다. */
