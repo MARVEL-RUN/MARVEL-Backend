@@ -2,11 +2,15 @@ package kr.co.teambrain.marvelrun.user.event.command.application.service;
 
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
+import kr.co.teambrain.marvelrun.user.capacity.command.application.domain.Reservation;
+import kr.co.teambrain.marvelrun.user.capacity.command.application.dto.CapacityRequirementDiff;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.CapacityHoldService;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.CapacityRequirementResolver;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.RegistrationCapacityService;
+import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationCapacityDiffService;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationHistoryRecorder;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.ReservationReleaseService;
+import kr.co.teambrain.marvelrun.user.capacity.command.repository.ReservationCommandRepository;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.CustomException;
 import kr.co.teambrain.marvelrun.user.common.exception.in_service.ErrorCode;
 import kr.co.teambrain.marvelrun.user.common.time.ServerTimeProvider;
@@ -14,6 +18,8 @@ import kr.co.teambrain.marvelrun.user.discount.service.DiscountPolicyResolver;
 import kr.co.teambrain.marvelrun.user.discount.service.LinkDiscountEligibilityService;
 import kr.co.teambrain.marvelrun.user.discount.service.OrganizationDiscountGuard;
 import kr.co.teambrain.marvelrun.user.discount.service.RegistrationPriceCalculationRecorder;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.EventCategory;
+import kr.co.teambrain.marvelrun.user.event.command.application.domain.RegistrationItem;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationCreateRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationEntryRequest;
 import kr.co.teambrain.marvelrun.user.event.command.application.dto.request.RegistrationItemRequest;
@@ -93,18 +99,30 @@ import static org.mockito.Mockito.when;
         EventPaymentPolicyValidator.class,
         PaymentCreator.class,
         PaymentAllocationCreator.class,
-        PaymentOrderIdGenerator.class
+        PaymentOrderIdGenerator.class,
+        PackageUpgradeCapacitySupport.class,
+        ReservationCapacityDiffService.class
 })
 class MultiProductRegistrationDatabaseTest {
 
     private static final String EVENT_ID = "virtual-marvelrun";
     /** 1차수 접수 기간 안의 고정 시각 */
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 5, 12, 0);
-    private static final List<SouvenirJson> KIT = List.of(new SouvenirJson("vr-kit", "FREE"));
+    /** 단품 종목마다 연결된 부문 키트. 패키지는 세 키트 모두에 연결돼 있다(로컬 DB #136 데이터). */
+    private static final Map<String, String> KIT_BY_SINGLE = Map.of(
+            "vr-avengers", "vr-kit-avengers",
+            "vr-xmen", "vr-kit-xmen",
+            "vr-fantastic4", "vr-kit-fantastic4");
+    private static final List<SouvenirJson> PACKAGE_KITS = List.of(
+            new SouvenirJson("vr-kit-avengers", "FREE"),
+            new SouvenirJson("vr-kit-xmen", "FREE"),
+            new SouvenirJson("vr-kit-fantastic4", "FREE"));
 
     @Autowired private JdbcTemplate jdbc;
     @Autowired private RegistrationCommandService registrations;
     @Autowired private TestEntityManager entityManager;
+    @Autowired private PackageUpgradeCapacitySupport upgradeSupport;
+    @Autowired private ReservationCommandRepository reservationRepository;
     @MockitoBean private ServerTimeProvider time;
 
     @BeforeEach
@@ -161,6 +179,7 @@ class MultiProductRegistrationDatabaseTest {
                 from reservation_item ri join reservation r on r.id = ri.reservation_id
                 where r.registration_id = ?
                 """, rs -> { reserved.put(rs.getString(1), rs.getInt(2)); }, result.registrationId());
+        // 키트는 부문마다 센다. 어벤저스 단품 2개 + 패키지 1개 = 어벤저스 키트 3, 패키지의 엑스맨·판타스틱4 키트 1씩.
         assertThat(reserved).isEqualTo(Map.of(
                 "vr-cap-total", 5,
                 "vr-cap-cat-avengers", 2,
@@ -168,10 +187,84 @@ class MultiProductRegistrationDatabaseTest {
                 "vr-cap-grp-avengers", 3,
                 "vr-cap-grp-xmen", 1,
                 "vr-cap-grp-fantastic4", 1,
-                "vr-cap-kit", 3));
+                "vr-cap-kit-avengers", 3,
+                "vr-cap-kit-xmen", 1,
+                "vr-cap-kit-fantastic4", 1));
         Map<String, Integer> heldAfter = heldCounts();
         reserved.forEach((capacityId, quantity) ->
                 assertThat(heldAfter.get(capacityId) - heldBefore.get(capacityId)).isEqualTo(quantity));
+
+        // 줄 기념품: 단품은 자기 부문 키트 하나, 패키지는 키트 셋. 신청 행은 대표(첫) 줄 값이다.
+        assertThat(jdbc.queryForList("""
+                select souvenir_json from registration_item where registration_id = ? order by sort_order
+                """, String.class, result.registrationId()))
+                .satisfiesExactly(
+                        json -> assertThat(json).contains("vr-kit-avengers").doesNotContain("vr-kit-xmen"),
+                        json -> assertThat(json).contains("vr-kit-avengers").doesNotContain("vr-kit-xmen"),
+                        json -> assertThat(json).contains("vr-kit-avengers", "vr-kit-xmen", "vr-kit-fantastic4"));
+        assertThat(jdbc.queryForObject("select souvenir_json from registration where id = ?", String.class,
+                result.registrationId())).contains("vr-kit-avengers").doesNotContain("vr-kit-xmen");
+    }
+
+    /** 패키지 줄은 연결된 부문 키트 셋을 모두 보내야 한다. 하나만 보내면 기념품 구성 오류다. */
+    @Test
+    void packageWithOneKitIsRejected() {
+        assertThatThrownBy(() -> registrations.register(EVENT_ID, request(uniqueName("키트하나"),
+                List.of(pack(List.of(new SouvenirJson("vr-kit-avengers", "FREE")))))))
+                .isInstanceOfSatisfying(CustomException.class, exception -> assertThat(exception.getErrorCode())
+                        .isEqualTo(ErrorCode.INVALID_EVENT_CATEGORY_SOUVENIR));
+    }
+
+    /** 부문 키트 하나라도 재고가 없으면 그 키트가 든 상품은 정원 확보에 실패한다. 다른 부문 단품은 살 수 있다. */
+    @Test
+    void soldOutDivisionKitBlocksProductsWithThatKit() {
+        jdbc.update("update capacity set limit_count = held_count + confirmed_count where id = 'vr-cap-kit-xmen'");
+
+        assertThatThrownBy(() -> registrations.register(EVENT_ID, request(uniqueName("키트품절"), List.of(pack()))))
+                .isInstanceOfSatisfying(CustomException.class, exception -> assertThat(exception.getErrorCode())
+                        .isEqualTo(ErrorCode.CAPACITY_ACQUIRE_FAILED));
+        assertThatThrownBy(() -> registrations.register(EVENT_ID, request(uniqueName("키트품절"),
+                List.of(single("vr-xmen", "아이")))))
+                .isInstanceOfSatisfying(CustomException.class, exception -> assertThat(exception.getErrorCode())
+                        .isEqualTo(ErrorCode.CAPACITY_ACQUIRE_FAILED));
+        var avengers = registrations.register(EVENT_ID, request(uniqueName("키트품절"),
+                List.of(single("vr-avengers", "아이"))));
+        assertThat(avengers.registrationId()).isNotBlank();
+    }
+
+    /**
+     * 어벤저스 단품을 패키지로 상향할 때의 정원 차이는 패키지 키트 셋 기준이다.
+     * 엑스맨·판타스틱4 키트가 1씩 늘고, 어벤저스 키트는 그대로다.
+     */
+    @Test
+    void upgradeDiffAddsOtherDivisionKits() {
+        var result = registrations.register(EVENT_ID, request(uniqueName("상향차이"), List.of(single("vr-avengers", "아이"))));
+        entityManager.flush();
+        entityManager.clear();
+        RegistrationItem item = entityManager.getEntityManager().createQuery(
+                        "select i from RegistrationItem i join fetch i.registration r join fetch r.event where r.id = :id",
+                        RegistrationItem.class)
+                .setParameter("id", result.registrationId()).getSingleResult();
+        Reservation reservation = reservationRepository.findByRegistration_Id(result.registrationId()).orElseThrow();
+        EventCategory packageCategory = entityManager.find(EventCategory.class, "vr-package");
+
+        assertThat(upgradeSupport.packageSouvenirs(item, packageCategory)).isEqualTo(PACKAGE_KITS);
+        CapacityRequirementDiff diff = upgradeSupport.packageDiff(item, packageCategory, 3, reservation);
+
+        Map<String, Integer> increases = new HashMap<>();
+        Map<String, Integer> decreases = new HashMap<>();
+        for (CapacityRequirementDiff.Item changed : diff.items()) {
+            if (changed.increase() > 0) { increases.put(changed.capacityId(), changed.increase()); }
+            if (changed.decrease() > 0) { decreases.put(changed.capacityId(), changed.decrease()); }
+        }
+        assertThat(increases).isEqualTo(Map.of(
+                "vr-cap-total", 2,
+                "vr-cap-cat-package", 1,
+                "vr-cap-grp-xmen", 1,
+                "vr-cap-grp-fantastic4", 1,
+                "vr-cap-kit-xmen", 1,
+                "vr-cap-kit-fantastic4", 1));
+        assertThat(decreases).isEqualTo(Map.of("vr-cap-cat-avengers", 1));
     }
 
     /**
@@ -233,12 +326,16 @@ class MultiProductRegistrationDatabaseTest {
     }
 
     private static RegistrationItemRequest single(String categoryId, String recipient) {
-        return new RegistrationItemRequest(categoryId, KIT, List.of(
-                new RegistrationEntryRequest(categoryId, recipient, "010-1111-2222", "1995-03-04", GenderClass.F)));
+        return new RegistrationItemRequest(categoryId, List.of(new SouvenirJson(KIT_BY_SINGLE.get(categoryId), "FREE")),
+                List.of(new RegistrationEntryRequest(categoryId, recipient, "010-1111-2222", "1995-03-04", GenderClass.F)));
     }
 
     private static RegistrationItemRequest pack() {
-        return new RegistrationItemRequest("vr-package", KIT, List.of(
+        return pack(PACKAGE_KITS);
+    }
+
+    private static RegistrationItemRequest pack(List<SouvenirJson> kits) {
+        return new RegistrationItemRequest("vr-package", kits, List.of(
                 new RegistrationEntryRequest("vr-avengers", "엄마", "010-1111-2222", "1980-03-02", GenderClass.F),
                 new RegistrationEntryRequest("vr-xmen", "아빠", "010-3333-4444", "1979-07-07", GenderClass.M),
                 new RegistrationEntryRequest("vr-fantastic4", "둘째", "010-5555-6666", "1999-09-09", GenderClass.F)));

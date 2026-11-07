@@ -8,13 +8,16 @@ import kr.co.teambrain.marvelrun.admin.event.policy.RegistrationActionPolicyMode
 import kr.co.teambrain.marvelrun.admin.event.policy.RegistrationActionPolicyModels.RegistrationActionPolicyInput;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualPackingListExcelWriter;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualPrintListExcelWriter;
-import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationDeliveryQueryRepository;
+import kr.co.teambrain.marvelrun.admin.event.query.repository.EventCategorySouvenirQueryRepository;
+import kr.co.teambrain.marvelrun.admin.event.query.repository.SouvenirQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.VirtualRosterQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.VirtualRosterQueryRepository.EventInfo;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.VirtualRosterQueryRepository.PackingLine;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.VirtualRosterQueryRepository.PrintEntry;
+import kr.co.teambrain.marvelrun.admin.event.query.repository.projection.RegistrationOptionProjection;
 import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationActionPolicyReader;
 import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationReservationHistoryResolver;
+import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationRowSouvenirs;
 import kr.co.teambrain.marvelrun.admin.event.query.support.TemporaryExcelResource;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.RegistrationActionType;
 import org.apache.poi.ss.usermodel.Sheet;
@@ -28,13 +31,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -45,7 +49,8 @@ class VirtualRosterExcelServiceTest {
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 21, 9, 5, 30);
 
     @Mock VirtualRosterQueryRepository repository;
-    @Mock RegistrationDeliveryQueryRepository deliveryRepository;
+    @Mock EventCategorySouvenirQueryRepository souvenirMappingRepository;
+    @Mock SouvenirQueryRepository souvenirRepository;
     @Mock RegistrationActionPolicyReader policyReader;
     @Mock ServerTimeProvider timeProvider;
     VirtualRosterExcelService service;
@@ -53,8 +58,9 @@ class VirtualRosterExcelServiceTest {
     @BeforeEach
     void setUp() {
         when(timeProvider.currentDateTime()).thenReturn(NOW);
-        service = new VirtualRosterExcelService(repository, deliveryRepository, policyReader,
-                new RegistrationReservationHistoryResolver(new ObjectMapper()),
+        RegistrationRowSouvenirs rowSouvenirs = new RegistrationRowSouvenirs(
+                new RegistrationReservationHistoryResolver(new ObjectMapper()), souvenirMappingRepository, souvenirRepository);
+        service = new VirtualRosterExcelService(repository, policyReader, rowSouvenirs,
                 new VirtualPrintListExcelWriter(), new VirtualPackingListExcelWriter(), timeProvider);
     }
 
@@ -96,15 +102,40 @@ class VirtualRosterExcelServiceTest {
         }
     }
 
+    /**
+     * 상자에 넣을 물건 수가 늘거나 빠지지 않게, 구매 줄의 기념품 하나는 한 행에만 적는다.
+     * 여러 종목에 연결된 기념품은 연결된 첫 행에, 패키지에만 연결돼 어느 행 종목에도 없는 기념품은 줄의 첫 행에 적는다.
+     */
+    @Test
+    void packingListWritesEachLineSouvenirOnce() throws Exception {
+        givenRound();
+        String souvenirs = "[{\"souvenirId\":\"kit-x\",\"selectedSize\":\"FREE\"},{\"souvenirId\":\"medal\",\"selectedSize\":\"FREE\"},"
+                + "{\"souvenirId\":\"bag\",\"selectedSize\":\"FREE\"}]";
+        when(repository.findPackingLines("e", null, null)).thenReturn(List.of(
+                line("r1", "i1", "3종 패키지", "PACKAGE", souvenirs, "a", "어벤저스", null, "가"),
+                line("r1", "i1", "3종 패키지", "PACKAGE", souvenirs, "x", "엑스맨", null, "나"),
+                line("r1", "i1", "3종 패키지", "PACKAGE", souvenirs, "f", "판타스틱4", null, "다")));
+        givenLinks(link("x", "kit-x"), link("x", "medal"), link("f", "medal"), link("pkg", "bag"));
+        givenNames(Map.of("kit-x", "엑스맨 키트", "medal", "메달", "bag", "가방"));
+
+        try (TemporaryExcelResource file = service.createPackingList("e", DEADLINE)) {
+            Sheet sheet = open(file);
+            assertThat(row(sheet, 1).get(7)).isEqualTo("가방");
+            assertThat(row(sheet, 2).get(7)).isEqualTo("엑스맨 키트, 메달");
+            assertThat(row(sheet, 3).get(7)).isEmpty();
+        }
+    }
+
     /** 패킹 명단은 기념품을 "이름(사이즈)"로 잇고 FREE는 뺀다. 주소는 우편번호를 떼고 부문은 거리 접두어를 뗀다. */
     @Test
     void packingListSouvenirsAndAddress() throws Exception {
         givenRound();
         String souvenirs = "[{\"souvenirId\":\"s1\",\"selectedSize\":\"L\"},{\"souvenirId\":\"s2\",\"selectedSize\":\"FREE\"}]";
         when(repository.findPackingLines("e", null, null)).thenReturn(List.of(
-                line("r1", "i1", "패키지", "PACKAGE", souvenirs, "5km | 어벤저스", "00001", "가"),
-                line("r1", "i1", "패키지", "PACKAGE", souvenirs, "엑스맨", null, "나")));
-        when(deliveryRepository.findSouvenirNames("e", Set.of("s1", "s2"))).thenReturn(java.util.Map.of("s1", "티셔츠", "s2", "메달"));
+                line("r1", "i1", "패키지", "PACKAGE", souvenirs, "a", "5km | 어벤저스", "00001", "가"),
+                line("r1", "i1", "패키지", "PACKAGE", souvenirs, "x", "엑스맨", null, "나")));
+        givenLinks(link("a", "s1"), link("a", "s2"), link("x", "s2"));
+        givenNames(Map.of("s1", "티셔츠", "s2", "메달"));
 
         try (TemporaryExcelResource file = service.createPackingList("e", DEADLINE)) {
             assertThat(file.getFilename()).startsWith("대회_패킹명단_1차_");
@@ -119,53 +150,59 @@ class VirtualRosterExcelServiceTest {
 
     /**
      * 같은 단품 두 개와 패키지를 산 주문은 참가 항목마다 한 행이라 같은 종목 두 사람이 모두 나온다.
-     * 기념품은 구매 줄마다 그 줄의 첫 행에만 적고, 참가 항목이 없는 구매 줄과 구매 줄이 없는 신청도 한 행이다.
+     * 기념품은 행마다 그 행 종목에 연결된 것이라 패키지 세 행에는 부문 키트가 하나씩 적힌다.
+     * 참가 항목이 없는 구매 줄과 구매 줄이 없는 신청도 한 행이며 그 줄(신청)의 기념품 전부를 적는다.
      */
     @Test
-    void packingListKeepsEveryEntryAndSouvenirPerItem() throws Exception {
+    void packingListWritesDivisionKitOnEveryRow() throws Exception {
         givenRound();
-        String kit = "[{\"souvenirId\":\"kit\",\"selectedSize\":\"FREE\"}]";
-        String shirt = "[{\"souvenirId\":\"shirt\",\"selectedSize\":\"M\"}]";
+        String avengersKit = "[{\"souvenirId\":\"kit-a\",\"selectedSize\":\"FREE\"}]";
+        String xmenKit = "[{\"souvenirId\":\"kit-x\",\"selectedSize\":\"FREE\"}]";
+        String packageKits = "[{\"souvenirId\":\"kit-a\",\"selectedSize\":\"FREE\"},"
+                + "{\"souvenirId\":\"kit-x\",\"selectedSize\":\"FREE\"},{\"souvenirId\":\"kit-f\",\"selectedSize\":\"FREE\"}]";
         when(repository.findPackingLines("e", null, null)).thenReturn(List.of(
-                line("r1", "i1", "어벤저스", "SINGLE", kit, "어벤저스", "10001", "가"),
-                line("r1", "i2", "어벤저스", "SINGLE", kit, "어벤저스", "10002", "나"),
-                line("r1", "i3", "3종 패키지", "PACKAGE", shirt, "어벤저스", "10003", "다"),
-                line("r1", "i3", "3종 패키지", "PACKAGE", shirt, "엑스맨", "20001", "라"),
-                line("r1", "i4", "엑스맨", "SINGLE", kit, null, null, null),
-                line("r2", null, "10km", null, kit, null, null, null)));
-        when(deliveryRepository.findSouvenirNames("e", Set.of("kit", "shirt"))).thenReturn(java.util.Map.of("kit", "키트", "shirt", "티셔츠"));
+                line("r1", "i1", "어벤저스", "SINGLE", avengersKit, "a", "어벤저스", "10001", "가"),
+                line("r1", "i2", "어벤저스", "SINGLE", avengersKit, "a", "어벤저스", "10002", "나"),
+                line("r1", "i3", "3종 패키지", "PACKAGE", packageKits, "a", "어벤저스", "10003", "다"),
+                line("r1", "i3", "3종 패키지", "PACKAGE", packageKits, "x", "엑스맨", "20001", "라"),
+                line("r1", "i3", "3종 패키지", "PACKAGE", packageKits, "f", "판타스틱4", "30001", "마"),
+                line("r1", "i4", "엑스맨", "SINGLE", xmenKit, null, null, null, null),
+                line("r2", null, "3종 패키지", "PACKAGE", packageKits, null, null, null, null)));
+        givenLinks(link("a", "kit-a"), link("x", "kit-x"), link("f", "kit-f"),
+                link("pkg", "kit-a"), link("pkg", "kit-x"), link("pkg", "kit-f"));
+        givenNames(Map.of("kit-a", "어벤저스 키트", "kit-x", "엑스맨 키트", "kit-f", "판타스틱4 키트"));
 
         try (TemporaryExcelResource file = service.createPackingList("e", DEADLINE)) {
             Sheet sheet = open(file);
-            assertThat(sheet.getLastRowNum()).isEqualTo(6);
+            assertThat(sheet.getLastRowNum()).isEqualTo(7);
             List<List<String>> rows = new java.util.ArrayList<>();
-            for (int i = 1; i <= 6; i++) {
+            for (int i = 1; i <= 7; i++) {
                 List<String> cells = row(sheet, i);
                 rows.add(List.of(cells.get(0), cells.get(2), cells.get(3), cells.get(4), cells.get(5), cells.get(6), cells.get(7)));
             }
             assertThat(rows).containsExactly(
-                    List.of("r1", "단품", "어벤저스", "어벤저스", "10001", "가", "키트"),
-                    List.of("r1", "단품", "어벤저스", "어벤저스", "10002", "나", "키트"),
-                    List.of("r1", "패키지", "3종 패키지", "어벤저스", "10003", "다", "티셔츠(M)"),
-                    List.of("r1", "패키지", "3종 패키지", "엑스맨", "20001", "라", ""),
-                    List.of("r1", "단품", "엑스맨", "", "", "", "키트"),
-                    List.of("r2", "", "10km", "", "", "", "키트"));
+                    List.of("r1", "단품", "어벤저스", "어벤저스", "10001", "가", "어벤저스 키트"),
+                    List.of("r1", "단품", "어벤저스", "어벤저스", "10002", "나", "어벤저스 키트"),
+                    List.of("r1", "패키지", "3종 패키지", "어벤저스", "10003", "다", "어벤저스 키트"),
+                    List.of("r1", "패키지", "3종 패키지", "엑스맨", "20001", "라", "엑스맨 키트"),
+                    List.of("r1", "패키지", "3종 패키지", "판타스틱4", "30001", "마", "판타스틱4 키트"),
+                    List.of("r1", "단품", "엑스맨", "", "", "", "엑스맨 키트"),
+                    List.of("r2", "패키지", "3종 패키지", "", "", "", "어벤저스 키트, 엑스맨 키트, 판타스틱4 키트"));
         }
     }
 
-    /** 기념품 JSON을 못 읽으면 그 구매 줄의 첫 행에 확인 문구를 쓴다. */
+    /** 기념품 JSON을 못 읽으면 그 구매 줄의 모든 행에 확인 문구를 쓴다. */
     @Test
     void packingListMarksUnreadableSouvenirs() throws Exception {
         givenRound();
         when(repository.findPackingLines("e", null, null)).thenReturn(List.of(
-                line("r1", "i1", "패키지", "PACKAGE", "not-json", "어벤저스", null, "가"),
-                line("r1", "i1", "패키지", "PACKAGE", "not-json", "엑스맨", null, "나")));
-        when(deliveryRepository.findSouvenirNames("e", Set.of())).thenReturn(java.util.Map.of());
+                line("r1", "i1", "패키지", "PACKAGE", "not-json", "a", "어벤저스", null, "가"),
+                line("r1", "i1", "패키지", "PACKAGE", "not-json", "x", "엑스맨", null, "나")));
 
         try (TemporaryExcelResource file = service.createPackingList("e", DEADLINE)) {
             Sheet sheet = open(file);
             assertThat(row(sheet, 1).get(7)).isEqualTo("기념품 확인 필요");
-            assertThat(row(sheet, 2).get(7)).isEmpty();
+            assertThat(row(sheet, 2).get(7)).isEqualTo("기념품 확인 필요");
         }
     }
 
@@ -198,9 +235,32 @@ class VirtualRosterExcelServiceTest {
     }
 
     private PackingLine line(String registrationId, String itemId, String productName, String productType, String souvenirJson,
-            String entryCategoryName, String bib, String entryName) {
-        return new PackingLine(registrationId, itemId, productName, productType, souvenirJson, entryCategoryName, bib, entryName,
-                "신청자", "010-0000-0000", "서울시_01234", "101호");
+            String entryCategoryId, String entryCategoryName, String bib, String entryName) {
+        return new PackingLine(registrationId, itemId, productName, productType, souvenirJson, entryCategoryId,
+                entryCategoryName, bib, entryName, "신청자", "010-0000-0000", "서울시_01234", "101호");
+    }
+
+    /** 대회의 종목·기념품 연결이다. */
+    private void givenLinks(RegistrationOptionProjection... links) {
+        when(souvenirMappingRepository.findRegistrationOptionsProjectionByEventId("e")).thenReturn(List.of(links));
+    }
+
+    private static RegistrationOptionProjection link(String categoryId, String souvenirId) {
+        RegistrationOptionProjection link = mock(RegistrationOptionProjection.class);
+        when(link.getEventCategoryId()).thenReturn(categoryId);
+        when(link.getSouvenirId()).thenReturn(souvenirId);
+        return link;
+    }
+
+    /** 기념품 이름이다. 이름 조회는 구매 줄에서 읽은 기념품 ID로 한 번 부른다. */
+    private void givenNames(Map<String, String> names) {
+        List<SouvenirQueryRepository.SouvenirNameProjection> projections = names.entrySet().stream().map(entry -> {
+            SouvenirQueryRepository.SouvenirNameProjection projection = mock(SouvenirQueryRepository.SouvenirNameProjection.class);
+            when(projection.getId()).thenReturn(entry.getKey());
+            when(projection.getName()).thenReturn(entry.getValue());
+            return projection;
+        }).toList();
+        when(souvenirRepository.findNamesByIds(any())).thenReturn(projections);
     }
 
     private List<String> row(Sheet sheet, int index) {

@@ -1,6 +1,5 @@
 package kr.co.teambrain.marvelrun.admin.event.query.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import kr.co.teambrain.marvelrun.admin.common.exception.CustomException;
 import kr.co.teambrain.marvelrun.admin.common.exception.ErrorCode;
 import kr.co.teambrain.marvelrun.admin.common.time.ServerTimeProvider;
@@ -13,12 +12,11 @@ import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualRosterModel
 import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualRosterModels.AddressParts;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualRosterModels.PackingRow;
 import kr.co.teambrain.marvelrun.admin.event.query.dto.report.VirtualRosterModels.PrintRow;
-import kr.co.teambrain.marvelrun.admin.event.query.repository.RegistrationDeliveryQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.VirtualRosterQueryRepository;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.VirtualRosterQueryRepository.EventInfo;
 import kr.co.teambrain.marvelrun.admin.event.query.repository.VirtualRosterQueryRepository.PackingLine;
 import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationActionPolicyReader;
-import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationReservationHistoryResolver;
+import kr.co.teambrain.marvelrun.admin.event.query.support.RegistrationRowSouvenirs;
 import kr.co.teambrain.marvelrun.admin.event.query.support.TemporaryExcelResource;
 import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import lombok.RequiredArgsConstructor;
@@ -37,7 +35,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -55,9 +53,8 @@ public class VirtualRosterExcelService {
     private static final String FREE_SIZE = "FREE";
 
     private final VirtualRosterQueryRepository repository;
-    private final RegistrationDeliveryQueryRepository deliveryRepository;
     private final RegistrationActionPolicyReader policyReader;
-    private final RegistrationReservationHistoryResolver resolver;
+    private final RegistrationRowSouvenirs rowSouvenirs;
     private final VirtualPrintListExcelWriter printWriter;
     private final VirtualPackingListExcelWriter packingWriter;
     private final ServerTimeProvider timeProvider;
@@ -93,32 +90,28 @@ public class VirtualRosterExcelService {
     }
 
     /**
-     * 참가 항목 행을 엑셀 행으로 바꾼다. 기념품은 구매 줄(구매 줄이 없으면 신청)의 첫 행에만 적어
-     * 패키지 하나의 키트가 여러 개로 읽히지 않게 한다. 기념품 이름은 한 번에 읽는다.
+     * 참가 항목 행을 엑셀 행으로 바꾼다. 상자에 넣을 물건 목록이라 구매 줄의 기념품 하나는 한 행에만 적는다.
+     * 그 기념품이 연결된 종목의 첫 행에 적으므로 패키지 한 줄의 세 행에는 부문 키트가 하나씩 적힌다.
+     * 줄의 어느 행 종목에도 연결되지 않은 기념품(참가 항목이 없는 줄 포함)은 줄의 첫 행에 적는다.
+     * 기념품 JSON을 못 읽은 줄은 모든 행에 확인 문구를 쓴다. JSON은 구매 줄마다 한 번, 이름·연결은 한 번에 읽는다.
      */
     private List<PackingRow> buildPackingRows(String eventId, String roundLabel, List<PackingLine> lines) {
         Map<String, List<SouvenirJson>> souvenirs = new HashMap<>();
-        Set<String> souvenirIds = new HashSet<>();
-        for (PackingLine line : lines) {
-            String key = souvenirKey(line);
-            if (souvenirs.containsKey(key)) { continue; }
-            List<SouvenirJson> values;
-            try {
-                values = resolver.readSouvenirs(line.souvenirJson());
-            } catch (JsonProcessingException exception) {
-                values = null;
+        Map<String, List<Integer>> rowsByKey = new LinkedHashMap<>();
+        for (int index = 0; index < lines.size(); index++) {
+            String key = souvenirKey(lines.get(index));
+            if (!souvenirs.containsKey(key)) {
+                souvenirs.put(key, rowSouvenirs.readLine(lines.get(index).souvenirJson()));
             }
-            souvenirs.put(key, values);
-            if (values != null) {
-                values.stream().filter(Objects::nonNull).map(SouvenirJson::souvenirId).filter(Objects::nonNull).forEach(souvenirIds::add);
-            }
+            rowsByKey.computeIfAbsent(key, ignored -> new ArrayList<>()).add(index);
         }
-        Map<String, String> names = deliveryRepository.findSouvenirNames(eventId, souvenirIds);
+        Map<String, String> names = rowSouvenirs.names(new ArrayList<>(souvenirs.values()));
+        Map<String, Set<String>> linked = rowSouvenirs.linkedSouvenirIds(eventId);
+        List<List<SouvenirJson>> rowSouvenirLists = assignSouvenirs(lines, souvenirs, rowsByKey, linked);
         List<PackingRow> rows = new ArrayList<>(lines.size());
-        Set<String> written = new HashSet<>();
-        for (PackingLine line : lines) {
-            String key = souvenirKey(line);
-            String souvenir = written.add(key) ? souvenirText(souvenirs.get(key), names) : "";
+        for (int index = 0; index < lines.size(); index++) {
+            PackingLine line = lines.get(index);
+            String souvenir = souvenirText(rowSouvenirLists.get(index), names);
             AddressParts address = VirtualRosterModels.splitAddress(line.address());
             rows.add(new PackingRow(line.registrationId(), roundLabel, productLabel(line.productType()), line.productName(),
                     line.entryCategoryName() == null ? "" : VirtualRosterModels.stripDistance(line.entryCategoryName()),
@@ -127,6 +120,34 @@ public class VirtualRosterExcelService {
                     line.addressDetail() == null ? "" : line.addressDetail()));
         }
         return rows;
+    }
+
+    /**
+     * 행마다 적을 기념품을 정한다. 줄의 기념품 하나는 그 기념품이 연결된 종목의 첫 행에, 연결된 행이 없으면 줄의 첫 행에 둔다.
+     * 못 읽은 줄은 모든 행이 null이며 확인 문구로 적힌다.
+     */
+    private List<List<SouvenirJson>> assignSouvenirs(List<PackingLine> lines, Map<String, List<SouvenirJson>> souvenirs,
+            Map<String, List<Integer>> rowsByKey, Map<String, Set<String>> linked) {
+        List<List<SouvenirJson>> result = new ArrayList<>(lines.size());
+        for (int index = 0; index < lines.size(); index++) {
+            result.add(new ArrayList<>());
+        }
+        for (Map.Entry<String, List<Integer>> group : rowsByKey.entrySet()) {
+            List<SouvenirJson> lineSouvenirs = souvenirs.get(group.getKey());
+            if (lineSouvenirs == null) {
+                group.getValue().forEach(index -> result.set(index, null));
+                continue;
+            }
+            for (SouvenirJson souvenir : lineSouvenirs) {
+                if (souvenir == null) { continue; }
+                int target = group.getValue().stream()
+                        .filter(index -> lines.get(index).entryCategoryId() != null
+                                && linked.getOrDefault(lines.get(index).entryCategoryId(), Set.of()).contains(souvenir.souvenirId()))
+                        .findFirst().orElse(group.getValue().getFirst());
+                result.get(target).add(souvenir);
+            }
+        }
+        return result;
     }
 
     /** 기념품을 묶는 단위다. 구매 줄이 있으면 줄, 없으면 신청이다. */

@@ -17,7 +17,7 @@ public final class VirtualRosterModels {
 
     /**
      * 패킹 업체용 한 행이며 참가 항목 하나다. 같은 신청 번호의 행이 한 상자다.
-     * 상품·종목은 구매 줄 값, 부문은 거리 접두어를 뗀 항목 종목명이다. 기념품은 구매 줄의 첫 행에만 적는다.
+     * 상품·종목은 구매 줄 값, 부문은 거리 접두어를 뗀 항목 종목명이다. 기념품은 구매 줄의 것을 한 행에 한 번씩, 그 기념품이 연결된 종목의 첫 행(없으면 줄의 첫 행)에 적는다.
      */
     public record PackingRow(String registrationId, String roundLabel, String productLabel, String categoryName,
             String division, String bib, String name, String souvenirs, String receiver, String phone,

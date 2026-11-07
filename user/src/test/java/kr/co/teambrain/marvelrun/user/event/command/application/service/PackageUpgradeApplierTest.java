@@ -13,6 +13,7 @@ import kr.co.teambrain.marvelrun.common.inheritance_enum.pg_payment.PaymentPurpo
 import kr.co.teambrain.marvelrun.common.inheritance_enum.upgrade.PackageUpgradeStatus;
 import kr.co.teambrain.marvelrun.common.json_object.PackageUpgradeEntry;
 import kr.co.teambrain.marvelrun.common.json_object.PackageUpgradeHeldCapacity;
+import kr.co.teambrain.marvelrun.common.json_object.SouvenirJson;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.domain.Reservation;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.dto.CapacityRequirementDiff;
 import kr.co.teambrain.marvelrun.user.capacity.command.application.service.CapacityModificationService;
@@ -262,6 +263,8 @@ class PackageUpgradeApplierTest {
         RegistrationItem item = singleItem(registration);
         when(capacitySupport.lockConsumedReservation(registration)).thenReturn(reservation);
         when(capacitySupport.packageDiff(item, pkg, 2, reservation)).thenReturn(diff);
+        List<SouvenirJson> kits = List.of(new SouvenirJson("kit-avengers", "FREE"), new SouvenirJson("kit-xmen", "FREE"));
+        when(capacitySupport.packageSouvenirs(item, pkg)).thenReturn(kits);
         when(entityManager.find(EventCategory.class, "xmen")).thenReturn(xmen);
         DiscountModels.PriceResult price = price("75000");
         when(pricing.calculate(registration, pkg)).thenReturn(price);
@@ -282,11 +285,13 @@ class PackageUpgradeApplierTest {
         order.verify(entryRepository).save(saved.capture());
         assertThat(saved.getValue().getEventCategory()).isSameAs(xmen);
         assertThat(saved.getValue().getName()).isEqualTo("받는사람");
-        // 더한 항목은 상향한 구매 줄에 묶이고, 줄의 상품·금액도 패키지로 바뀐다.
+        // 더한 항목은 상향한 구매 줄에 묶이고, 줄의 상품·금액·기념품도 패키지로 바뀐다.
         assertThat(saved.getValue().getRegistrationItem()).isSameAs(item);
         assertThat(item.getEventCategory()).isSameAs(pkg);
         assertThat(item.getAmount()).isEqualByComparingTo("75000");
+        assertThat(item.getSouvenirJson()).isEqualTo(kits);
         assertThat(registration.getEventCategory()).isSameAs(pkg);
+        assertThat(registration.getSouvenirJson()).isEqualTo(kits);
         assertThat(upgrade.getStatus()).isEqualTo(PackageUpgradeStatus.COMPLETED);
         assertThat(upgrade.getCompletedAt()).isEqualTo(NOW);
     }
