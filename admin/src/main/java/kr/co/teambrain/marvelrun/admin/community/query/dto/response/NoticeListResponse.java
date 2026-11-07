@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.admin.community.query.dto.response;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -20,6 +21,7 @@ public class NoticeListResponse {
     private LocalDateTime createdAt;
     private String author;
     private Long viewCount;
+@Schema(description = "공지가 속한 대회 id. 대회에 속하지 않은 공지는 null")
     private String eventId;
 
     // JPQL 생성자용 (no는 서비스에서 나중에 세팅)

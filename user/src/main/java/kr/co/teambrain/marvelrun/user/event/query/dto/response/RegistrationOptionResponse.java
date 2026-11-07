@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.user.event.query.dto.response;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.math.BigDecimal;
 import java.util.List;
@@ -50,9 +51,11 @@ public record RegistrationOptionResponse(
             RegistrationPricingOptionsResponse pricing,
 
             /** 상품 종류. NULL이면 참가 항목이 없는 종목 */
+            @Schema(description = "상품 종류(단품·패키지·옵션). null이면 참가 항목이 없는 종목")
             ProductType productType,
 
             /** 이 종목을 하위 종목으로 포함하는 패키지 종목 ID. 패키지 입력 칸은 이 값으로 묶는다 */
+            @Schema(description = "이 종목을 하위 종목으로 포함하는 패키지 종목 id. 패키지 입력 칸은 이 값으로 묶는다. 없으면 null")
             String parentCategoryId
     ) {
         /** 가격 안내 없이 종목·기념품을 조립하고 가격 안내는 조회 서비스가 추가한다. */

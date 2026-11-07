@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.user.event.command.application.dto.response;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import kr.co.teambrain.marvelrun.common.inheritance_enum.GenderClass;
 import kr.co.teambrain.marvelrun.user.event.command.application.domain.RegistrationEntry;
 
@@ -11,12 +12,19 @@ import java.util.List;
  */
 public record RegistrationEntryListResponse(List<Entry> entries) {
 
+    @Schema(name = "RegistrationEntryListEntry")
     public record Entry(
+            @Schema(description = "받는 사람 수정에 쓰는 참가 항목 id")
             String entryId,
+            @Schema(description = "구매 줄 순서")
             int itemSortOrder,
+            @Schema(description = "구매 상품(단품·패키지) 종목 id")
             String productId,
+            @Schema(description = "구매 상품(단품·패키지) 종목 이름")
             String productName,
+            @Schema(description = "참가 종목 id")
             String eventCategoryId,
+            @Schema(description = "참가 종목 이름")
             String categoryName,
             String name,
             String phNum,

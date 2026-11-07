@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.admin.event.command.application.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
@@ -16,6 +17,7 @@ public record RegistrationEntryModifyRequest(
         @NotEmpty(message = "수정할 받는 사람을 입력해주세요.")
         List<@NotNull(message = "수정할 받는 사람을 입력해주세요.") Entry> entries
 ) {
+    @Schema(name = "RegistrationEntryModifyRequestEntry")
     public record Entry(
             @NotBlank(message = "참가 항목 ID를 입력해주세요.")
             String entryId,

@@ -107,6 +107,10 @@ public class RegistrationQueryController {
         );
     }
 
+    @Operation(
+            summary = "대회 신청 통계 조회",
+            description = "대회의 신청·결제 집계를 조회합니다. 버추얼 대회는 참가자(참가 항목)마다 한 행으로 집계하고, 성별·생년월일·코스는 참가 항목 값, 결제 값은 주문 값을 씁니다."
+    )
     @GetMapping("/{eventId}/statistics")
     public ResponseEntity<EventStatisticsResponse> getEventStatistics(
             @PathVariable String eventId

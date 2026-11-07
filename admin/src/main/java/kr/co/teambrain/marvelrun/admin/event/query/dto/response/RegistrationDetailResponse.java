@@ -1,5 +1,6 @@
 package kr.co.teambrain.marvelrun.admin.event.query.dto.response;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import kr.co.teambrain.marvelrun.admin.discount.query.ReferenceFilterSummaryResponse;
 
 import java.math.BigDecimal;
@@ -57,15 +58,18 @@ public record RegistrationDetailResponse(
         boolean startGroupUnselected,
 
         /** 종목별 참가 항목(받는 사람·배번). 종목 정렬 순서이며 상품 종류가 없는 기존 대회는 빈 목록이다. */
+        @Schema(description = "종목별 참가 항목(받는 사람·배번). 각 항목의 itemId로 items[]와 이어진다")
         List<RegistrationEntryResponse> entries,
 
         /** 진행 중인 단품 → 패키지 상향. 없으면 null */
         PackageUpgradeSummaryResponse packageUpgrade,
 
         /** 받는 사람 수정 API(PATCH .../entries)를 쓸 수 있는지. 삭제되지 않은 상품(단품·패키지) 신청만 true다. */
+        @Schema(description = "받는 사람 수정 API(PATCH .../entries)를 쓸 수 있는지")
         boolean entriesEditable,
 
         /** 구매 줄 목록(신청 안 순서). 상품이 아닌 신청은 빈 목록이다. 금액은 이 줄 단위다. */
+        @Schema(description = "구매 줄 목록(신청 안 순서). 상품이 아닌 신청은 빈 목록. 금액은 이 줄 단위")
         List<ItemResponse> items
 ) {
 
@@ -74,13 +78,13 @@ public record RegistrationDetailResponse(
      * 부분 취소한 줄도 남기고 canceledAt을 채운다. 그 줄의 받는 사람은 entries에 없다.
      */
     public record ItemResponse(
-            String itemId,
-            String eventCategoryId,
-            String eventCategoryName,
-            ProductType productType,
-            BigDecimal amount,
-            List<SouvenirJson> selectedSouvenirList,
-            LocalDateTime canceledAt
+            @Schema(description = "구매 줄 id. entries[].itemId와 이어진다") String itemId,
+            @Schema(description = "구매 상품(단품·패키지) 종목 id") String eventCategoryId,
+            @Schema(description = "구매 상품(단품·패키지) 종목 이름") String eventCategoryName,
+            @Schema(description = "상품 종류(단품·패키지·옵션)") ProductType productType,
+            @Schema(description = "구매 줄 금액") BigDecimal amount,
+            @Schema(description = "이 구매 줄의 기념품") List<SouvenirJson> selectedSouvenirList,
+            @Schema(description = "상품 하나 취소(부분 취소) 시각. 살아 있으면 null. 취소한 줄의 받는 사람은 entries에 없다") LocalDateTime canceledAt
     ) {
     }
 }

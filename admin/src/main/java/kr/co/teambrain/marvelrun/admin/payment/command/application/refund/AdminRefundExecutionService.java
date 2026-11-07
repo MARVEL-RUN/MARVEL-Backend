@@ -1,4 +1,5 @@
 package kr.co.teambrain.marvelrun.admin.payment.command.application.refund;
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import java.util.List;
 import kr.co.teambrain.marvelrun.admin.payment.command.AdminRefundPrepared;
@@ -22,6 +23,7 @@ public class AdminRefundExecutionService {
         return new Result(prepared.requestId(), prepared.correlationId(), prepared.preparedAt(), time.now(), results);
     }
     /** finishedAt은 실행기 종료 시각이며 개별 PG 완료 시각은 externalOutcome의 증거를 사용한다. */
+    @Schema(name = "AdminRefundExecutionBatchResult")
     public record Result(String requestId, String correlationId, LocalDateTime preparedAt,
             LocalDateTime finishedAt, List<AdminRefundExecutionResult> refunds) {
         /** 반환 목록을 불변으로 보존한다. */
